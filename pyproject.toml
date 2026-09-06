@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "goldshell-box-tools"
+version = "0.1.0"
+description = "Dashboard, logger, watchdog and CLI for Goldshell Box-series miners. Standard library only."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.8"
+keywords = ["goldshell", "miner", "sc-box", "kd-box", "dashboard"]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+  "Topic :: System :: Monitoring",
+]
+
+[project.scripts]
+gbox = "gbox.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/crProductGuy/goldshell-box-tools"
+
+[tool.setuptools]
+packages = ["gbox"]
+
+[tool.setuptools.package-data]
+gbox = ["web/*"]

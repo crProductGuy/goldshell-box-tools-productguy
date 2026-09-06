@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Goldshell Box</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1 id="title">Goldshell Box</h1>
+  <span id="badge" class="badge idle">connecting</span>
+  <span class="meta" id="meta">&mdash;</span>
+  <span style="flex:1"></span>
+  <label class="meta">miner <input id="host" placeholder="192.168.1.100" autocomplete="off"></label>
+  <button id="relogin" title="Forget the saved session token and log in again">re-login</button>
+  <span class="meta" id="updated"></span>
+</header>
+
+<div class="overlay" id="overlay"><form id="loginform">
+  <strong>Miner web UI password</strong>
+  <span class="note">Only the session token is kept, in this browser. Nothing is sent anywhere but the miner<span id="svcnote"></span>.</span>
+  <label class="note" id="hostrow">miner address <input id="host2" placeholder="192.168.1.100" autocomplete="off"></label>
+  <input id="pw" type="password" autocomplete="current-password" placeholder="password" autofocus>
+  <button type="submit">log in</button>
+  <span class="err" id="loginerr"></span>
+</form></div>
+
+<main>
+  <div class="tiles">
+    <div class="tile"><div class="k">Hashrate, 20 s</div><div class="v" id="mhs20">&mdash;</div><div class="s" id="unit20">&mdash;</div></div>
+    <div class="tile"><div class="k">Hashrate, average since start</div><div class="v" id="mhsav">&mdash;</div><div class="s" id="unitav">&mdash;</div></div>
+    <div class="tile" id="t_hw"><div class="k">HW error rate</div><div class="v" id="hwpct">&mdash;</div><div class="s" id="hwrecent">recent &mdash;</div></div>
+    <div class="tile" id="t_rb"><div class="k">Board resets</div><div class="v" id="rebootcnt">&mdash;</div><div class="s" id="rbdelta">since page opened &mdash;</div></div>
+    <div class="tile" id="t_temp"><div class="k">Chip temperature</div><div class="v" id="chiptemp">&mdash;</div><div class="s" id="boardtemp">board sensor &mdash;</div></div>
+    <div class="tile"><div class="k">Fans</div><div class="v" id="fans">&mdash;</div><div class="s" id="fansub">RPM &middot; fan0 / fan1</div></div>
+    <div class="tile"><div class="k">Shares</div><div class="v" id="accepted">&mdash;</div><div class="s" id="rejected">rejected &mdash;</div></div>
+    <div class="tile"><div class="k">Clock</div><div class="v" id="clock">&mdash;</div><div class="s" id="plan">plan &mdash;</div></div>
+  </div>
+
+  <section>
+    <h2>Hashrate history<span>from the miner's own buffer, one sample per minute, newest at right</span></h2>
+    <div class="chart" id="chart"></div>
+  </section>
+
+  <section>
+    <h2>Fans and temperature<span id="envsub">from the gbox service log, same time scale as above</span></h2>
+    <div class="legend"><span><i></i>fan0</span><span><i class="s2"></i>fan1</span><span style="margin-left:auto"><i></i>chip temperature</span><span><i class="s2"></i>board sensor (what the fan controller and the stock UI use)</span></div>
+    <div class="chart" id="envchart"></div>
+    <p class="note">Chip temperature is the one to watch: it is what the silicon sees. The board sensor reads lower and is shown because the fan controller steers on it.</p>
+  </section>
+
+  <div class="two">
+    <section>
+      <h2>Chips<span>good and bad nonces since the miner started; bad/min is measured since this page opened</span></h2>
+      <table id="chips"><thead><tr><th>chip</th><th>good</th><th>bad</th><th>bad %</th><th>bad/min</th><th class="bar">good, relative</th></tr></thead><tbody></tbody></table>
+      <p class="note">A chip is flagged <b>weak</b> below 70 percent of the best chip's good nonces or above 40 bad nonces, and <b>failing</b> below 30 percent or above 30 percent bad. A failing chip at the factory clock can reset the whole board; lowering the clock with <code>gbox plan</code> usually stops it.</p>
+    </section>
+    <section>
+      <h2>Miner</h2>
+      <dl id="info"></dl>
+      <p class="note" style="margin-top:10px">Read-only for now. Clock and fan target are changed with <code>gbox plan</code> and <code>gbox fantarget</code>. Never press Save on the miner's own Miner page: it silently reverts to the factory preset.</p>
+      <p class="err" id="err"></p>
+    </section>
+  </div>
+
+  <section id="svc" hidden>
+    <h2>Service<span id="svcsub"></span></h2>
+    <pre class="events" id="events"></pre>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
