@@ -1,0 +1,1 @@
+{"select":0,"tempcontrol":true,"ledcontrol":false,"manualPowerplan":"600 MHz 0.41 V 90 RPM 90 RPM","name":"00:11:22:33:44:55","powerplans":[{"info":"725 MHz 0.41 V 70 RPM 70 RPM","level":0},{"info":"0 MHz 0 V 70 RPM 70 RPM","level":3}],"temp_targets":[65.0,75.0],"manual":true,"version":"v2.1","temp_target":65}

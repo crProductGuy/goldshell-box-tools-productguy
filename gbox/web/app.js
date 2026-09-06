@@ -1,0 +1,329 @@
+// Goldshell Box dashboard. Works opened as a file (live status straight from the miner) and
+// served by `gbox serve` (adds the fan/temperature history, the event log and the token hand-off).
+
+// ---- data layer: no DOM access here ----
+const KEY = new TextEncoder().encode("!!!!!!!!!!!!!!!!");
+async function encryptPassword(pw, subtle) {
+  // The firmware wants AES-128-CBC, zero IV, ZERO padding, hex. WebCrypto only does PKCS#7, so
+  // encrypt the zero-padded text and drop the trailing PKCS#7 block: the CBC chain is identical up to there.
+  const raw = new TextEncoder().encode(pw), padLen = Math.max(16, Math.ceil(raw.length / 16) * 16);
+  const padded = new Uint8Array(padLen); padded.set(raw);
+  const key = await subtle.importKey("raw", KEY, { name: "AES-CBC" }, false, ["encrypt"]);
+  const ct = new Uint8Array(await subtle.encrypt({ name: "AES-CBC", iv: new Uint8Array(16) }, key, padded));
+  return Array.from(ct.slice(0, padLen), b => b.toString(16).padStart(2, "0")).join("");
+}
+async function login(base, pw, subtle) {
+  const enc = await encryptPassword(pw, subtle);
+  const r = await fetch(base + "/user/login?username=admin&password=" + enc + "&cipher=true");
+  if (!r.ok) throw new Error("login failed: HTTP " + r.status);
+  const tok = (await r.json())["JWT Token"];
+  if (typeof tok !== "string" || tok.split(".").length !== 3) throw new Error("login rejected (wrong password?)");
+  return tok;
+}
+async function apiText(base, token, path, attempt) {
+  const r = await fetch(base + "/" + path, { headers: { Authorization: "Bearer " + token } });
+  if (r.status === 401) {
+    // The token check races when another client (the gbox poller) hits the miner at the same moment.
+    // Retry twice before calling it a bad session.
+    attempt = attempt || 0;
+    if (attempt < 2) { await new Promise(res => setTimeout(res, 700 * (attempt + 1))); return apiText(base, token, path, attempt + 1); }
+    throw new Error("401");
+  }
+  if (!r.ok) throw new Error(path + ": HTTP " + r.status);
+  return r.text();
+}
+function kv(txt, key) {
+  const esc = key.replace(/[-%]/g, "\\$&");
+  const m = txt.match(new RegExp("\\[" + esc + "\\] => ([^\\n]+)"));
+  return m ? m[1].trim() : null;
+}
+function parseMinerInfo(txt) {
+  const n = k => { const v = kv(txt, k); return v === null ? null : parseFloat(v); };
+  return { elapsed: n("Device Elapsed"), mhsAv: n("MHS av"), mhs20: n("MHS 20s"), accepted: n("Accepted"), rejected: n("Rejected"),
+    hwErrors: n("Hardware Errors"), hwPct: n("Device Hardware%"), clock: n("clock"), fan0: n("fan0"), fan1: n("fan1"),
+    chipTemp: n("tstemp-0"), boardTemp: n("tstemp-2"), rebootcnt: n("rebootcnt"), overheat: n("overheat") };
+}
+function parseBoards(icinfoText) {
+  return JSON.parse(JSON.parse(icinfoText).body).drawdata.map(board => board.map(c => ({ chip: c.chipindex, good: c.perf, bad: c.hwerr })));
+}
+function chipHealth(c, best) {
+  const total = c.good + c.bad, badPct = total ? 100 * c.bad / total : 0;
+  if (c.good < 0.3 * best || badPct > 30) return "dead";
+  if (c.good < 0.7 * best || c.bad > 40) return "weak";
+  return "";
+}
+function hashUnit(mhs) { const v = mhs || 0; return v >= 1e6 ? ["TH/s", 1e6] : v >= 1e3 ? ["GH/s", 1e3] : ["MH/s", 1]; }
+// Requests go to the miner one at a time, never concurrently (token-check race, see docs/firmware-api.md).
+// Slow-changing endpoints are re-read only every `slowEvery` ms.
+async function fetchAll(base, token, slowEvery) {
+  const c = fetchAll.cache || (fetchAll.cache = {}), now = Date.now(), stale = !c.t || now - c.t > (slowEvery || 60000);
+  const mi = await apiText(base, token, "dbg/minerinfo");
+  const ic = await apiText(base, token, "dbg/icinfo");
+  if (stale) { c.st = await apiText(base, token, "mcb/setting"); c.status = await apiText(base, token, "mcb/status"); c.hist = await apiText(base, token, "cpb/hshistory"); c.t = now; }
+  return { info: parseMinerInfo(mi), boards: parseBoards(ic), setting: JSON.parse(c.st), status: JSON.parse(c.status), history: JSON.parse(c.hist) };
+}
+if (typeof module !== "undefined") module.exports = { encryptPassword, login, fetchAll, parseMinerInfo, parseBoards, chipHealth, hashUnit };
+
+// ---- presentation ----
+const $ = id => document.getElementById(id);
+const fmt = (v, d) => (v === null || v === undefined || isNaN(v)) ? "—" : v.toLocaleString(undefined, { minimumFractionDigits: d || 0, maximumFractionDigits: d || 0 });
+let baseline = null, lastAccepted = null, lastAcceptedChange = Date.now(), lastHistory = null, fanPct = null, unauthorizedStreak = 0, lastFanRead = 0;
+let service = null, tokenHandedTo = null;   // service: /api/health payload when this page is served by gbox
+const SAMPLE_MIN = 1; // minutes per history sample (verified 2026-09-05 against the miner buffer)
+const store = {
+  get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} },
+  del: k => { try { localStorage.removeItem(k); } catch (e) {} } };
+
+function host() { return $("host").value.trim(); }
+function base() { const h = host(); return /^https?:\/\//.test(h) ? h : "http://" + h; }
+function getToken() { return store.get("gbox_token"); }
+function showLogin(msg) {
+  if (msg) $("loginerr").textContent = msg;
+  // The poll timer calls this every cycle. Once the dialog is open, never touch its fields or
+  // focus again: someone is typing in it.
+  if ($("overlay").classList.contains("show")) return;
+  $("loginerr").textContent = msg || "";
+  $("host2").value = host(); $("hostrow").hidden = !!host();
+  $("overlay").classList.add("show"); (host() ? $("pw") : $("host2")).focus();
+}
+$("loginform").onsubmit = async e => {
+  e.preventDefault();
+  try {
+    if (!host() && $("host2").value.trim()) { $("host").value = $("host2").value.trim(); store.set("gbox_host", host()); }
+    if (!host()) throw new Error("enter the miner's address");
+    if (!crypto.subtle) throw new Error("WebCrypto unavailable: open this file over file:// or http://localhost in Chrome/Firefox");
+    const t = await login(base(), $("pw").value, crypto.subtle);
+    store.set("gbox_token", t); $("pw").value = ""; $("overlay").classList.remove("show");
+    tokenHandedTo = null; refresh();
+  } catch (err) { $("loginerr").textContent = err.message; }
+};
+function setBadge(cls, text) { const b = $("badge"); b.className = "badge " + cls; b.textContent = "● " + text; }
+
+// ---- service (only when served by gbox) ----
+async function probeService() {
+  try {
+    const r = await fetch("api/health", { cache: "no-store" });
+    service = r.ok ? await r.json() : null;
+  } catch (e) { service = null; }
+  $("svc").hidden = !service;
+  $("svcnote").textContent = service ? " and the local gbox service" : "";
+  if (service) {
+    if (!host() && service.host) { $("host").value = service.host; }
+    const w = service.watchdog || {};
+    $("svcsub").textContent = "gbox " + service.version + " · poll every " + service.poll_interval + " s · " + service.samples + " samples, " + service.errors + " errors" +
+      (service.latest_time ? " · last " + service.latest_time : "") + " · watchdog " + (w.enabled ? "on, " + w.restarts_today + " restarts today" : "off") +
+      (service.has_token || service.can_login ? "" : " · waiting for login");
+    if (service.last_error) $("svcsub").textContent += " · " + service.last_error;
+  }
+  return service;
+}
+async function handOffToken() {
+  const t = getToken();
+  if (!service || !t || (service.has_token && tokenHandedTo === t)) return;
+  try {
+    const r = await fetch("api/token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: t }) });
+    if (r.ok) { tokenHandedTo = t; service.has_token = true; }
+  } catch (e) { /* not served: nothing to hand off to */ }
+}
+async function refreshEvents() {
+  if (!service) return;
+  try { $("events").textContent = (await (await fetch("api/events", { cache: "no-store" })).text()).trim() || "(no events yet)"; } catch (e) {}
+}
+
+async function refresh() {
+  const token = getToken();
+  if (!host()) { setBadge("idle", "no miner address"); showLogin(); return; }
+  if (!token) { setBadge("idle", "not logged in"); showLogin(); return; }
+  try {
+    const data = await fetchAll(base(), token);
+    if (Date.now() - lastFanRead > 60000) { await refreshFan(); lastFanRead = Date.now(); }
+    unauthorizedStreak = 0; render(data); $("err").textContent = "";
+    handOffToken();
+  } catch (e) {
+    if (e.message === "401") {
+      unauthorizedStreak++; console.warn("miner answered 401 (" + unauthorizedStreak + " in a row) at " + new Date().toLocaleTimeString());
+      if (unauthorizedStreak < 3) { $("err").textContent = "Miner rejected the session token (" + unauthorizedStreak + "/3), retrying"; return; }
+      store.del("gbox_token"); unauthorizedStreak = 0; setBadge("idle", "session rejected"); showLogin("The miner rejected the session token three times in a row. Log in again."); return;
+    }
+    $("err").textContent = "Last error " + new Date().toLocaleTimeString() + ": " + e.message;
+    setBadge("bad", /fetch|network/i.test(e.message) ? "UNREACHABLE" : "error");
+  }
+}
+
+function render(d) {
+  const info = d.info, chips = d.boards.flat(), setting = d.setting, status = d.status, now = Date.now();
+  if (!baseline) baseline = { t: now, rebootcnt: info.rebootcnt, hwErrors: info.hwErrors, accepted: info.accepted, chips: Object.fromEntries(chips.map(c => [c.chip, c])) };
+  if (info.accepted !== lastAccepted) { lastAccepted = info.accepted; lastAcceptedChange = now; }
+  const stalledMin = (now - lastAcceptedChange) / 60000, minutes = Math.max((now - baseline.t) / 60000, 0.01);
+  const rbd = info.rebootcnt - baseline.rebootcnt;
+
+  // status badge: state always carries a word, never color alone
+  if (stalledMin >= 5) setBadge("bad", "STALLED · no new shares for " + Math.floor(stalledMin) + " min");
+  else if (rbd > 0 && rbd / minutes > 0.5) setBadge("warn", "RESET LOOP · board resetting repeatedly");
+  else if (info.chipTemp >= 85) setBadge("warn", "HOT · chips " + fmt(info.chipTemp) + " °C");
+  else setBadge("ok", "hashing");
+
+  const [u20, d20] = hashUnit(info.mhs20), [uav, dav] = hashUnit(info.mhsAv);
+  $("mhs20").textContent = fmt(info.mhs20 / d20, d20 === 1 ? 0 : 1); $("unit20").textContent = u20;
+  $("mhsav").textContent = fmt(info.mhsAv / dav, dav === 1 ? 0 : 1); $("unitav").textContent = uav;
+  $("hwpct").textContent = fmt(info.hwPct, 1) + " %";
+  const recentBad = info.hwErrors - baseline.hwErrors, recentAcc = info.accepted - baseline.accepted;
+  $("hwrecent").textContent = recentAcc > 0 ? "recent " + fmt(100 * recentBad / (recentBad + recentAcc), 1) + " % (since page opened)" : "recent — (need more samples)";
+  $("t_hw").className = "tile" + (info.hwPct >= 15 ? " critical" : info.hwPct >= 8 ? " serious" : "");
+  $("rebootcnt").textContent = fmt(info.rebootcnt);
+  $("rbdelta").textContent = "since page opened +" + fmt(rbd); $("t_rb").className = "tile" + (rbd > 0 ? " critical" : "");
+  $("chiptemp").textContent = fmt(info.chipTemp) + " °C"; $("boardtemp").textContent = "board sensor (what the stock UI shows) " + fmt(info.boardTemp, 1) + " °C";
+  $("t_temp").className = "tile" + (info.chipTemp >= 85 ? " critical" : info.chipTemp >= 78 ? " serious" : "");
+  $("fans").textContent = (fanPct === null ? "" : fmt(fanPct) + " % · ") + fmt(info.fan0) + " / " + fmt(info.fan1);
+  $("fansub").textContent = (fanPct === null ? "" : "% · ") + "RPM fan0 / fan1 · target " + setting.temp_target + " °C";
+  $("accepted").textContent = fmt(info.accepted); $("rejected").textContent = "rejected " + fmt(info.rejected);
+  const planText = setting.manual ? setting.manualPowerplan : "preset " + setting.select;
+  $("clock").textContent = fmt(info.clock) + " MHz"; $("plan").textContent = "plan " + planText;
+  const up = info.elapsed || 0, upText = Math.floor(up / 3600) + " h " + Math.floor(up % 3600 / 60) + " min";
+  $("title").textContent = status.model || "Goldshell Box"; document.title = (status.model || "Goldshell Box") + " status";
+  $("meta").textContent = "fw " + status.firmware + " · up " + upText;
+  $("updated").textContent = "updated " + new Date().toLocaleTimeString();
+
+  const dl = $("info"); dl.innerHTML = "";
+  [["model", status.model], ["firmware", status.firmware], ["hardware", status.hardware], ["controller", status.mcbversion],
+   ["power plan", planText + (setting.manual ? " (manual)" : "")],
+   ["fan target temp", setting.temp_target + " °C (steers on the board sensor, not the chips)"],
+   ["boards / chips", d.boards.length + " / " + chips.length],
+   ["uptime", upText], ["overheat flag", info.overheat]]
+   .forEach(kvp => { const dt = document.createElement("dt"), dd = document.createElement("dd"); dt.textContent = kvp[0]; dd.textContent = kvp[1]; dl.append(dt, dd); });
+
+  renderChips(d.boards, minutes); lastHistory = d.history; renderChart(d.history);
+}
+
+function renderChips(boards, minutes) {
+  const tb = $("chips").querySelector("tbody"); tb.innerHTML = "";
+  boards.forEach((chips, b) => {
+    const maxGood = Math.max.apply(null, chips.map(c => c.good)) || 1;
+    if (boards.length > 1) { const tr = document.createElement("tr"); tr.className = "board"; tr.innerHTML = "<td colspan=\"6\">board " + b + "</td>"; tb.append(tr); }
+    chips.forEach(c => {
+      const b0 = baseline.chips[c.chip] || c, badRate = (c.bad - b0.bad) / minutes, badPct = 100 * c.bad / Math.max(c.bad + c.good, 1);
+      const tr = document.createElement("tr"); tr.className = chipHealth(c, maxGood);
+      tr.innerHTML = "<td>" + c.chip + "</td><td>" + fmt(c.good) + "</td><td>" + fmt(c.bad) + "</td><td>" + fmt(badPct, 1) +
+        "</td><td>" + fmt(badRate, 2) + "</td><td class=\"bar\"><div style=\"width:" + (100 * c.good / maxGood) + "%\"></div></td>";
+      tb.append(tr);
+    });
+  });
+}
+
+function niceMax(v) { const p = Math.pow(10, Math.floor(Math.log10(Math.max(v, 1)))); return Math.ceil(v / p * 2) / 2 * p; }
+function renderChart(hist) {
+  const box = $("chart"), [unit, div] = hashUnit(Math.max.apply(null, hist)), vals = hist.map(v => v / div);
+  const first = vals.findIndex(v => v > 0);
+  if (first < 0) { box.innerHTML = "<p class=\"note\">no history yet</p>"; return; }
+  const data = vals.slice(first), W = Math.max(box.clientWidth, 320), H = 232, L = 44, R = 12, T = 26, B = 34;
+  const yMax = niceMax(Math.max.apply(null, data) * 1.05), step = yMax / 4;
+  const x = i => L + (W - L - R) * i / Math.max(data.length - 1, 1), y = v => T + (H - T - B) * (1 - v / yMax);
+  const path = data.map((v, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(v).toFixed(1)).join(" ");
+  let s = "<svg width=\"" + W + "\" height=\"" + H + "\" viewBox=\"0 0 " + W + " " + H + "\" role=\"img\" aria-label=\"hashrate history\">";
+  for (let g = 0; g <= yMax + 1e-9; g += step) s += "<line class=\"grid\" x1=\"" + L + "\" x2=\"" + (W - R) + "\" y1=\"" + y(g) + "\" y2=\"" + y(g) + "\"/><text x=\"" + (L - 6) + "\" y=\"" + (y(g) + 4) + "\" text-anchor=\"end\">" + fmt(g, step < 10 ? 1 : 0) + "</text>";
+  s += "<path class=\"area\" d=\"" + path + " L" + x(data.length - 1).toFixed(1) + " " + y(0) + " L" + x(0) + " " + y(0) + " Z\"/><path class=\"line\" d=\"" + path + "\"/>";
+  const y0 = H - B, minutesBack = i => (data.length - 1 - i) * SAMPLE_MIN, xAtMin = m => x(data.length - 1 - m / SAMPLE_MIN);
+  s += "<line class=\"tick\" x1=\"" + L + "\" x2=\"" + (W - R) + "\" y1=\"" + y0 + "\" y2=\"" + y0 + "\"/>";
+  const span = minutesBack(0), labelEvery = W < 700 ? 120 : 60;
+  for (let m = 0; m <= span; m += 5) {
+    const major = m % 60 === 0, mid = m % 15 === 0, len = major ? 9 : mid ? 6 : 3, xx = xAtMin(m);
+    s += "<line class=\"tick" + (major ? " major" : "") + "\" x1=\"" + xx + "\" x2=\"" + xx + "\" y1=\"" + y0 + "\" y2=\"" + (y0 + len) + "\"/>";
+    if (m === 0) s += "<text x=\"" + xx + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"end\">now</text>";
+    else if (m % labelEvery === 0 && xx > L + 24) s += "<text x=\"" + xx + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"middle\">-" + (m / 60) + " h</text>";
+  }
+  s += "<text x=\"" + (L - 6) + "\" y=\"" + (T - 12) + "\" text-anchor=\"end\">" + unit + "</text>";
+  s += "<line class=\"cross\" id=\"cx\" y1=\"" + T + "\" y2=\"" + (H - B) + "\" style=\"display:none\"/><circle class=\"dot\" id=\"cdot\" r=\"4\" style=\"display:none\"/></svg><div class=\"tip\" id=\"tip\"></div>";
+  box.innerHTML = s;
+  const svg = box.querySelector("svg"), tip = $("tip"), cx = $("cx"), dot = $("cdot");
+  svg.onmousemove = e => {
+    const r = svg.getBoundingClientRect(), px = (e.clientX - r.left) * W / r.width, i = Math.round((px - L) / (W - L - R) * (data.length - 1));
+    if (i < 0 || i >= data.length) return;
+    cx.setAttribute("x1", x(i)); cx.setAttribute("x2", x(i)); cx.style.display = "";
+    dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(data[i])); dot.style.display = "";
+    tip.style.display = "block"; tip.textContent = fmt(data[i], div === 1 ? 0 : 1) + " " + unit + " · " + minutesBack(i) + " min ago";
+    tip.style.left = Math.min(x(i) * r.width / W + 12, r.width - 150) + "px"; tip.style.top = (y(data[i]) * r.height / H - 30) + "px";
+  };
+  svg.onmouseleave = () => { tip.style.display = "none"; cx.style.display = "none"; dot.style.display = "none"; };
+}
+
+$("host").value = store.get("gbox_host") || "";
+$("host").onchange = () => { store.set("gbox_host", host()); baseline = null; fetchAll.cache = null; poll(); };
+$("relogin").onclick = () => { store.del("gbox_token"); tokenHandedTo = null; refresh(); };
+// fan duty cycle lives only in the fan controller's log (a few hundred KB), so it is read once a minute, not every refresh
+async function refreshFan() {
+  const token = getToken(); if (!token) return;
+  try {
+    const tail = (await apiText(base(), token, "dbg/fanctrllog")).slice(-4000);
+    const all = [...tail.matchAll(/fan0: (\d+)(?: ==> (\d+))?\)/g)];
+    if (all.length) fanPct = parseInt(all[all.length - 1][2] || all[all.length - 1][1]);
+  } catch (e) { /* the log is appended while it is served, so a length-mismatch read now and then is normal; keep the last value */ }
+}
+// ---- fans + temperature from the service's log.csv ----
+let envRows = null;
+async function refreshEnv() {
+  if (!service) { $("envchart").innerHTML = "<p class=\"note\">Fan and temperature history needs the gbox service: run <code>gbox serve</code> and open the page from the address it prints.</p>"; return; }
+  try {
+    const r = await fetch("api/log.csv", { cache: "no-store" });
+    if (!r.ok) throw new Error("no samples yet");
+    const txt = await r.text();
+    const lines = txt.trim().split(/\r?\n/); const head = lines[0].split(",");
+    const ix = k => head.indexOf(k);
+    const it = ix("time"), ih = ix("http"), if0 = ix("fan0"), if1 = ix("fan1"), ic = ix("tstemp0"), ib = ix("tstemp2");
+    envRows = lines.slice(1).map(l => l.split(",")).filter(r => r[ih] === "ok" && r.length > ib)
+      .map(r => ({ t: new Date(r[it].replace(" ", "T")).getTime(), fan0: +r[if0], fan1: +r[if1], chip: +r[ic], board: +r[ib] }))
+      .filter(r => !isNaN(r.t) && !isNaN(r.fan0));
+    renderEnv();
+  } catch (e) { $("envchart").innerHTML = "<p class=\"note\">No logger samples yet (" + e.message + ").</p>"; }
+}
+function renderEnv() {
+  const box = $("envchart"); if (!envRows || !lastHistory) return;
+  const spanMin = Math.max(lastHistory.filter(v => v > 0).length * SAMPLE_MIN, 60), now = Date.now();
+  const rows = envRows.filter(r => now - r.t <= spanMin * 60000);
+  if (rows.length < 2) { box.innerHTML = "<p class=\"note\">no logger samples in this window yet</p>"; return; }
+  const W = Math.max(box.clientWidth, 320), L = 44, R = 12, PH = 130, GAP = 34, T = 24, B = 34, H = T + PH + GAP + PH + B;
+  const xOf = r => L + (W - L - R) * (1 - (now - r.t) / (spanMin * 60000));
+  const fanMax = niceMax(Math.max.apply(null, rows.map(r => Math.max(r.fan0, r.fan1))) * 1.05) || 5000;
+  const panels = [
+    { top: T, label: "RPM", min: 0, max: fanMax, step: fanMax / 5, series: [["fan0", "", "fan0"], ["fan1", "s2", "fan1"]] },
+    { top: T + PH + GAP, label: "°C", min: 20, max: 100, step: 20, series: [["chip", "", "chip"], ["board", "s2", "board"]] } ];
+  let s = "<svg width=\"" + W + "\" height=\"" + H + "\" viewBox=\"0 0 " + W + " " + H + "\" role=\"img\" aria-label=\"fan speed and temperature history\">";
+  panels.forEach(p => {
+    const y = v => p.top + PH * (1 - (Math.min(Math.max(v, p.min), p.max) - p.min) / (p.max - p.min));
+    for (let g = p.min; g <= p.max + 1e-9; g += p.step) s += "<line class=\"grid\" x1=\"" + L + "\" x2=\"" + (W - R) + "\" y1=\"" + y(g) + "\" y2=\"" + y(g) + "\"/><text x=\"" + (L - 6) + "\" y=\"" + (y(g) + 4) + "\" text-anchor=\"end\">" + fmt(g) + "</text>";
+    s += "<text x=\"" + (L - 6) + "\" y=\"" + (p.top - 10) + "\" text-anchor=\"end\">" + p.label + "</text>";
+    p.series.forEach(([key, cls, name], idx) => {
+      let d = "", prev = null;
+      rows.forEach(r => { d += (prev && r.t - prev < 180000 ? "L" : "M") + xOf(r).toFixed(1) + " " + y(r[key]).toFixed(1); prev = r.t; });
+      const last = rows[rows.length - 1];
+      s += "<path class=\"line " + cls + "\" d=\"" + d + "\"/><text class=\"lbl\" x=\"" + (xOf(last) - 4) + "\" y=\"" + (y(last[key]) + (idx ? 15 : -6)) + "\" text-anchor=\"end\">" + name + " " + fmt(last[key]) + "</text>";
+    });
+  });
+  const y0 = T + PH + GAP + PH, xAtMin = m => L + (W - L - R) * (1 - m / spanMin), labelEvery = W < 700 ? 120 : 60;
+  s += "<line class=\"tick\" x1=\"" + L + "\" x2=\"" + (W - R) + "\" y1=\"" + y0 + "\" y2=\"" + y0 + "\"/>";
+  for (let m = 0; m <= spanMin; m += 5) {
+    const major = m % 60 === 0, mid = m % 15 === 0, len = major ? 9 : mid ? 6 : 3, xx = xAtMin(m);
+    s += "<line class=\"tick" + (major ? " major" : "") + "\" x1=\"" + xx + "\" x2=\"" + xx + "\" y1=\"" + y0 + "\" y2=\"" + (y0 + len) + "\"/>";
+    if (m === 0) s += "<text x=\"" + xx + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"end\">now</text>";
+    else if (m % labelEvery === 0 && xx > L + 24) s += "<text x=\"" + xx + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"middle\">-" + (m / 60) + " h</text>";
+  }
+  s += "<line class=\"cross\" id=\"ecx\" y1=\"" + T + "\" y2=\"" + y0 + "\" style=\"display:none\"/></svg><div class=\"tip\" id=\"etip\"></div>";
+  box.innerHTML = s;
+  const svg = box.querySelector("svg"), tip = $("etip"), cx = $("ecx");
+  svg.onmousemove = e => {
+    const rct = svg.getBoundingClientRect(), px = (e.clientX - rct.left) * W / rct.width, tAt = now - (1 - (px - L) / (W - L - R)) * spanMin * 60000;
+    let best = rows[0]; rows.forEach(r => { if (Math.abs(r.t - tAt) < Math.abs(best.t - tAt)) best = r; });
+    const xx = xOf(best); cx.setAttribute("x1", xx); cx.setAttribute("x2", xx); cx.style.display = "";
+    tip.style.display = "block"; tip.textContent = new Date(best.t).toLocaleTimeString() + " · fans " + fmt(best.fan0) + " / " + fmt(best.fan1) + " RPM · chip " + fmt(best.chip) + " °C · board " + fmt(best.board, 1) + " °C";
+    tip.style.left = Math.min(xx * rct.width / W + 12, rct.width - 330) + "px"; tip.style.top = (e.clientY - rct.top - 30) + "px";
+  };
+  svg.onmouseleave = () => { tip.style.display = "none"; cx.style.display = "none"; };
+}
+let resizeTimer = null;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (lastHistory) { renderChart(lastHistory); renderEnv(); } }, 150); });
+// one poll cycle at a time: the miner is asked for one thing at a time (see fetchAll); the service is on localhost
+let polling = false;
+async function poll() { if (polling) return; polling = true; try { await refresh(); } finally { polling = false; } }
+async function serviceTick() { await probeService(); await handOffToken(); await refreshEnv(); await refreshEvents(); }
+probeService().then(() => poll()).then(() => { refreshEnv(); refreshEvents(); });
+setInterval(poll, 10000); setInterval(serviceTick, 60000);

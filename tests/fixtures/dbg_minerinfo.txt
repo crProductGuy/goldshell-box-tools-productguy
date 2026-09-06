@@ -1,0 +1,52 @@
+[STATUS] =>
+(
+   [STATUS] => S
+   [When] => 1788655516
+   [Code] => 9
+   [Msg] => 1 PGA(s)
+   [Description] => intminer 5.4.2
+)
+[PGA0] =>
+(
+   [PGA] => 0
+   [Name] => INCS
+   [ID] => 0
+   [Enabled] => Y
+   [Status] => Alive
+   [Device Elapsed] => 37623
+   [MHS av] => 713260.285
+   [MHS 20s] => 819870.331
+   [MHS rolling] => 819870.331
+   [Nonced] => 111549
+   [Accepted] => 17582
+   [Rejected] => 4711
+   [Hardware Errors] => 2894
+   [Utility] => 28.039
+   [Stale] => 0
+   [Last Share Pool] => 0
+   [Last Share Time] => 1788655515
+   [Total MH] => 26834977140.2619
+   [Diff1 Work] => 6248005
+   [Work Utility] => 9964.131
+   [Difficulty Accepted] => 6294632
+   [Difficulty Rejected] => 11357
+   [Difficulty Stale] => 0
+   [Last Share Difficulty] => 1024
+   [Last Valid Work] => 1788655516
+   [Device Hardware%] => 2.6789
+   [Device Rejected%] => 0.1818
+   [MHS U] => 711914.500
+   [clock] => 600.000
+   [fan0] => 3120
+   [fan1] => 3060
+   [tstemp-0] => 73.00
+   [tstemp-1] => 73.00
+   [tstemp-2] => 65.13
+   [tempt0] => 0.00
+   [tempt1] => 0.00
+   [overheat] => 0
+   [rebootcnt] => 355
+   [hwerr-ration] => 0.026808
+   [estimate_hash_rate] => 48000000000.000
+   [range_scan_time] => 0.022702
+)
