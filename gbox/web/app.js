@@ -102,11 +102,12 @@ function planRequest(setting, mhz) {
   const range = clockRange(setting);
   if (typeof mhz !== "number" || !Number.isInteger(mhz) || mhz % range.step || mhz < range.min || mhz > range.max)
     throw new Error("clock must be a multiple of " + range.step + " between " + range.min + " and " + range.max + " MHz");
+  if (setting.manual && range.current === mhz) throw new Error("the clock is already " + mhz + " MHz");
   let cur;
   try { cur = parsePlan(setting.manualPowerplan); } catch (e) { cur = parsePlan(presetPlan(setting, 0)); }
   const was = currentPlan(setting), plan = formatPlan(Object.assign({}, cur, { mhz }));
   const body = Object.assign({}, setting, { manual: true, manualPowerplan: plan });
-  return { method: "PUT", path: "mcb/setting", body, password: true, restart: false,
+  return { method: "PUT", path: "mcb/setting", body, password: true, restart: false, changes: settingDiff(setting, body),
     summary: "plan " + was + (setting.manual ? "" : " (preset)") + " → " + plan + " (manual)",
     event: "clock set to " + mhz + " MHz (plan \"" + plan + "\", was \"" + was + "\")" };
 }
@@ -118,22 +119,38 @@ function fanTargetRequest(setting, temp) {
   const range = fanRange(setting);
   if (typeof temp !== "number" || !Number.isInteger(temp) || temp < range.min || temp > range.max)
     throw new Error("fan target must be a whole number between " + range.min + " and " + range.max + " C on this firmware");
+  if (range.current === temp) throw new Error("the fan target is already " + temp + " C");
   const body = Object.assign({}, setting, { temp_target: temp });
-  return { method: "PUT", path: "mcb/setting", body, password: false, restart: false,
+  return { method: "PUT", path: "mcb/setting", body, password: false, restart: false, changes: settingDiff(setting, body),
     summary: "fan target " + range.current + " °C → " + temp + " °C (board sensor)",
     event: "fan target set to " + temp + " C (was " + range.current + ")" };
 }
-function revertRequest(setting) {
-  if (!setting.manual) throw new Error("already on the factory preset");
-  const preset = presetPlan(setting, setting.select);
-  const body = Object.assign({}, setting, { manual: false });
-  return { method: "PUT", path: "mcb/setting", body, password: true, restart: false,
-    summary: "plan " + setting.manualPowerplan + " (manual) → " + preset + " (preset " + setting.select + ")",
-    event: "reverted to factory preset " + setting.select + " (" + preset + "); manual plan was \"" + setting.manualPowerplan + "\"" };
+// The firmware's preset table. A 0 MHz plan is probably an idle mode; nobody has tested it, so it is flagged.
+function presetList(setting) {
+  return (setting.powerplans || []).map(p => {
+    let mhz = null;
+    try { mhz = parsePlan(p.info).mhz; } catch (e) {}
+    return { level: p.level, info: p.info, mhz, unverified: !(mhz > 0) };
+  });
+}
+function presetRequest(setting, level) {
+  const preset = presetList(setting).find(p => p.level === level);
+  if (!preset) throw new Error("no preset level " + level + " on this firmware");
+  if (!setting.manual && setting.select === level) throw new Error("already on preset " + level);
+  const was = setting.manual ? "manual \"" + setting.manualPowerplan + "\"" : "preset " + setting.select + " (" + presetPlan(setting, setting.select) + ")";
+  const body = Object.assign({}, setting, { select: level, manual: false });
+  return { method: "PUT", path: "mcb/setting", body, password: true, restart: false, changes: settingDiff(setting, body),
+    summary: "plan " + currentPlan(setting) + (setting.manual ? " (manual)" : " (preset " + setting.select + ")") + " → " + preset.info + " (preset " + level + ")",
+    event: "switched to preset " + level + " (" + preset.info + "); was " + was };
 }
 function restartRequest() {
-  return { method: "PUT", path: "mcb/restart", body: null, password: true, restart: true,
+  return { method: "PUT", path: "mcb/restart", body: null, password: true, restart: true, changes: [],
     summary: "soft restart: the controller reboots and hashing resumes after 60-90 s", event: "soft restart sent" };
+}
+// Top-level fields that differ between what the miner holds and what will be sent: the part of the body to read.
+function settingDiff(before, after) {
+  const keys = Object.keys(Object.assign({}, before, after));
+  return keys.filter(k => JSON.stringify(before[k]) !== JSON.stringify(after[k])).map(k => ({ key: k, from: before[k], to: after[k] }));
 }
 function describeRequest(base, req) {
   return req.method + " " + base + "/" + req.path + "\n" + (req.body === null || req.body === undefined ? "(no body)" : JSON.stringify(req.body, null, 1));
@@ -148,7 +165,7 @@ function eventMarkers(text) {
   return out;
 }
 if (typeof module !== "undefined") module.exports = { encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
-  parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, revertRequest, restartRequest, describeRequest, eventMarkers };
+  parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers };
 
 // ---- presentation (skipped under Node, where the data layer above is unit-tested) ----
 if (typeof document !== "undefined") {
@@ -290,6 +307,7 @@ function render(d) {
    ["power plan", planText + (setting.manual ? " (manual)" : "")],
    ["fan target temp", setting.temp_target + " °C (steers on the board sensor, not the chips)"],
    ["boards / chips", d.boards.length + " / " + chips.length],
+   ["overheat shutdown", setting.tempcontrol === undefined ? "—" : (setting.tempcontrol ? "on" : "OFF (the firmware will not stop the miner when it overheats)")],
    ["uptime", upText], ["overheat flag", info.overheat]]
    .forEach(kvp => { const dt = document.createElement("dt"), dd = document.createElement("dd"); dt.textContent = kvp[0]; dd.textContent = kvp[1]; dl.append(dt, dd); });
 
@@ -457,10 +475,23 @@ function renderControls(setting) {
   const cr = clockRange(setting), fr = fanRange(setting);
   fillSelect($("clocksel"), rangeList(cr.min, cr.max, cr.step), cr.current, v => v + " MHz" + (v === cr.current ? " (now)" : ""));
   fillSelect($("fansel"), rangeList(fr.min, fr.max, 1), fr.current, v => v + " °C" + (v === fr.current ? " (now)" : ""));
-  $("btnrevert").disabled = !setting.manual;
-  $("revertnote").textContent = setting.manual
-    ? "Clears the manual plan; the miner returns to preset " + setting.select + ": " + presetPlan(setting, setting.select) + ". Asks for the password."
-    : "Already on preset " + setting.select + " (" + presetPlan(setting, setting.select) + ").";
+  const presets = presetList(setting), sel = $("presetsel");
+  fillSelect(sel, presets.map(p => p.level), setting.select,
+    lvl => { const p = presets.find(q => q.level === lvl); return "preset " + lvl + ": " + p.info + (p.unverified ? " (unverified)" : "") + (!setting.manual && lvl === setting.select ? " (now)" : ""); });
+  const chosen = parseInt(sel.value);
+  $("btnpreset").disabled = !setting.manual && chosen === setting.select;
+  $("presetnote").textContent = (setting.manual
+    ? "Clears the manual plan and puts the miner on the chosen firmware preset. "
+    : "The miner is on preset " + setting.select + ". ")
+    + "Asks for the password." + (presets.some(p => p.unverified) ? " A 0 MHz preset is probably an idle mode; nobody has tested it." : "");
+}
+function renderChanges(req) {
+  const ul = $("cchanges"); ul.innerHTML = "";
+  const show = v => typeof v === "string" ? "\"" + v + "\"" : JSON.stringify(v);
+  (req.changes || []).forEach(c => { const li = document.createElement("li"); li.textContent = c.key + ": " + show(c.from) + " → " + show(c.to); ul.append(li); });
+  const n = (req.changes || []).length;
+  $("creqsum").textContent = req.body === null ? "the request has no body" : "show the full request (" + n + " of " + Object.keys(req.body).length + " fields change; the rest is sent back unchanged)";
+  $("creq").parentNode.open = req.body === null;
 }
 async function openConfirm(title, build) {
   const token = getToken();
@@ -472,7 +503,7 @@ async function openConfirm(title, build) {
     if (fetchAll.cache) fetchAll.cache.st = fresh;
     const req = build(JSON.parse(fresh));
     pending = { req, title };
-    $("ctitle").textContent = title; $("csummary").textContent = req.summary; $("creq").textContent = describeRequest(base(), req);
+    $("ctitle").textContent = title; $("csummary").textContent = req.summary; $("creq").textContent = describeRequest(base(), req); renderChanges(req);
     $("cpwrow").hidden = !req.password; $("cpw").value = "";
     $("cstatus").textContent = ""; $("cstatus").className = "note";
     $("cok").disabled = false; $("cok").hidden = false; $("ccancel").disabled = false; $("ccancel").textContent = "cancel";
@@ -498,7 +529,7 @@ async function runConfirmed() {
     if (req.path === "mcb/setting") {
       const after = JSON.parse(await withMiner(() => apiText(base(), token, "mcb/setting")));
       result = " The miner now reports plan " + currentPlan(after) + (after.manual ? " (manual)" : " (preset)") + ", fan target " + after.temp_target + " °C.";
-      fetchAll.cache = null; delete $("clocksel").dataset.touched; delete $("fansel").dataset.touched;
+      fetchAll.cache = null; ["clocksel", "fansel", "presetsel"].forEach(id => delete $(id).dataset.touched);
     }
     const logged = await reportEvent(req.event, req.restart);
     say("Done." + result + (logged ? " Logged in the service event log." : service ? " The service did not accept the event-log line." : " No gbox service here, so nothing was logged."), "note ok");
@@ -519,7 +550,8 @@ $("clocksel").onchange = () => { $("clocksel").dataset.touched = "1"; };
 $("fansel").onchange = () => { $("fansel").dataset.touched = "1"; };
 $("btnclock").onclick = () => openConfirm("Set the clock", s => planRequest(s, parseInt($("clocksel").value)));
 $("btnfan").onclick = () => openConfirm("Set the fan target", s => fanTargetRequest(s, parseInt($("fansel").value)));
-$("btnrevert").onclick = () => openConfirm("Revert to the factory preset", revertRequest);
+$("presetsel").onchange = () => { $("presetsel").dataset.touched = "1"; $("btnpreset").disabled = false; };
+$("btnpreset").onclick = () => openConfirm("Use a firmware preset", s => presetRequest(s, parseInt($("presetsel").value)));
 $("btnrestart").onclick = () => openConfirm("Soft restart", restartRequest);
 $("ccancel").onclick = closeConfirm;
 $("cok").onclick = runConfirmed;

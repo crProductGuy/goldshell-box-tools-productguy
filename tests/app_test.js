@@ -48,14 +48,43 @@ const tests = {
     const s = Object.assign({}, setting); delete s.temp_targets;
     assert.deepStrictEqual(app.fanRange(s), { min: 65, max: 75, current: 65 });
   },
-  "revert request clears manual and names the preset it returns to"() {
-    const r = app.revertRequest(setting);
+  "preset list comes from the firmware, zero-clock plans flagged unverified"() {
+    assert.deepStrictEqual(app.presetList(setting), [
+      { level: 0, info: "725 MHz 0.41 V 70 RPM 70 RPM", mhz: 725, unverified: false },
+      { level: 3, info: "0 MHz 0 V 70 RPM 70 RPM", mhz: 0, unverified: true }]);
+  },
+  "preset request selects a level, clears manual, keeps the manual plan string"() {
+    const r = app.presetRequest(setting, 0);
     assert.strictEqual(r.body.manual, false);
+    assert.strictEqual(r.body.select, 0);
     assert.strictEqual(r.body.manualPowerplan, setting.manualPowerplan);
     assert.strictEqual(r.password, true);
-    assert.match(r.summary, /725 MHz/);
-    assert.match(r.event, /^reverted to factory preset 0 \(725 MHz/);
-    assert.throws(() => app.revertRequest(Object.assign({}, setting, { manual: false })), /already/);
+    assert.match(r.summary, /600 MHz .*manual.* 725 MHz .*preset 0/);
+    assert.match(r.event, /^switched to preset 0 \(725 MHz 0\.41 V 70 RPM 70 RPM\); was manual "600 MHz/);
+    const fromPreset = app.presetRequest(Object.assign({}, setting, { manual: false, select: 0 }), 3);
+    assert.strictEqual(fromPreset.body.select, 3);
+    assert.match(fromPreset.event, /was preset 0/);
+  },
+  "clock and fan requests reject a no-op so the dialog never offers an empty change"() {
+    assert.throws(() => app.planRequest(setting, 600), /already 600 MHz/);
+    assert.throws(() => app.fanTargetRequest(setting, 65), /already 65/);
+    // a preset at the same MHz as the manual plan is still a change (manual -> preset)
+    assert.doesNotThrow(() => app.planRequest(Object.assign({}, setting, { manual: false, select: 0 }), 725) === undefined);
+  },
+  "preset request rejects unknown levels and a no-op"() {
+    assert.throws(() => app.presetRequest(setting, 1), /no preset level 1/);
+    assert.throws(() => app.presetRequest(Object.assign({}, setting, { manual: false, select: 0 }), 0), /already on preset 0/);
+  },
+  "settingDiff lists changed top-level fields with old and new values"() {
+    assert.deepStrictEqual(app.settingDiff(setting, app.fanTargetRequest(setting, 70).body), [{ key: "temp_target", from: 65, to: 70 }]);
+    assert.deepStrictEqual(app.settingDiff(setting, app.presetRequest(setting, 0).body), [{ key: "manual", from: true, to: false }]);
+    assert.deepStrictEqual(app.settingDiff(setting, setting), []);
+  },
+  "every settings request carries its diff; restart carries none"() {
+    assert.deepStrictEqual(app.planRequest(setting, 625).changes.map(c => c.key), ["manualPowerplan"]);
+    assert.deepStrictEqual(app.fanTargetRequest(setting, 70).changes.map(c => c.key), ["temp_target"]);
+    assert.deepStrictEqual(app.presetRequest(setting, 3).changes.map(c => c.key), ["select", "manual"]);
+    assert.deepStrictEqual(app.restartRequest().changes, []);
   },
   "restart request has no body and flags the watchdog"() {
     const r = app.restartRequest();

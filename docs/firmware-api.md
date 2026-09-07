@@ -35,6 +35,9 @@ No Goldshell code is reproduced here, only observed behavior.
 | `/mcb/facrst` | PUT | factory reset, never call from tooling |
 | `/mcb/algosetting`, `/mcb/cmossetting`, `/mcb/rgbsetting`, `/mcb/ip`, `/mcb/wifisetting` | GET/PUT | |
 | `/mcb/cgminer` | GET | returned 500 on this unit |
+| `/mcb/protect`, `/mcb/defend` | PUT, no body | in the stock UI's API module (2026-09-07); purpose unknown, never called |
+| `/mcb/uploadimage` | POST | firmware upload; never called |
+| `/mcb/tutorial`, `/mcb/resultpool`, `/mcb/wifiresult` | GET | stock UI helpers |
 | `/cpb/hshistory` | GET | JSON array, 288 samples, one per minute, MH/s, newest last, zeros before first sample |
 | `/dbg/minerinfo` | GET | cgminer-style text: `[key] => value` lines. Keys used: `Device Elapsed`, `MHS av`, `MHS 20s`, `Accepted`, `Rejected`, `Hardware Errors`, `Device Hardware%`, `clock`, `fan0`, `fan1`, `tstemp-0` (chip temp), `tstemp-2` (board sensor), `rebootcnt`, `overheat` |
 | `/dbg/icinfo` | GET | JSON `{body: "<json string>"}`; `drawdata` is an array of boards, each an array of chips with `chipindex`, `perf` (good nonces), `hwerr` (bad nonces) |
@@ -65,9 +68,17 @@ The hidden page `/#/debug` in the stock UI renders most of the `/dbg/` data.
 - `tempcontrol` is the overheat-shutdown flag; it does not affect fans.
 - Each settings PUT restarts the fan daemon, which spikes the fans for a few
   minutes before the PID settles again. Do not read that spike as a result.
-- The stock UI's manual power-plan field is dead code (its toggle is never
-  set), so the GUI can only pick presets, and its Save handler clears
-  `manual`. Tell users never to press Save on the stock Miner page.
+- **The stock Miner page** (read from its `setting-miner` chunk, 2026-09-07)
+  has one settings block: miner name (read-only), power plan dropdown over
+  `powerplans`, temperature control checkbox (read-only), and a fan target
+  slider bounded by `temp_targets` (shown when `temp_targets[0] > 0`). Its
+  Save handler sets `manual` to the inverse of a "power plan shown" flag that
+  is initialised true and never changed, then PUTs the object. So every Save
+  from that block writes `manual: false`, whichever field was touched, and a
+  manual clock silently reverts to the preset. The manual power-plan field
+  itself is dead code. Pools (`/mcb/newpool`, `/mcb/delpool`), algorithm
+  (`/mcb/algosetting`) and RGB (`/mcb/rgbsetting`) on the same page use their
+  own endpoints and do not touch `manual`.
 
 ## Reliability quirks
 

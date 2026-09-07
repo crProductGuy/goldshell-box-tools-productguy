@@ -59,4 +59,6 @@ button.act { cursor:pointer; font-weight:600 } button.danger { color:var(--criti
 .dialog { max-width:min(680px,92vw) } .dialog .summary { font-weight:600; overflow-wrap:anywhere } .dialog .row { justify-content:flex-end }
 .dialog .req { margin:0; font:12px/1.4 ui-monospace,Consolas,monospace; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px 10px; max-height:40vh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere }
 .note.ok { color:var(--good) }
+.dialog .changes { margin:0; padding-left:18px; font:13px/1.5 ui-monospace,Consolas,monospace; overflow-wrap:anywhere } .dialog .changes li { color:var(--ink) }
+.dialog .reqbox summary { cursor:pointer } .dialog .reqbox[open] summary { margin-bottom:6px }
 svg .marklbl { fill:var(--warn); font-size:9px; font-weight:600 } svg .mark:hover { stroke-width:3 }
