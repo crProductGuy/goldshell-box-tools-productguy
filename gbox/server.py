@@ -1,8 +1,10 @@
 """The local HTTP server behind `gbox serve`.
 
 Serves the dashboard, the CSV the logger writes, the event log, a health
-endpoint, and the one write: the dashboard hands its session token to the
-service so the poller and watchdog can work without a password on disk.
+endpoint, and two writes: the dashboard hands its session token to the
+service so the poller and watchdog can work without a password on disk, and
+it reports what its buttons did so the event log has one line per change.
+The dashboard talks to the miner itself; the service never proxies a write.
 
 Binds to 127.0.0.1 unless told otherwise. Never logs a request line: the
 miner login URL carries the encrypted password, and tokens are password-
@@ -20,6 +22,19 @@ from . import __version__
 WEB_DIR = Path(__file__).resolve().parent / "web"
 STATIC = {"/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/style.css": "style.css"}
 MAX_BODY = 8192
+MAX_EVENT = 200            # characters of a dashboard-reported event line
+
+
+def clean_event_text(text):
+    """One printable line, at most MAX_EVENT characters; "" if there is nothing usable.
+
+    Anyone who can reach the server can post here, so the log line can never
+    carry a newline (a forged second line) or a control character.
+    """
+    if not isinstance(text, str):
+        return ""
+    cleaned = "".join(ch if ch.isprintable() else " " for ch in text)
+    return " ".join(cleaned.split())[:MAX_EVENT]
 
 
 class ServiceState:
@@ -105,26 +120,60 @@ def make_handler(state):
                 return self._json(200, latest or {})
             self._send(404, "not found")
 
-        def do_POST(self):
-            path = self.path.split("?", 1)[0]
-            if path != "/api/token":
-                return self._send(404, "not found")
+        def _json_body(self):
+            """The POST body as parsed JSON, or None after an error reply has been sent."""
             if not (self.headers.get("Content-Type") or "").startswith("application/json"):
-                return self._send(415, "expected application/json")
+                self._send(415, "expected application/json")
+                return None
             try:
                 n = int(self.headers.get("Content-Length") or 0)
             except ValueError:
                 n = -1
             if not 0 < n <= MAX_BODY:
-                return self._send(413, "bad length")
+                self._send(413, "bad length")
+                return None
             try:
                 body = json.loads(self.rfile.read(n).decode("utf-8"))
+            except ValueError:
+                self._send(400, "bad json")
+                return None
+            if not isinstance(body, dict):
+                self._send(400, "expected a JSON object")
+                return None
+            return body
+
+        def do_POST(self):
+            path = self.path.split("?", 1)[0]
+            if path == "/api/token":
+                return self._post_token()
+            if path == "/api/event":
+                return self._post_event()
+            self._send(404, "not found")
+
+        def _post_token(self):
+            body = self._json_body()
+            if body is None:
+                return
+            try:
                 state.miner.set_token(body["token"])
             except (ValueError, KeyError, TypeError):
                 return self._send(400, "expected {\"token\": \"<jwt>\"}")
             if state.events and not getattr(state, "_token_announced", False):
                 state.events.write("service: session token received from the dashboard")
                 state._token_announced = True
+            self._send(204)
+
+        def _post_event(self):
+            body = self._json_body()
+            if body is None:
+                return
+            msg = clean_event_text(body.get("message"))
+            if not msg:
+                return self._send(400, "expected {\"message\": \"<text>\"}")
+            if state.events:
+                state.events.write("dashboard: " + msg)
+            if body.get("restart") is True and state.watchdog is not None:
+                state.watchdog.external_restart()
             self._send(204)
 
     return Handler

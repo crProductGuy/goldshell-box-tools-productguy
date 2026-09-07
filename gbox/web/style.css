@@ -45,7 +45,18 @@ code { font-size:12px }
 dl { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:0 } dt { color:var(--ink2) } dd { margin:0; font-variant-numeric:tabular-nums; overflow-wrap:anywhere }
 .events { margin:0; font:12px/1.5 ui-monospace,Consolas,monospace; white-space:pre-wrap; max-height:220px; overflow:auto; color:var(--ink2) }
 .overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:9 }
-.overlay.show { display:flex } .overlay form { background:var(--surface); color:var(--ink); padding:20px 24px; border-radius:12px; min-width:300px; display:grid; gap:10px }
+.overlay.show { display:flex } .overlay form,.overlay .dialog { background:var(--surface); color:var(--ink); padding:20px 24px; border-radius:12px; min-width:300px; display:grid; gap:10px }
 .overlay input,.overlay button { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--ink) }
 .overlay label input { width:100%; margin-top:4px }
 .overlay button { cursor:pointer; font-weight:600 }
+/* controls and the confirm dialog */
+.ctrls { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:10px }
+.ctrl { border:1px solid var(--line); border-radius:8px; padding:10px 12px; background:var(--bg) }
+.ctrl .k { color:var(--ink2); font-size:12px } .ctrl .s { color:var(--muted); font-size:12px; margin-top:6px }
+.row { display:flex; gap:8px; align-items:center; flex-wrap:wrap } .ctrl .row { margin-top:6px }
+.ctrl select,.ctrl button { font:inherit; padding:6px 10px; border:1px solid var(--line); border-radius:6px; background:var(--surface); color:var(--ink) }
+button.act { cursor:pointer; font-weight:600 } button.danger { color:var(--critical) } button:disabled { opacity:.5; cursor:default }
+.dialog { max-width:min(680px,92vw) } .dialog .summary { font-weight:600; overflow-wrap:anywhere } .dialog .row { justify-content:flex-end }
+.dialog .req { margin:0; font:12px/1.4 ui-monospace,Consolas,monospace; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px 10px; max-height:40vh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere }
+.note.ok { color:var(--good) }
+svg .marklbl { fill:var(--warn); font-size:9px; font-weight:600 } svg .mark:hover { stroke-width:3 }

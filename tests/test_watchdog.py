@@ -112,6 +112,18 @@ class WatchdogTest(unittest.TestCase):
         self.assertTrue(any("failed" in l for l in lines))
         self.assertIsNone(self.feed(5, accepted=1))
 
+    def test_external_restart_starts_settle_gap_without_counting(self):
+        # someone pressed the dashboard's restart button: the miner is rebooting, so the
+        # frozen counter that follows is expected and must not trigger a second restart
+        self.feed(6, accepted=lambda i: i)
+        self.wd.external_restart()
+        self.assertIsNone(self.feed(20, accepted=500))
+        self.assertEqual(self.restart.restarts, 0)
+        self.assertEqual(self.wd.restarts_today(), 0)
+        # after the gap, a full frozen window is judged again
+        self.feed(10, accepted=500)
+        self.assertEqual(self.restart.restarts, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -62,9 +62,96 @@ async function fetchAll(base, token, slowEvery) {
   if (stale) { c.st = await apiText(base, token, "mcb/setting"); c.status = await apiText(base, token, "mcb/status"); c.hist = await apiText(base, token, "cpb/hshistory"); c.t = now; }
   return { info: parseMinerInfo(mi), boards: parseBoards(ic), setting: JSON.parse(c.st), status: JSON.parse(c.status), history: JSON.parse(c.hist) };
 }
-if (typeof module !== "undefined") module.exports = { encryptPassword, login, fetchAll, parseMinerInfo, parseBoards, chipHealth, hashUnit };
+async function apiPut(base, token, path, body, attempt) {
+  // Same 401 handling as apiText. A PUT that got 401 was not applied, so retrying it is safe.
+  const headers = { Authorization: "Bearer " + token };
+  if (body !== null && body !== undefined) headers["Content-Type"] = "application/json";
+  const r = await fetch(base + "/" + path, { method: "PUT", headers, body: body === null || body === undefined ? undefined : JSON.stringify(body) });
+  if (r.status === 401) {
+    attempt = attempt || 0;
+    if (attempt < 2) { await new Promise(res => setTimeout(res, 700 * (attempt + 1))); return apiPut(base, token, path, body, attempt + 1); }
+    throw new Error("401");
+  }
+  if (!r.ok) throw new Error("PUT " + path + ": HTTP " + r.status);
+  return r.text();
+}
 
-// ---- presentation ----
+// ---- the buttons: each builds the exact request the confirm dialog shows and the page then sends ----
+// A request is { method, path, body (null for none), summary, event, password, restart }. `password` says whether
+// the dialog asks for the miner password again; `event` is the line reported to the gbox service on success.
+const PLAN_RE = /^\s*(\d+)\s*MHz\s+([\d.]+)\s*V\s+(\d+)\s*RPM\s+(\d+)\s*RPM\s*$/;
+function parsePlan(plan) {
+  const m = PLAN_RE.exec(plan || "");
+  if (!m) throw new Error("not a power plan string: " + plan);
+  return { mhz: parseInt(m[1]), volts: parseFloat(m[2]), fanA: parseInt(m[3]), fanB: parseInt(m[4]) };
+}
+function formatPlan(p) { return p.mhz + " MHz " + String(p.volts) + " V " + p.fanA + " RPM " + p.fanB + " RPM"; }
+function presetPlan(setting, level) {
+  const plans = setting.powerplans || [], hit = plans.find(p => p.level === level) || plans[0];
+  return hit ? hit.info : null;
+}
+function currentPlan(setting) { return setting.manual ? setting.manualPowerplan : presetPlan(setting, setting.select); }
+function clockRange(setting) {
+  let max = 0;
+  (setting.powerplans || []).forEach(p => { try { max = Math.max(max, parsePlan(p.info).mhz); } catch (e) {} });
+  let current = null;
+  try { current = parsePlan(currentPlan(setting)).mhz; } catch (e) {}
+  return { min: 300, max: max || 725, step: 25, current };
+}
+function planRequest(setting, mhz) {
+  const range = clockRange(setting);
+  if (typeof mhz !== "number" || !Number.isInteger(mhz) || mhz % range.step || mhz < range.min || mhz > range.max)
+    throw new Error("clock must be a multiple of " + range.step + " between " + range.min + " and " + range.max + " MHz");
+  let cur;
+  try { cur = parsePlan(setting.manualPowerplan); } catch (e) { cur = parsePlan(presetPlan(setting, 0)); }
+  const was = currentPlan(setting), plan = formatPlan(Object.assign({}, cur, { mhz }));
+  const body = Object.assign({}, setting, { manual: true, manualPowerplan: plan });
+  return { method: "PUT", path: "mcb/setting", body, password: true, restart: false,
+    summary: "plan " + was + (setting.manual ? "" : " (preset)") + " → " + plan + " (manual)",
+    event: "clock set to " + mhz + " MHz (plan \"" + plan + "\", was \"" + was + "\")" };
+}
+function fanRange(setting) {
+  const t = Array.isArray(setting.temp_targets) && setting.temp_targets.length >= 2 ? setting.temp_targets : [65, 75];
+  return { min: t[0], max: t[1], current: setting.temp_target === undefined ? null : setting.temp_target };
+}
+function fanTargetRequest(setting, temp) {
+  const range = fanRange(setting);
+  if (typeof temp !== "number" || !Number.isInteger(temp) || temp < range.min || temp > range.max)
+    throw new Error("fan target must be a whole number between " + range.min + " and " + range.max + " C on this firmware");
+  const body = Object.assign({}, setting, { temp_target: temp });
+  return { method: "PUT", path: "mcb/setting", body, password: false, restart: false,
+    summary: "fan target " + range.current + " °C → " + temp + " °C (board sensor)",
+    event: "fan target set to " + temp + " C (was " + range.current + ")" };
+}
+function revertRequest(setting) {
+  if (!setting.manual) throw new Error("already on the factory preset");
+  const preset = presetPlan(setting, setting.select);
+  const body = Object.assign({}, setting, { manual: false });
+  return { method: "PUT", path: "mcb/setting", body, password: true, restart: false,
+    summary: "plan " + setting.manualPowerplan + " (manual) → " + preset + " (preset " + setting.select + ")",
+    event: "reverted to factory preset " + setting.select + " (" + preset + "); manual plan was \"" + setting.manualPowerplan + "\"" };
+}
+function restartRequest() {
+  return { method: "PUT", path: "mcb/restart", body: null, password: true, restart: true,
+    summary: "soft restart: the controller reboots and hashing resumes after 60-90 s", event: "soft restart sent" };
+}
+function describeRequest(base, req) {
+  return req.method + " " + base + "/" + req.path + "\n" + (req.body === null || req.body === undefined ? "(no body)" : JSON.stringify(req.body, null, 1));
+}
+// Event-log lines worth a marker on the fan chart: what the buttons did and what the watchdog did.
+function eventMarkers(text) {
+  const out = [];
+  (text || "").split(/\r?\n/).forEach(line => {
+    const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) ((?:dashboard|watchdog): .*)$/.exec(line);
+    if (m) out.push({ t: new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime(), label: m[7] });
+  });
+  return out;
+}
+if (typeof module !== "undefined") module.exports = { encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
+  parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, revertRequest, restartRequest, describeRequest, eventMarkers };
+
+// ---- presentation (skipped under Node, where the data layer above is unit-tested) ----
+if (typeof document !== "undefined") {
 const $ = id => document.getElementById(id);
 const fmt = (v, d) => (v === null || v === undefined || isNaN(v)) ? "—" : v.toLocaleString(undefined, { minimumFractionDigits: d || 0, maximumFractionDigits: d || 0 });
 let baseline = null, lastAccepted = null, lastAcceptedChange = Date.now(), lastHistory = null, fanPct = null, unauthorizedStreak = 0, lastFanRead = 0;
@@ -126,9 +213,22 @@ async function handOffToken() {
     if (r.ok) { tokenHandedTo = t; service.has_token = true; }
   } catch (e) { /* not served: nothing to hand off to */ }
 }
+let eventMarks = [];   // {t, label} for the fan chart, from the service event log
 async function refreshEvents() {
   if (!service) return;
-  try { $("events").textContent = (await (await fetch("api/events", { cache: "no-store" })).text()).trim() || "(no events yet)"; } catch (e) {}
+  try {
+    const text = await (await fetch("api/events", { cache: "no-store" })).text();
+    $("events").textContent = text.trim() || "(no events yet)";
+    eventMarks = eventMarkers(text);
+  } catch (e) {}
+}
+async function reportEvent(message, restart) {
+  // Served: one line in the service event log (and a marker on the fan chart). Standalone: nothing to report to.
+  if (!service) return false;
+  try {
+    const r = await fetch("api/event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message, restart: !!restart }) });
+    return r.ok;
+  } catch (e) { return false; }
 }
 
 async function refresh() {
@@ -193,7 +293,7 @@ function render(d) {
    ["uptime", upText], ["overheat flag", info.overheat]]
    .forEach(kvp => { const dt = document.createElement("dt"), dd = document.createElement("dd"); dt.textContent = kvp[0]; dd.textContent = kvp[1]; dl.append(dt, dd); });
 
-  renderChips(d.boards, minutes); lastHistory = d.history; renderChart(d.history);
+  renderChips(d.boards, minutes); renderControls(setting); lastHistory = d.history; renderChart(d.history);
 }
 
 function renderChips(boards, minutes) {
@@ -307,6 +407,13 @@ function renderEnv() {
     if (m === 0) s += "<text x=\"" + xx + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"end\">now</text>";
     else if (m % labelEvery === 0 && xx > L + 24) s += "<text x=\"" + xx + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"middle\">-" + (m / 60) + " h</text>";
   }
+  // markers: what the buttons and the watchdog did, hover for the event text
+  const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  eventMarks.filter(m => now - m.t <= spanMin * 60000 && m.t <= now).forEach(m => {
+    const xx = L + (W - L - R) * (1 - (now - m.t) / (spanMin * 60000));
+    s += "<line class=\"mark\" x1=\"" + xx.toFixed(1) + "\" x2=\"" + xx.toFixed(1) + "\" y1=\"" + (T - 4) + "\" y2=\"" + y0 + "\"><title>" + esc(new Date(m.t).toLocaleTimeString() + " " + m.label) + "</title></line>" +
+      "<text class=\"marklbl\" x=\"" + (xx + 3).toFixed(1) + "\" y=\"" + (T + 4) + "\">" + (m.label.startsWith("watchdog") ? "W" : "▼") + "</text>";
+  });
   s += "<line class=\"cross\" id=\"ecx\" y1=\"" + T + "\" y2=\"" + y0 + "\" style=\"display:none\"/></svg><div class=\"tip\" id=\"etip\"></div>";
   box.innerHTML = s;
   const svg = box.querySelector("svg"), tip = $("etip"), cx = $("ecx");
@@ -321,9 +428,106 @@ function renderEnv() {
 }
 let resizeTimer = null;
 window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (lastHistory) { renderChart(lastHistory); renderEnv(); } }, 150); });
-// one poll cycle at a time: the miner is asked for one thing at a time (see fetchAll); the service is on localhost
-let polling = false;
-async function poll() { if (polling) return; polling = true; try { await refresh(); } finally { polling = false; } }
-async function serviceTick() { await probeService(); await handOffToken(); await refreshEnv(); await refreshEvents(); }
+// This page sends the miner one request at a time (token-check race, see docs/firmware-api.md): the poll cycle and
+// the buttons share one `busy` flag. A poll that finds the page busy is skipped; a button waits for the poll to end.
+let busy = false;
+async function withMiner(fn) {
+  while (busy) await new Promise(res => setTimeout(res, 100));
+  busy = true;
+  try { return await fn(); } finally { busy = false; }
+}
+async function poll() { if (busy) return; await withMiner(refresh); }
+async function serviceTick() { await probeService(); await handOffToken(); await refreshEvents(); await refreshEnv(); }
+
+// ---- controls ----
+// Flow: button -> re-read mcb/setting -> build the request -> dialog shows the exact request -> (password, re-checked
+// by logging in again) -> PUT -> re-read to confirm -> report the event to the service. Enter never confirms.
+let pending = null;
+function fillSelect(sel, values, current, label) {
+  const key = values.join(",");
+  if (sel.dataset.key !== key) {
+    sel.innerHTML = "";
+    values.forEach(v => { const o = document.createElement("option"); o.value = v; o.textContent = label(v); sel.append(o); });
+    sel.dataset.key = key; delete sel.dataset.touched;
+  }
+  if (!sel.dataset.touched && current !== null) sel.value = String(current);   // follow the miner until the user picks
+}
+function rangeList(min, max, step) { const out = []; for (let v = min; v <= max; v += step) out.push(v); return out; }
+function renderControls(setting) {
+  const cr = clockRange(setting), fr = fanRange(setting);
+  fillSelect($("clocksel"), rangeList(cr.min, cr.max, cr.step), cr.current, v => v + " MHz" + (v === cr.current ? " (now)" : ""));
+  fillSelect($("fansel"), rangeList(fr.min, fr.max, 1), fr.current, v => v + " °C" + (v === fr.current ? " (now)" : ""));
+  $("btnrevert").disabled = !setting.manual;
+  $("revertnote").textContent = setting.manual
+    ? "Clears the manual plan; the miner returns to preset " + setting.select + ": " + presetPlan(setting, setting.select) + ". Asks for the password."
+    : "Already on preset " + setting.select + " (" + presetPlan(setting, setting.select) + ").";
+}
+async function openConfirm(title, build) {
+  const token = getToken();
+  if (!host() || !token) { showLogin(); return; }
+  $("err").textContent = "";
+  try {
+    // build against what the miner holds right now, not the cached copy
+    const fresh = await withMiner(() => apiText(base(), token, "mcb/setting"));
+    if (fetchAll.cache) fetchAll.cache.st = fresh;
+    const req = build(JSON.parse(fresh));
+    pending = { req, title };
+    $("ctitle").textContent = title; $("csummary").textContent = req.summary; $("creq").textContent = describeRequest(base(), req);
+    $("cpwrow").hidden = !req.password; $("cpw").value = "";
+    $("cstatus").textContent = ""; $("cstatus").className = "note";
+    $("cok").disabled = false; $("cok").hidden = false; $("ccancel").disabled = false; $("ccancel").textContent = "cancel";
+    $("confirm").classList.add("show"); (req.password ? $("cpw") : $("ccancel")).focus();
+  } catch (e) { $("err").textContent = "Could not prepare the request: " + (e.message === "401" ? "the miner rejected the session token" : e.message); }
+}
+function closeConfirm() { pending = null; $("cpw").value = ""; $("confirm").classList.remove("show"); }
+async function runConfirmed() {
+  if (!pending) return;
+  const req = pending.req, say = (m, cls) => { $("cstatus").textContent = m; $("cstatus").className = cls || "note"; };
+  $("cok").disabled = true; $("ccancel").disabled = true;
+  try {
+    let token = getToken();
+    if (req.password) {
+      if (!$("cpw").value) throw new Error("enter the miner password");
+      say("checking the password with the miner…");
+      token = await withMiner(() => login(base(), $("cpw").value, crypto.subtle));
+      $("cpw").value = ""; store.set("gbox_token", token);
+    }
+    say("sending…");
+    await withMiner(() => apiPut(base(), token, req.path, req.body));
+    let result = "";
+    if (req.path === "mcb/setting") {
+      const after = JSON.parse(await withMiner(() => apiText(base(), token, "mcb/setting")));
+      result = " The miner now reports plan " + currentPlan(after) + (after.manual ? " (manual)" : " (preset)") + ", fan target " + after.temp_target + " °C.";
+      fetchAll.cache = null; delete $("clocksel").dataset.touched; delete $("fansel").dataset.touched;
+    }
+    const logged = await reportEvent(req.event, req.restart);
+    say("Done." + result + (logged ? " Logged in the service event log." : service ? " The service did not accept the event-log line." : " No gbox service here, so nothing was logged."), "note ok");
+    if (req.restart) setBadge("idle", "restarting, back in 60-90 s");
+    $("cok").hidden = true; $("ccancel").disabled = false; $("ccancel").textContent = "close"; $("ccancel").focus();
+    pending = null;
+    refreshEvents().then(refreshEnv);
+    setTimeout(poll, 800);
+  } catch (e) {
+    const msg = e.message === "401" ? "the miner rejected the session token; nothing was sent. Close this and log in again."
+      : /login rejected/.test(e.message) ? "wrong password; nothing was sent."
+      : e.message + (req.path === "mcb/setting" ? " Check the Miner panel before trying again." : "");
+    say("Failed: " + msg, "err");
+    $("cok").disabled = false; $("ccancel").disabled = false; if (req.password) { $("cpw").focus(); $("cpw").select(); }
+  }
+}
+$("clocksel").onchange = () => { $("clocksel").dataset.touched = "1"; };
+$("fansel").onchange = () => { $("fansel").dataset.touched = "1"; };
+$("btnclock").onclick = () => openConfirm("Set the clock", s => planRequest(s, parseInt($("clocksel").value)));
+$("btnfan").onclick = () => openConfirm("Set the fan target", s => fanTargetRequest(s, parseInt($("fansel").value)));
+$("btnrevert").onclick = () => openConfirm("Revert to the factory preset", revertRequest);
+$("btnrestart").onclick = () => openConfirm("Soft restart", restartRequest);
+$("ccancel").onclick = closeConfirm;
+$("cok").onclick = runConfirmed;
+$("confirm").addEventListener("keydown", e => {
+  // never press-through: Enter does nothing here, not even on a focused button (a keydown preventDefault stops the click)
+  if (e.key === "Enter") { e.preventDefault(); return; }
+  if (e.key === "Escape" && !$("ccancel").disabled) closeConfirm();
+});
 probeService().then(() => poll()).then(() => { refreshEnv(); refreshEvents(); });
 setInterval(poll, 10000); setInterval(serviceTick, 60000);
+} // end of presentation

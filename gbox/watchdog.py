@@ -45,6 +45,14 @@ class Watchdog:
             self._restart_times.popleft()
         return len(self._restart_times)
 
+    def external_restart(self):
+        """Someone else (the dashboard's button) restarted the miner: start the settle gap.
+
+        Not counted against the daily cap, which exists to stop the watchdog
+        itself from looping.
+        """
+        self.last_restart = self._clock()
+
     def diagnose(self):
         """The reason a restart is due, or None."""
         now = self._clock()

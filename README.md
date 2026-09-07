@@ -8,9 +8,10 @@ KD-BOX, HS-BOX, LT-BOX and relatives running the "cloud-box" MCB_V5 firmware):
 - a status dashboard that shows what the stock web UI hides: real chip
   temperature, per-chip health, the board reset counter, fan duty, hashrate,
   fan and temperature history
-- protected buttons for the settings the stock UI cannot reach (manual clock,
-  fan target, restart, revert to factory) — coming in the next step; today
-  those are CLI commands
+- protected buttons for the settings the stock UI cannot reach: manual clock
+  in 25 MHz steps, fan target, soft restart, revert to the factory preset.
+  Each shows the exact request before sending it; clock, restart and revert
+  ask for the miner password again
 - a logger and a watchdog that soft-restarts the miner when it stops hashing
 - a command line: `gbox status | chips | plan | fantarget | restart | serve`
 
@@ -57,8 +58,9 @@ Start at logon:
 - Never press Save on the stock UI's Miner page. Its save handler clears the
   manual power plan and returns the miner to the factory preset.
 - The service listens on 127.0.0.1 only unless you pass `--bind`. Anyone who
-  can open the page can read the miner and, once the buttons exist, press
-  them.
+  can open the page can read the miner, write lines into the event log and,
+  with the miner password, press the buttons. The page sends every change
+  to the miner directly; the service only records what happened.
 
 ## Development
 
