@@ -118,6 +118,46 @@ class ServerTest(unittest.TestCase):
             sys.stderr = old
         self.assertEqual(buf.getvalue(), "")
 
+    def test_dashboard_event_is_logged_with_prefix(self):
+        body = json.dumps({"message": "clock set to 625 MHz (plan \"625 MHz 0.41 V 90 RPM 90 RPM\")"}).encode()
+        self.assertEqual(self.post("/api/event", body), 204)
+        lines = "".join(self.events.tail())
+        self.assertIn("dashboard: clock set to 625 MHz", lines)
+        self.assertIn(b"dashboard: clock set", self.get("/api/events")[2])
+
+    def test_dashboard_event_is_sanitized(self):
+        msg = "a" * 500 + "\nservice: forged line\x07"
+        self.assertEqual(self.post("/api/event", json.dumps({"message": msg}).encode()), 204)
+        lines = self.events.tail()
+        self.assertEqual(len(lines), 1)
+        self.assertNotIn("forged", lines[0].split("dashboard: ", 1)[1][:1])
+        self.assertNotIn("\x07", lines[0])
+        self.assertLess(len(lines[0]), 260)
+        self.assertEqual(lines[0].count("\n"), 1)
+
+    def test_dashboard_event_validates(self):
+        self.assertEqual(self.post("/api/event", b"{}"), 400)
+        self.assertEqual(self.post("/api/event", json.dumps({"message": "   "}).encode()), 400)
+        self.assertEqual(self.post("/api/event", json.dumps({"message": 5}).encode()), 400)
+        self.assertEqual(self.post("/api/event", b"m=x", "text/plain"), 415)
+        self.assertEqual(self.events.tail(), [])
+
+    def test_dashboard_restart_event_tells_the_watchdog(self):
+        class WD:
+            told = 0
+            last_reason = None
+
+            def restarts_today(self):
+                return 0
+
+            def external_restart(self):
+                self.told += 1
+        self.state.watchdog = WD()
+        self.assertEqual(self.post("/api/event", json.dumps({"message": "soft restart sent", "restart": True}).encode()), 204)
+        self.assertEqual(self.state.watchdog.told, 1)
+        self.assertEqual(self.post("/api/event", json.dumps({"message": "fan target set to 70 C"}).encode()), 204)
+        self.assertEqual(self.state.watchdog.told, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

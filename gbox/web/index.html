@@ -26,6 +26,17 @@
   <span class="err" id="loginerr"></span>
 </form></div>
 
+<div class="overlay" id="confirm"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="ctitle">
+  <strong id="ctitle"></strong>
+  <div class="summary" id="csummary"></div>
+  <span class="note">This exact request goes to the miner when you press send:</span>
+  <pre class="req" id="creq"></pre>
+  <label class="note" id="cpwrow">miner web UI password, again<input id="cpw" type="password" autocomplete="current-password"></label>
+  <div class="note" id="cstatus"></div>
+  <div class="row"><button type="button" id="ccancel">cancel</button><button type="button" id="cok" class="act">send this request</button></div>
+  <span class="note">Enter does nothing in this dialog: click a button, or Tab to it and press Space.</span>
+</div></div>
+
 <main>
   <div class="tiles">
     <div class="tile"><div class="k">Hashrate, 20 s</div><div class="v" id="mhs20">&mdash;</div><div class="s" id="unit20">&mdash;</div></div>
@@ -59,10 +70,28 @@
     <section>
       <h2>Miner</h2>
       <dl id="info"></dl>
-      <p class="note" style="margin-top:10px">Read-only for now. Clock and fan target are changed with <code>gbox plan</code> and <code>gbox fantarget</code>. Never press Save on the miner's own Miner page: it silently reverts to the factory preset.</p>
+      <p class="note" style="margin-top:10px">Never press Save on the miner's own Miner page: it silently reverts to the factory preset. Use the controls below, or <code>gbox plan</code> and <code>gbox fantarget</code>.</p>
       <p class="err" id="err"></p>
     </section>
   </div>
+
+  <section id="controls">
+    <h2>Controls<span>each button shows the exact request and waits for a click; nothing is sent on Enter</span></h2>
+    <div class="ctrls">
+      <div class="ctrl"><div class="k">Clock</div>
+        <div class="row"><select id="clocksel" aria-label="clock in MHz"></select><button type="button" id="btnclock" class="act">set clock&hellip;</button></div>
+        <div class="s">25 MHz steps, applied live through the manual power plan, no reboot. Asks for the password.</div></div>
+      <div class="ctrl"><div class="k">Fan target</div>
+        <div class="row"><select id="fansel" aria-label="fan target temperature"></select><button type="button" id="btnfan" class="act">set target&hellip;</button></div>
+        <div class="s">Board-sensor temperature the fans hold. 65 is the coolest this firmware allows. The fans spike for a few minutes after any settings change.</div></div>
+      <div class="ctrl"><div class="k">Power plan</div>
+        <div class="row"><button type="button" id="btnrevert" class="act">revert to factory preset&hellip;</button></div>
+        <div class="s" id="revertnote">&mdash;</div></div>
+      <div class="ctrl"><div class="k">Controller</div>
+        <div class="row"><button type="button" id="btnrestart" class="act danger">soft restart&hellip;</button></div>
+        <div class="s">Reboots the controller; hashing resumes after 60-90 s. Asks for the password. The watchdog is told, so it does not restart again on top.</div></div>
+    </div>
+  </section>
 
   <section id="svc" hidden>
     <h2>Service<span id="svcsub"></span></h2>

@@ -16,7 +16,12 @@ No Goldshell code is reproduced here, only observed behavior.
   nonce, so every login returns the identical token and it never expires.
   Treat the token as password-equivalent.
 - Every other request: header `Authorization: Bearer <token>`.
-- CORS: `Access-Control-Allow-Origin: *`, preflight allows `Authorization`.
+- CORS: `Access-Control-Allow-Origin: *`. A preflight `OPTIONS` on
+  `/mcb/setting` and `/mcb/restart` answers 200 with
+  `Access-Control-Allow-Methods: GET, PUT, POST, OPTIONS` and
+  `Access-Control-Allow-Headers: appkey,X_forwarded-for,Content-Type,Authorization, X-Requested-With`
+  (checked 2026-09-06). So a page opened from disk or another origin can PUT
+  settings and restart the miner, which is what the dashboard's buttons do.
 
 ## Endpoints (all need the token)
 

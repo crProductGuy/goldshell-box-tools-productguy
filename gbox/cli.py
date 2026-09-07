@@ -181,8 +181,8 @@ def cmd_serve(args, cfg, data_dir):
     events.write("service: started v%s, miner %s, poll %ds, watchdog %s, listening on %s:%d" % (
         __version__, cfg.host, cfg.poll_interval, "on" if wd else "off", cfg.bind, cfg.port))
     if cfg.bind not in ("127.0.0.1", "localhost", "::1"):
-        _out("WARNING: listening on %s. Anyone who can reach this address can read the miner's status" % cfg.bind)
-        _out("         and, once controls exist, press the buttons. Use a firewall or a VPN.")
+        _out("WARNING: listening on %s. Anyone who can reach this address can read the miner's status," % cfg.bind)
+        _out("         write to the event log and, with the miner password, press the buttons. Use a firewall or a VPN.")
     _out("gbox %s: dashboard at %s  (miner %s, poll every %ds, watchdog %s)" % (
         __version__, url, cfg.host, cfg.poll_interval, "on" if wd else "off"))
     if not miner.has_credentials:

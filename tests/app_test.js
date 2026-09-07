@@ -1,0 +1,88 @@
+// Unit tests for the data layer of gbox/web/app.js: the request builders behind the buttons.
+// Run by tests/test_app_js.py under `python -m unittest` when Node is installed, or by hand:
+//     node tests/app_test.js
+"use strict";
+const assert = require("assert");
+const fs = require("fs");
+const path = require("path");
+
+const app = require(path.join(__dirname, "..", "gbox", "web", "app.js"));
+const setting = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "mcb_setting.json"), "utf8"));
+const frozen = JSON.stringify(setting);
+
+const tests = {
+  "clock range comes from the presets, current from the manual plan"() {
+    assert.deepStrictEqual(app.clockRange(setting), { min: 300, max: 725, step: 25, current: 600 });
+    const preset = Object.assign({}, setting, { manual: false });
+    assert.strictEqual(app.clockRange(preset).current, 725);
+  },
+  "plan request keeps volts and fans, sets manual, does not touch the input"() {
+    const r = app.planRequest(setting, 625);
+    assert.strictEqual(r.method, "PUT");
+    assert.strictEqual(r.path, "mcb/setting");
+    assert.strictEqual(r.body.manualPowerplan, "625 MHz 0.41 V 90 RPM 90 RPM");
+    assert.strictEqual(r.body.manual, true);
+    assert.strictEqual(r.body.temp_target, 65);
+    assert.strictEqual(r.password, true);
+    assert.match(r.summary, /600 MHz .* 625 MHz/);
+    assert.match(r.event, /^clock set to 625 MHz/);
+    assert.strictEqual(JSON.stringify(setting), frozen);
+  },
+  "plan request takes volts and fans from preset 0 when there is no manual plan yet"() {
+    const s = Object.assign({}, setting, { manual: false, manualPowerplan: "" });
+    assert.strictEqual(app.planRequest(s, 500).body.manualPowerplan, "500 MHz 0.41 V 70 RPM 70 RPM");
+  },
+  "plan request rejects off-step and out-of-range clocks"() {
+    for (const bad of [610, 275, 750, NaN, "600"]) assert.throws(() => app.planRequest(setting, bad), /multiple of 25/);
+  },
+  "fan target request changes only temp_target within the firmware range"() {
+    const r = app.fanTargetRequest(setting, 70);
+    assert.strictEqual(r.body.temp_target, 70);
+    assert.strictEqual(r.body.manualPowerplan, setting.manualPowerplan);
+    assert.strictEqual(r.password, false);
+    assert.match(r.event, /^fan target set to 70 C \(was 65\)/);
+    assert.deepStrictEqual(app.fanRange(setting), { min: 65, max: 75, current: 65 });
+    for (const bad of [60, 80, 67.5]) assert.throws(() => app.fanTargetRequest(setting, bad), /between 65 and 75/);
+  },
+  "fan range falls back to 65-75 when the firmware does not say"() {
+    const s = Object.assign({}, setting); delete s.temp_targets;
+    assert.deepStrictEqual(app.fanRange(s), { min: 65, max: 75, current: 65 });
+  },
+  "revert request clears manual and names the preset it returns to"() {
+    const r = app.revertRequest(setting);
+    assert.strictEqual(r.body.manual, false);
+    assert.strictEqual(r.body.manualPowerplan, setting.manualPowerplan);
+    assert.strictEqual(r.password, true);
+    assert.match(r.summary, /725 MHz/);
+    assert.match(r.event, /^reverted to factory preset 0 \(725 MHz/);
+    assert.throws(() => app.revertRequest(Object.assign({}, setting, { manual: false })), /already/);
+  },
+  "restart request has no body and flags the watchdog"() {
+    const r = app.restartRequest();
+    assert.deepStrictEqual([r.method, r.path, r.body, r.password, r.restart], ["PUT", "mcb/restart", null, true, true]);
+    assert.strictEqual(r.event, "soft restart sent");
+  },
+  "describeRequest shows the exact method, URL and body"() {
+    const txt = app.describeRequest("http://192.168.1.100", app.planRequest(setting, 625));
+    assert.match(txt, /^PUT http:\/\/192\.168\.1\.100\/mcb\/setting\n\{/);
+    assert.match(txt, /"manualPowerplan": "625 MHz 0\.41 V 90 RPM 90 RPM"/);
+    assert.strictEqual(app.describeRequest("http://m", app.restartRequest()), "PUT http://m/mcb/restart\n(no body)");
+  },
+  "event markers are parsed from the event log, service lines excluded"() {
+    const log = "2026-09-06 10:00:00 service: started v0.1.0\n2026-09-06 10:05:30 dashboard: clock set to 625 MHz\n" +
+      "2026-09-06 11:10:00 watchdog: restart #1 sent (miner unreachable for 2 min)\nnot a log line\n";
+    const marks = app.eventMarkers(log);
+    assert.strictEqual(marks.length, 2);
+    assert.strictEqual(marks[0].t, new Date(2026, 8, 6, 10, 5, 30).getTime());
+    assert.strictEqual(marks[0].label, "dashboard: clock set to 625 MHz");
+    assert.match(marks[1].label, /^watchdog: restart #1/);
+  },
+};
+
+let failed = 0;
+for (const [name, fn] of Object.entries(tests)) {
+  try { fn(); console.log("ok   " + name); }
+  catch (e) { failed++; console.log("FAIL " + name + "\n     " + String(e.message).split("\n").join("\n     ")); }
+}
+console.log(failed ? failed + " failed" : Object.keys(tests).length + " passed");
+process.exit(failed ? 1 : 0);

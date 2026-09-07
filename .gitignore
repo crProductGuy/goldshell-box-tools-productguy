@@ -23,3 +23,6 @@ Thumbs.db
 
 # internal checkpoint, stays local
 STATUS.md
+
+# Claude Code worktrees (created by EnterWorktree)
+.claude/worktrees/
