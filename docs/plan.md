@@ -97,7 +97,7 @@ chart when served). Never press-through on Enter.
 - Login: `GET /user/login?username=admin&password=<hex>&cipher=true`; hex is AES-128-CBC of the password with key `!!!!!!!!!!!!!!!!`, zero IV, zero padding. Returns `{"JWT Token": ...}`.
 - Token check has a race: concurrent requests get sporadic 401 ("Check Token Error" in the miner syslog). Send one request at a time, retry a 401 twice, count only then.
 - Heavy request bursts (about 15/s) crash the web backend `minerd`; it restarts by itself and loses the hashrate history buffer. Never poll faster than the page does today.
-- `/mcb/setting` PUT with `manual:true` and `manualPowerplan:"<MHz> MHz <V> V <fan> RPM <fan> RPM"` sets the clock live. The fan fields are ignored. The stock Miner page's Save clears `manual` (reverts to preset). `temp_target` is clamped to `temp_targets` (65-75, read-only). `tempcontrol` does not affect fans.
+- `/mcb/setting` PUT with `manual:true` and `manualPowerplan:"<MHz> MHz <V> V <fan> RPM <fan> RPM"` sets the clock live. The fan fields are ignored. The stock Miner page's Save always writes `manual:false` (reverts to preset), and that page does expose a fan-target slider, so the trap is real (corrected 2026-09-07 from the page source). `temp_target` is clamped to `temp_targets` (65-75, read-only). `tempcontrol` does not affect fans.
 - `/dbg/*` endpoints are big text files regenerated per request; `dbg/fanctrllog` grows to ~1 MB; read it at most once a minute.
 - `cpb/hshistory`: 288 samples, one per minute, MH/s, newest last.
 - CORS is `Access-Control-Allow-Origin: *`, which is what makes the standalone page possible.

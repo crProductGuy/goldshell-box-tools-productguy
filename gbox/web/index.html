@@ -29,8 +29,8 @@
 <div class="overlay" id="confirm"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="ctitle">
   <strong id="ctitle"></strong>
   <div class="summary" id="csummary"></div>
-  <span class="note">This exact request goes to the miner when you press send:</span>
-  <pre class="req" id="creq"></pre>
+  <ul class="changes" id="cchanges"></ul>
+  <details class="reqbox"><summary class="note" id="creqsum">show the full request</summary><pre class="req" id="creq"></pre></details>
   <label class="note" id="cpwrow">miner web UI password, again<input id="cpw" type="password" autocomplete="current-password"></label>
   <div class="note" id="cstatus"></div>
   <div class="row"><button type="button" id="ccancel">cancel</button><button type="button" id="cok" class="act">send this request</button></div>
@@ -84,9 +84,9 @@
       <div class="ctrl"><div class="k">Fan target</div>
         <div class="row"><select id="fansel" aria-label="fan target temperature"></select><button type="button" id="btnfan" class="act">set target&hellip;</button></div>
         <div class="s">Board-sensor temperature the fans hold. 65 is the coolest this firmware allows. The fans spike for a few minutes after any settings change.</div></div>
-      <div class="ctrl"><div class="k">Power plan</div>
-        <div class="row"><button type="button" id="btnrevert" class="act">revert to factory preset&hellip;</button></div>
-        <div class="s" id="revertnote">&mdash;</div></div>
+      <div class="ctrl"><div class="k">Power plan preset</div>
+        <div class="row"><select id="presetsel" aria-label="firmware power plan preset"></select><button type="button" id="btnpreset" class="act">use preset&hellip;</button></div>
+        <div class="s" id="presetnote">&mdash;</div></div>
       <div class="ctrl"><div class="k">Controller</div>
         <div class="row"><button type="button" id="btnrestart" class="act danger">soft restart&hellip;</button></div>
         <div class="s">Reboots the controller; hashing resumes after 60-90 s. Asks for the password. The watchdog is told, so it does not restart again on top.</div></div>

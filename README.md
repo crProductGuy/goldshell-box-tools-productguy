@@ -8,10 +8,10 @@ KD-BOX, HS-BOX, LT-BOX and relatives running the "cloud-box" MCB_V5 firmware):
 - a status dashboard that shows what the stock web UI hides: real chip
   temperature, per-chip health, the board reset counter, fan duty, hashrate,
   fan and temperature history
-- protected buttons for the settings the stock UI cannot reach: manual clock
-  in 25 MHz steps, fan target, soft restart, revert to the factory preset.
-  Each shows the exact request before sending it; clock, restart and revert
-  ask for the miner password again
+- protected buttons for the settings whose Save button on the stock UI is a
+  trap: manual clock in 25 MHz steps, fan target, firmware preset, and a
+  soft restart. Each shows what changes and the exact request before
+  sending it; clock, preset and restart ask for the miner password again
 - a logger and a watchdog that soft-restarts the miner when it stops hashing
 - a command line: `gbox status | chips | plan | fantarget | restart | serve`
 
@@ -55,8 +55,20 @@ Start at logon:
 - One request in flight to the miner at a time, and never more than one poll
   cycle per 10 seconds. The firmware's token check has a race and its web
   backend crashes under bursts. Details in `docs/firmware-api.md`.
-- Never press Save on the stock UI's Miner page. Its save handler clears the
-  manual power plan and returns the miner to the factory preset.
+- Never press Save in the settings block of the stock UI's Miner page while
+  the miner runs a manual clock. That block holds the power plan dropdown
+  and the fan target slider, and its Save handler always writes `manual:
+  false`, so nudging the fan slider there silently returns the clock to the
+  factory preset. Use the dashboard's Controls instead. The rest of the
+  stock UI writes to its own endpoints and is safe for the plan:
+
+  | Stock UI | Safe with a manual clock? |
+  |---|---|
+  | Miner page, settings block Save (power plan, fan target) | **No** |
+  | Miner page, pools add/delete | Yes |
+  | Miner page, algorithm, LED/RGB | Yes |
+  | System page: IP, WiFi, restart | Yes (the manual plan survives a restart) |
+  | System page: factory reset | Never |
 - The service listens on 127.0.0.1 only unless you pass `--bind`. Anyone who
   can open the page can read the miner, write lines into the event log and,
   with the miner password, press the buttons. The page sends every change
