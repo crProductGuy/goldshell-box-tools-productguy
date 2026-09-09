@@ -133,7 +133,13 @@ Mark has not yet ruled on the extra password prompt; one flag in
 2. Buttons: built against the fake miner, then the real unit with Mark pressing them. Done-when: all four controls work with confirm + password + event log, standalone and served.
 2b. Clock trials, added 2026-09-08 after the 500/550/575/600 MHz experiment. The logger keeps all-chip nonce totals, the fan target, and the overheat flag. `gbox/trials.py` cuts `log.csv` into runs per clock and fan target, breaking on restarts, pool resets, and gaps, and pools them. The dashboard shows the table above the Service section and `gbox trials` prints it. `gbox trials run` steps through a clock list unattended with abort rules and always ends on a safe clock. The runner is a CLI process, not a service thread, so the service never gains a clock-changing endpoint. Method for users in `docs/clock-tuning.md`. Done-when: the table reproduces the hand-built comparison from the experiment; a scripted runner test covers completion, both abort rules, a stale log, and Ctrl-C; and the page shows a running trial's progress. Done 2026-09-08, deployed and run on the real unit the same night.
 3. Linux: installer + systemd unit tested on the Ubuntu box or in a container. Both installers must produce the same thing: the same `gbox serve` command line, the same data directory rule (`~/.gbox`), a service that survives logout and reboot, and an uninstall that reverses it. `scripts/install-windows.ps1` is the reference for behavior. Done-when: fresh Ubuntu, three commands, dashboard up, survives logout.
-4. Docs and release polish. The first commit and push happened 2026-09-06 (0.1.0), and 0.2.0 followed on 2026-09-09. What remains: `docs/case-study-scbox.md`, for which every number is in `firmware-api.md`, `clock-tuning.md`, and the STATUS checkpoint of 2026-09-09; `docs/architecture.md`; `SECURITY.md` from `security-notes.md`; screenshots, where the Clock trials table with the guard-trip row is the one that tells the story; a sanitizing pass; and one security review at feature-complete, Mark's standing default. The 2b diff had its own review on 2026-09-08 with no findings.
+4. Docs and release polish. The first commit and push happened 2026-09-06 (0.1.0), and 0.2.0 followed on 2026-09-09. What remains:
+   - `docs/case-study-scbox.md`. Every number it needs is in `firmware-api.md`, `clock-tuning.md`, and the STATUS checkpoint of 2026-09-09.
+   - `docs/architecture.md`.
+   - `SECURITY.md`, drafted from `security-notes.md`.
+   - Screenshots. The Clock trials table with the guard-trip row is the one that tells the story.
+   - A sanitizing pass.
+   - One security review at feature-complete, Mark's standing default. The 2b diff had its own review on 2026-09-08 with no findings.
 
 ## Deferred, with the reason (not in scope until Mark says so)
 
