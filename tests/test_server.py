@@ -113,6 +113,15 @@ class ServerTest(unittest.TestCase):
         self.get("/api/trials")
         self.assertIsNot(self.state.trials_cache[1], cached)       # log grew: recomputed
 
+    def test_trial_progress_file_is_served_when_present(self):
+        self.assertEqual(json.loads(self.get("/api/trial")[2]), {})
+        (self.data / "trial.json").write_text(json.dumps({"step": 2, "clock": 575}), encoding="utf-8")
+        status, headers, body = self.get("/api/trial")
+        self.assertEqual(headers["Content-Type"], "application/json")
+        self.assertEqual(json.loads(body), {"step": 2, "clock": 575})
+        (self.data / "trial.json").write_text("{not json", encoding="utf-8")   # half-written by the runner
+        self.assertEqual(json.loads(self.get("/api/trial")[2]), {})
+
     def test_csv_and_events(self):
         with self.assertRaises(urllib.error.HTTPError) as cm:
             self.get("/api/log.csv")

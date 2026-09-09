@@ -196,9 +196,20 @@ function trialCells(r) {
     { text: r.chip_temp.toFixed(1) + " °C · " + Math.round(r.fan_rpm) + " RPM" + (r.overheat ? " · " + r.overheat + " overheat" : ""), cls: r.overheat ? "serious" : "" },
   ];
 }
+// One line about a running `gbox trials run`, from its progress file (/api/trial); "" when none is running.
+function trialStatus(run, nowMs) {
+  if (!run || !run.step || !run.clocks) return "";
+  const parseTs = s => { const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(s || ""); return m ? new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime() : NaN; };
+  const hoursText = h => h % 1 === 0 ? h + "h" : trialDuration(h * 60);
+  const progress = run.status === "holding" && !isNaN(parseTs(run.step_started))
+    ? trialDuration(Math.max(0, nowMs - parseTs(run.step_started)) / 60000) + " of " + hoursText(run.hours) + " held"
+    : "settling, then " + hoursText(run.hours) + " held";
+  return "Trial running: step " + run.step + " of " + run.clocks.length + ", " + run.clock + " MHz, " + progress + ", ends at " + run.end + " MHz. " +
+    "Started from the command line; Ctrl-C there stops it.";
+}
 if (typeof module !== "undefined") module.exports = { encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
-  TRIAL_COLUMNS, trialDuration, trialCells };
+  TRIAL_COLUMNS, trialDuration, trialCells, trialStatus };
 
 // ---- presentation (skipped under Node, where the data layer above is unit-tested) ----
 if (typeof document !== "undefined") {
@@ -499,6 +510,11 @@ async function refreshTrials() {
     trialData = await r.json();
   } catch (e) { trialData = null; $("trialsnote").textContent = "could not read the trials table (" + e.message + ")"; }
   renderTrials();
+  try {
+    const run = await (await fetch("api/trial", { cache: "no-store" })).json();
+    const line = trialStatus(run, Date.now());
+    $("trialrun").textContent = line; $("trialrun").hidden = !line;
+  } catch (e) { $("trialrun").hidden = true; }
 }
 function renderTrials() {
   const head = $("trialtab").tHead.rows[0], body = $("trialtab").tBodies[0];

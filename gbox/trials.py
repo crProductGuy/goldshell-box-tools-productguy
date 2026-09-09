@@ -8,11 +8,15 @@ running totals, so clocks held on different days compare fairly. `rollup`
 pools the segments of one (clock, fan target) pair into the row the
 dashboard and `gbox trials` show by default.
 
-Pure functions over the CSV; nothing here talks to the miner.
+The table half is pure functions over the CSV. `run_trial` at the bottom is
+the unattended runner behind `gbox trials run`: it is the one thing here that
+talks to the miner, and only to set the clock at step boundaries.
 """
 import csv
 import datetime
+import json
 import re
+import time
 from pathlib import Path
 
 from . import api
@@ -215,3 +219,127 @@ def format_table(t, segments=False):
             ("~%.2f" if r["hw_approx"] else "%.2f") % r["hw_pct"], r["accepted_per_hour"],
             _hash(r["mhs"]), r["chip_temp"], r["fan_rpm"]))
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------- the unattended runner
+
+def _ts(epoch):
+    return datetime.datetime.fromtimestamp(epoch).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _epoch(text):
+    return datetime.datetime.strptime(text, "%Y-%m-%d %H:%M:%S").timestamp()
+
+
+def run_trial(miner, clocks, hours, end=None, fan=None, settle_min=10, check_min=5, min_judge_min=30,
+              max_resets=0, max_bad=3.0, stale_min=10, log_path=None, status_path=None, report=None,
+              now=time.time, sleep=time.sleep, out=print):
+    """Hold each clock in `clocks` for `hours`, judging the service log every `check_min` minutes.
+
+    A step is abandoned, and the whole run with it, when the board resets more
+    than `max_resets` times during the step, when the worst chip's bad share is
+    above `max_bad` percent once the step is `min_judge_min` old, or when the
+    service log has no sample newer than `stale_min` minutes (the runner cannot
+    judge blind). Whatever happens, including Ctrl-C, the miner is left on
+    `end` (default: the lowest clock in the list). Every clock is checked
+    against the firmware's range before anything is sent.
+
+    `report(text)` gets one line per step for the event log; `status_path`
+    receives a JSON progress file the dashboard shows, removed at the end.
+    `now` and `sleep` are injectable so the state machine tests in milliseconds.
+    """
+    clocks = [int(c) for c in clocks]
+    if not clocks:
+        raise ValueError("no clocks to try")
+    top = api.max_preset_mhz(miner.setting()) or 725
+    end = min(clocks) if end is None else int(end)
+    for c in clocks + [end]:
+        if c % 25 or not 300 <= c <= top:
+            raise ValueError("%d MHz: clocks must be multiples of 25 between 300 and %d MHz" % (c, top))
+    report = report or (lambda text: None)
+    log_path = Path(log_path) if log_path else None
+    status_path = Path(status_path) if status_path else None
+    state = {"clocks": clocks, "hours": hours, "end": end, "fan": fan, "started": _ts(now()), "step": 0,
+             "clock": None, "status": "starting", "step_started": None, "step_ends": None, "checks": 0, "reason": None}
+    result = {"completed": False, "step": None, "clock": None, "reason": None}
+
+    def write_status():
+        if status_path:
+            tmp = status_path.with_name(status_path.name + ".tmp")
+            tmp.write_text(json.dumps(state), encoding="utf-8")
+            tmp.replace(status_path)
+
+    def judge(mhz, step_start):
+        """The reason to stop, or None."""
+        segs = table(log_path, min_minutes=0)["segments"] if log_path else []
+        if not segs or now() - _epoch(segs[0]["end"]) > stale_min * 60:
+            return "no fresh samples in the service log for %d min (is gbox serve running?)" % stale_min
+        cur = next((s for s in segs if s["clock"] == mhz and _epoch(s["end"]) >= step_start), None)
+        if cur is None:
+            return None
+        if cur["resets"] > max_resets:
+            return "board reset %d time%s at %d MHz" % (cur["resets"], "" if cur["resets"] == 1 else "s", mhz)
+        if cur["minutes"] >= min_judge_min and cur["bad_pct"] is not None and cur["bad_pct"] > max_bad:
+            return "chip %d bad share %.1f%% at %d MHz, above the %.1f%% limit" % (cur["worst_chip"], cur["bad_pct"], mhz, max_bad)
+        return None
+
+    current = None
+    try:
+        if fan is not None:
+            applied = miner.set_fan_target(fan)
+            out("fan target set to %s C" % applied)
+            report("trial: fan target set to %s C" % applied)
+        for i, mhz in enumerate(clocks, 1):
+            state.update(step=i, clock=mhz, status="settling", step_started=_ts(now()), checks=0,
+                         step_ends=_ts(now() + settle_min * 60 + hours * 3600))
+            result.update(step=i, clock=mhz)
+            miner.set_plan(mhz)
+            current = mhz
+            msg = "trial: step %d/%d, clock set to %d MHz, holding %g h after %g min settle" % (i, len(clocks), mhz, hours, settle_min)
+            out(_ts(now()), msg)
+            report(msg)
+            write_status()
+            sleep(settle_min * 60)
+            hold_start = now()
+            state["status"] = "holding"
+            while True:
+                remaining = hold_start + hours * 3600 - now()
+                if remaining <= 0:
+                    break
+                write_status()
+                sleep(min(check_min * 60, remaining))
+                state["checks"] += 1
+                reason = judge(mhz, hold_start)
+                if reason:
+                    result["reason"] = reason
+                    out(_ts(now()), "stopping:", reason)
+                    break
+            if result["reason"]:
+                break
+        else:
+            result["completed"] = True
+    except KeyboardInterrupt:
+        result["reason"] = "interrupted from the keyboard"
+        out(_ts(now()), "interrupted")
+    except Exception as e:
+        result["reason"] = "error: %s" % e
+        out(_ts(now()), "error:", e)
+    finally:
+        state.update(status="done" if result["completed"] else "aborted", reason=result["reason"])
+        try:
+            if current != end:
+                miner.set_plan(end)
+            if result["completed"]:
+                msg = "trial: finished all %d step%s, clock set to %d MHz (end)" % (len(clocks), "" if len(clocks) == 1 else "s", end)
+            else:
+                msg = "trial: aborted at step %s (%s MHz): %s; clock set to %d MHz (end)" % (
+                    result["step"], result["clock"], result["reason"], end)
+            out(_ts(now()), msg)
+            report(msg)
+        except Exception as e:                       # the end clock could not be applied: say so loudly
+            out(_ts(now()), "COULD NOT SET THE END CLOCK %d MHz: %s. Set it by hand." % (end, e))
+            report("trial: could not set the end clock %d MHz: %s" % (end, e))
+        finally:
+            if status_path and status_path.exists():
+                status_path.unlink()
+    return result

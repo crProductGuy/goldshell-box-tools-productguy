@@ -150,6 +150,17 @@ const tests = {
     assert.strictEqual(mild[4].cls, "");
     assert.strictEqual(app.trialCells(Object.assign({}, row, { worst_chip: 8, bad_pct: 2.5 }))[4].cls, "serious");
   },
+  "trial status line from the runner's progress file"() {
+    assert.strictEqual(app.trialStatus({}, 0), "");
+    assert.strictEqual(app.trialStatus(null, 0), "");
+    const run = { clocks: [550, 575, 600], hours: 4, end: 550, step: 2, clock: 575, status: "holding",
+      started: "2026-09-08 22:00:00", step_started: "2026-09-08 23:10:00", step_ends: "2026-09-09 03:20:00", checks: 14 };
+    const now = new Date(2026, 8, 9, 0, 22, 0).getTime();
+    assert.strictEqual(app.trialStatus(run, now),
+      "Trial running: step 2 of 3, 575 MHz, 1h 12m of 4h held, ends at 550 MHz. Started from the command line; Ctrl-C there stops it.");
+    const settling = Object.assign({}, run, { status: "settling", step_started: "2026-09-09 00:20:00" });
+    assert.match(app.trialStatus(settling, now), /^Trial running: step 2 of 3, 575 MHz, settling/);
+  },
 };
 
 let failed = 0;

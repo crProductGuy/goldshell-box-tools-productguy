@@ -11,9 +11,14 @@ KD-BOX, HS-BOX, LT-BOX and relatives running the "cloud-box" MCB_V5 firmware):
 - protected buttons for the settings whose Save button on the stock UI is a
   trap: manual clock in 25 MHz steps, fan target, firmware preset, and a
   soft restart. Each shows what changes and the exact request before
-  sending it; clock, preset and restart ask for the miner password again
+  sending it; clock, preset, and restart ask for the miner password again
 - a logger and a watchdog that soft-restarts the miner when it stops hashing
-- a command line: `gbox status | chips | plan | fantarget | restart | serve`
+- a clock-trials table, on the dashboard and as `gbox trials`, that compares
+  every clock and fan target the miner has run: worst-chip bad share, board
+  resets, HW error rate, shares per hour, hashrate, temperature, fan speed.
+  `gbox trials run 550 575 600 --hours 4` steps through a list unattended
+  and backs off to a safe clock at the first board reset
+- a command line: `gbox status | chips | plan | fantarget | restart | trials | serve`
 
 Born from a diagnosis of an SC-BOX running at 30 percent: one marginal chip was
 resetting the whole board every nine seconds at the factory clock, and the
@@ -49,6 +54,15 @@ Start at logon:
 - Windows: `powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1`
   (no administrator rights needed; `-Uninstall` reverses it)
 - Linux: `scripts/install-linux.sh` (systemd user unit) — next step of the plan
+
+## Finding the right clock
+
+Lower the clock until the weak chip stops producing bad nonces and board
+resets, then climb back up 25 MHz at a time while the Clock trials table on
+the dashboard says the chip is still clean. Hold each clock for hours, not
+minutes. `docs/clock-tuning.md` has the method, by hand and with
+`gbox trials run`, and explains why accepted shares per hour is a worse
+throughput number than it looks.
 
 ## Rules the tools follow, and you should too
 

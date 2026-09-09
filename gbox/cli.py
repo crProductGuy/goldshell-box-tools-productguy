@@ -135,7 +135,50 @@ def cmd_restart(args, cfg, data_dir):
     _out("restart sent; the miner takes about 60-90 s to come back and start hashing")
 
 
+def _service_url(cfg):
+    host = "127.0.0.1" if cfg.bind in ("0.0.0.0", "", "127.0.0.1", "localhost") else cfg.bind
+    return "http://%s:%d" % (host, cfg.port)
+
+
+def cmd_trials_run(args, cfg, data_dir):
+    import json
+    import urllib.request
+    url = _service_url(cfg)
+    try:
+        with urllib.request.urlopen(url + "/api/health", timeout=5) as r:
+            health = json.loads(r.read().decode("utf-8"))
+    except Exception as e:
+        _die("the runner judges by the service's log, so `gbox serve` must be running (nothing answered at %s: %s)" % (url, e))
+    if not (health.get("has_token") or health.get("can_login")):
+        _die("the service at %s is not logging yet: log in on the dashboard first, or restart it with --remember" % url)
+    warned = []
+
+    def report(text):
+        body = json.dumps({"message": text}).encode("utf-8")
+        req = urllib.request.Request(url + "/api/event", data=body, method="POST", headers={"Content-Type": "application/json"})
+        try:
+            urllib.request.urlopen(req, timeout=5).close()
+        except Exception as e:
+            if not warned:
+                warned.append(e)
+                _out("(could not write to the service event log: %s)" % e)
+
+    miner = _miner(args, cfg)
+    _out("trial: %s MHz, %g h each%s, ending at %s MHz; the service at %s keeps the log. Ctrl-C stops the run and applies the end clock." % (
+        " -> ".join(str(c) for c in args.clocks), args.hours, (", fan target %d C" % args.fan) if args.fan is not None else "",
+        args.end if args.end is not None else min(args.clocks), url))
+    result = trials.run_trial(
+        miner, args.clocks, args.hours, end=args.end, fan=args.fan, settle_min=args.settle, check_min=args.check,
+        min_judge_min=args.judge, max_resets=args.max_resets, max_bad=args.max_bad,
+        log_path=data_dir / "log.csv", status_path=data_dir / "trial.json", report=report, out=_out)
+    _out("now compare the rows: `gbox trials`, or the Clock trials table on the dashboard")
+    if not result["completed"]:
+        sys.exit(2)
+
+
 def cmd_trials(args, cfg, data_dir):
+    if getattr(args, "trials_cmd", None) == "run":
+        return cmd_trials_run(args, cfg, data_dir)
     path = data_dir / "log.csv"
     t = trials.table(path, min_minutes=args.min)
     if not t["segments"]:
@@ -250,6 +293,19 @@ def build_parser():
     sp.add_argument("--segments", action="store_true", help="one row per continuous run instead of one per clock")
     sp.add_argument("--min", type=int, default=trials.MIN_MINUTES, help="hide runs shorter than this many minutes (default %d)" % trials.MIN_MINUTES)
     sp.set_defaults(fn=cmd_trials)
+    tsub = sp.add_subparsers(dest="trials_cmd")
+    run = tsub.add_parser("run", help="hold each clock in turn, unattended, with abort rules; needs `gbox serve` running",
+                          description="Example: gbox trials run 550 575 600 --hours 4 --end 575")
+    run.add_argument("clocks", type=int, nargs="+", help="clocks to hold, in order, MHz (multiples of 25)")
+    run.add_argument("--hours", type=float, required=True, help="how long to hold each clock")
+    run.add_argument("--end", type=int, help="clock to leave the miner on afterwards, or on abort (default: the lowest in the list)")
+    run.add_argument("--fan", type=int, help="fan target to set once at the start")
+    run.add_argument("--settle", type=float, default=10, help="minutes to ignore after each clock change, for the fan spike (default 10)")
+    run.add_argument("--check", type=float, default=5, help="minutes between checks of the log (default 5)")
+    run.add_argument("--judge", type=float, default=30, help="minutes a step must be old before the bad-share rule applies (default 30)")
+    run.add_argument("--max-resets", type=int, default=0, help="board resets tolerated in one step before aborting (default 0)")
+    run.add_argument("--max-bad", type=float, default=3.0, help="worst chip bad share, percent, tolerated before aborting (default 3)")
+    run.set_defaults(fn=cmd_trials)
     sp = sub.add_parser("serve", help="run dashboard, logger and watchdog")
     sp.add_argument("--bind", help="listen address (default 127.0.0.1; anything else is exposed)")
     sp.add_argument("--port", type=int)
