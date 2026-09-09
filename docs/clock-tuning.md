@@ -17,6 +17,16 @@ written for, 575 MHz gave about 97 percent of 600 MHz's hashrate, with the
 weak chip's bad share falling from 8 percent to 0.1 percent and zero board
 resets. Your miner is a different miner. Measure it.
 
+The lower clock also draws less power. Measured at the wall with an in-line
+power meter on the same SC-BOX: a steady 183 W at 575 MHz, against 223 W
+when it originally ran at the factory clock, and 71 to 230 W bouncing while
+the marginal chip kept resetting the board. That is 18 percent less power
+than the factory clock, from a miner that was producing almost nothing
+while it reset. A trial like this is also the way to find the clock that
+balances electricity cost against earnings, whichever Box model you have.
+A watt meter next to the miner during the trial adds the one column the
+log cannot see.
+
 ## Before you start
 
 - The service must be running (`gbox serve`, or the installed service),
