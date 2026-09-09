@@ -55,6 +55,45 @@ class PollerTest(unittest.TestCase):
         self.assertIn("NoCredentials", row["http"])
         self.assertEqual(len(wd._rows), 0)
 
+    def test_sample_has_nonce_totals_fan_target_and_overheat(self):
+        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30)
+        p.poll_once()
+        r = self.rows()[0]
+        self.assertEqual(r["nonces_good"], "108662")      # sum of perf over every chip in dbg_icinfo.json
+        self.assertEqual(r["nonces_bad"], "2894")
+        self.assertEqual(r["temp_target"], "65")
+        self.assertEqual(r["overheat"], "0")
+        self.assertEqual(poller.COLUMNS[-4:], ["nonces_good", "nonces_bad", "temp_target", "overheat"])
+
+    def test_old_header_is_migrated_with_a_backup(self):
+        old = poller.COLUMNS[:17]
+        with open(self.csv, "w", encoding="utf-8", newline="") as f:
+            f.write(",".join(old) + "\n")
+            f.write("2026-09-05 21:05:52,ok,1,2,3,4,0.4,5,0,600.0,3000,3000,70,70,63,0,8:1/1\n")
+            f.write("2026-09-05 21:06:22,ERR:x,,,,,,,,,,,,,,,\n")
+        self.assertTrue(poller.migrate_columns(self.csv))
+        self.assertFalse(poller.migrate_columns(self.csv))          # already current: a no-op
+        with open(self.csv, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(lines[0], ",".join(poller.COLUMNS))
+        self.assertEqual(lines[1], "2026-09-05 21:05:52,ok,1,2,3,4,0.4,5,0,600.0,3000,3000,70,70,63,0,8:1/1,,,,")
+        self.assertEqual(lines[2].count(","), len(poller.COLUMNS) - 1)
+        self.assertTrue((self.csv.parent / "log.csv.bak").exists())
+        rows = self.rows()
+        self.assertEqual(rows[0]["nonces_good"], "")
+        self.assertEqual(rows[0]["weak_chips"], "8:1/1")
+        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30)
+        p.poll_once()
+        self.assertEqual(self.rows()[2]["temp_target"], "65")
+
+    def test_migrate_ignores_missing_or_foreign_header(self):
+        self.assertFalse(poller.migrate_columns(self.csv))
+        with open(self.csv, "w", encoding="utf-8") as f:
+            f.write("a,b,c\n1,2,3\n")
+        self.assertFalse(poller.migrate_columns(self.csv))
+        with open(self.csv, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "a,b,c\n1,2,3\n")
+
     def test_watchdog_is_fed(self):
         events = EventLog()
         wd = Watchdog(lambda: None, events, 30)
