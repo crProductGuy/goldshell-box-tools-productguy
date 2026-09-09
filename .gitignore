@@ -27,5 +27,3 @@ STATUS.md
 # Claude Code worktrees (created by EnterWorktree)
 .claude/worktrees/
 
-# internal, kept beside STATUS.md, not for the public repo
-EVOLUTION-TIMELINE.md
