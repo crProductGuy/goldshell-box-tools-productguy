@@ -63,6 +63,15 @@ class ServiceState:
                 self.trials_cache = (key, trials.table(path))
             return self.trials_cache[1]
 
+    def trial_progress(self):
+        """The runner's progress file (`gbox trials run` writes it, removes it when done), or {}."""
+        try:
+            with open(self.data_dir / "trial.json", encoding="utf-8") as f:
+                obj = json.load(f)
+            return obj if isinstance(obj, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
     def health(self):
         p, w = self.poller, self.watchdog
         return {
@@ -134,6 +143,8 @@ def make_handler(state):
                 return self._json(200, latest or {})
             if path == "/api/trials":
                 return self._json(200, state.trials_table())
+            if path == "/api/trial":
+                return self._json(200, state.trial_progress())
             self._send(404, "not found")
 
         def _json_body(self):

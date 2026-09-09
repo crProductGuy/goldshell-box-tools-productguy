@@ -210,5 +210,171 @@ class FormatTest(unittest.TestCase):
             self.assertEqual(len(text.splitlines()), 1 + 5)
 
 
+class FakeWorld:
+    """A fake clock whose `sleep` advances time and appends one log row per simulated minute.
+
+    `script(minute)` returns keyword overrides for `row` at that minute, so a test
+    can make the board reset or a chip go bad part-way through a step.
+    """
+
+    def __init__(self, path, script=None, clock_mhz=None):
+        self.path = path
+        self.t = T0
+        self.script = script or (lambda m: {})
+        self.minute = 0
+        self.mhz = clock_mhz            # what the "miner" runs; run_trial changes it through set_plan
+        self.interrupt_at = None
+        self.stale_after = None
+        write_csv(path, [], poller.COLUMNS)
+
+    def now(self):
+        return self.t.timestamp()
+
+    def sleep(self, seconds):
+        steps = max(1, int(round(seconds / 60.0)))
+        for _ in range(steps):
+            self.t += timedelta(minutes=1)
+            self.minute += 1
+            if self.interrupt_at is not None and self.minute >= self.interrupt_at:
+                raise KeyboardInterrupt()
+            if self.stale_after is not None and self.minute > self.stale_after:
+                continue
+            kw = dict(clock=float(self.mhz), elapsed=60 * self.minute, accepted=10 * self.minute, hwerr=self.minute,
+                      good=1000 * self.minute, weak="8:%d/%d" % (100 * self.minute, self.minute))
+            kw.update(self.script(self.minute))
+            with open(self.path, "a", encoding="utf-8", newline="") as f:
+                r = row(self.t, **kw)
+                f.write(",".join("" if r.get(c) is None else str(r.get(c)) for c in poller.COLUMNS) + "\n")
+
+
+class RunTrialTest(unittest.TestCase):
+    def setUp(self):
+        from tests.fake_miner import FakeMiner
+        from gbox import api
+        self.fm = FakeMiner().start()
+        self.addCleanup(self.fm.stop)
+        self.miner = api.Miner(self.fm.address, password="password")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.log = Path(self.tmp.name) / "log.csv"
+        self.status = Path(self.tmp.name) / "trial.json"
+        self.reports = []
+        self.plans = []
+        real = self.miner.set_plan
+
+        def set_plan(mhz, volts=None):
+            self.plans.append(mhz)
+            self.world.mhz = mhz
+            return real(mhz, volts)
+        self.miner.set_plan = set_plan
+
+    def run_it(self, clocks, world, **kw):
+        self.world = world
+        world.mhz = world.mhz or 600
+        args = dict(hours=1.0, settle_min=5, check_min=5, min_judge_min=10, log_path=self.log, status_path=self.status,
+                    report=self.reports.append, now=world.now, sleep=world.sleep, out=lambda *a: None)
+        args.update(kw)
+        return trials.run_trial(self.miner, clocks, **args)
+
+    def test_steps_through_the_list_and_ends_on_the_end_clock(self):
+        world = FakeWorld(self.log)
+        result = self.run_it([550, 575], world, end=525)
+        self.assertEqual(self.plans, [550, 575, 525])
+        self.assertTrue(result["completed"])
+        self.assertIsNone(result["reason"])
+        self.assertIn("525 MHz", self.miner.setting()["manualPowerplan"])
+        self.assertFalse(self.status.exists())
+        self.assertTrue(any("step 1/2" in r and "550" in r for r in self.reports))
+        self.assertTrue(any("finished" in r and "525" in r for r in self.reports))
+        # each step ran its settle plus its hold: 2 x (5 + 60) minutes, give or take a check
+        self.assertGreaterEqual(world.minute, 130)
+        self.assertLess(world.minute, 145)
+
+    def test_end_defaults_to_the_lowest_clock(self):
+        world = FakeWorld(self.log)
+        self.run_it([600, 550, 575], world, hours=0.1)
+        self.assertEqual(self.plans[-1], 550)
+
+    def test_board_reset_aborts_the_run(self):
+        world = FakeWorld(self.log, script=lambda m: {"rebootcnt": 1 if m >= 20 else 0})
+        result = self.run_it([550, 575, 600], world, end=500)
+        self.assertEqual(self.plans, [550, 500])                # never reached 575
+        self.assertFalse(result["completed"])
+        self.assertEqual(result["step"], 1)
+        self.assertIn("reset", result["reason"])
+        self.assertTrue(any("aborted" in r for r in self.reports))
+        self.assertFalse(self.status.exists())
+
+    def test_bad_share_aborts_only_after_the_judging_delay(self):
+        # chip 8 at 10 percent bad from the start of the step; the guard waits min_judge_min before it counts
+        world = FakeWorld(self.log, script=lambda m: {"weak": "8:%d/%d" % (900 * m, 100 * m)})
+        result = self.run_it([550, 575], world, end=500, max_bad=5.0)
+        self.assertEqual(self.plans, [550, 500])
+        self.assertIn("bad share", result["reason"])
+        self.assertGreaterEqual(world.minute, 5 + 10)           # settle + judging delay before the abort
+        self.assertLess(world.minute, 5 + 10 + 2 * 5 + 1)
+
+    def test_clean_chip_below_threshold_does_not_abort(self):
+        world = FakeWorld(self.log, script=lambda m: {"weak": "8:%d/%d" % (1000 * m, 2 * m)})   # 0.2 percent
+        result = self.run_it([550], world, end=550, max_bad=1.0, hours=0.5)
+        self.assertTrue(result["completed"])
+
+    def test_ctrl_c_sets_the_end_clock(self):
+        world = FakeWorld(self.log)
+        world.interrupt_at = 30
+        result = self.run_it([550, 575], world, end=500)
+        self.assertEqual(self.plans, [550, 500])
+        self.assertFalse(result["completed"])
+        self.assertIn("interrupted", result["reason"])
+        self.assertFalse(self.status.exists())
+
+    def test_stale_log_aborts(self):
+        world = FakeWorld(self.log)
+        world.stale_after = 20                                   # the service stops writing after minute 20
+        result = self.run_it([550, 575], world, end=500, stale_min=15)
+        self.assertEqual(self.plans, [550, 500])
+        self.assertIn("no fresh samples", result["reason"])
+
+    def test_bad_clock_list_is_refused_before_anything_is_sent(self):
+        world = FakeWorld(self.log)
+        with self.assertRaises(ValueError):
+            self.run_it([550, 730], world)
+        with self.assertRaises(ValueError):
+            self.run_it([560], world)
+        with self.assertRaises(ValueError):
+            self.run_it([550], world, end=740)
+        with self.assertRaises(ValueError):
+            self.run_it([], world)
+        self.assertEqual(self.plans, [])
+
+    def test_fan_target_is_set_once_at_the_start(self):
+        world = FakeWorld(self.log)
+        self.run_it([550], world, hours=0.1, fan=70)
+        self.assertEqual(self.miner.setting()["temp_target"], 70)
+        self.assertTrue(any("fan target" in r and "70" in r for r in self.reports))
+
+    def test_status_file_tracks_the_step(self):
+        import json
+        seen = []
+        world = FakeWorld(self.log)
+        real_sleep = world.sleep
+
+        def sleep(s):
+            if self.status.exists():
+                seen.append(json.loads(self.status.read_text(encoding="utf-8")))
+            real_sleep(s)
+        self.run_it([550, 575], world, end=500, hours=0.25, sleep=sleep)
+        self.assertTrue(seen)
+        self.assertEqual(seen[0]["step"], 1)
+        self.assertEqual(seen[0]["clocks"], [550, 575])
+        self.assertEqual(seen[0]["clock"], 550)
+        self.assertEqual(seen[0]["end"], 500)
+        self.assertEqual(seen[0]["hours"], 0.25)
+        self.assertIn(seen[0]["status"], ("settling", "holding"))
+        self.assertEqual(seen[-1]["step"], 2)
+        self.assertEqual(seen[-1]["status"], "holding")
+        self.assertEqual(set(seen[-1]) >= {"started", "step_started", "step_ends", "checks"}, True)
+
+
 if __name__ == "__main__":
     unittest.main()
