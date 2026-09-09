@@ -73,7 +73,7 @@ The hidden page `/#/debug` in the stock UI renders most of the `/dbg/` data.
   `powerplans`, temperature control checkbox (read-only), and a fan target
   slider bounded by `temp_targets` (shown when `temp_targets[0] > 0`). Its
   Save handler sets `manual` to the inverse of a "power plan shown" flag that
-  is initialised true and never changed, then PUTs the object. So every Save
+  is initialized true and never changed, then PUTs the object. So every Save
   from that block writes `manual: false`, whichever field was touched, and a
   manual clock silently reverts to the preset. The manual power-plan field
   itself is dead code. Pools (`/mcb/newpool`, `/mcb/delpool`), algorithm
@@ -92,6 +92,28 @@ The hidden page `/#/debug` in the stock UI renders most of the `/dbg/` data.
 - `/dbg/` files are regenerated per request; `dbg/fanctrllog` occasionally
   returns a length mismatch mid-write. Keep the last good value.
 
+## Counters, and what they can and cannot tell you
+
+Verified 2026-09-08 on the SC-BOX, from the gbox log:
+
+- `Hardware Errors` in `minerinfo` equals the sum of `hwerr` over every chip
+  in `icinfo` (1711 = chip 8's bad count when it was the only chip with
+  any). `Device Hardware%` is that count over all nonces since the miner
+  started: a running average that drifts for hours after a change. For the
+  error rate of one clock, take the difference of `Hardware Errors` and of
+  the summed `perf` between two samples.
+- `Device Elapsed`, `Accepted`, `Rejected`, `Hardware Errors` and
+  `rebootcnt` all reset to zero on a controller restart (soft restart, power
+  cycle, or the watchdog). A drop in `Device Elapsed` is the reliable sign
+  of one.
+- `Accepted` can also reset without a restart when the pool connection is
+  re-established, and shares per hour follow the pool's per-connection
+  difficulty as much as the miner: the same unit logged 1521 and 643
+  accepted shares per hour at the same clock and hashrate on two pool
+  sessions. Use `MHS 20s` or the summed `perf` for throughput.
+- `temp_target` lives in `mcb/setting`, not in `minerinfo`; reading it every
+  poll (three requests per 30 s cycle) has caused no trouble.
+
 ## Hashboard behavior seen on the SC-BOX
 
 - 16 ICT580 chips on one board (`CPB0`). Healthy chips return good nonces at
@@ -101,6 +123,20 @@ The hidden page `/#/debug` in the stock UI renders most of the `/dbg/` data.
   the whole board (clock ramp 50 -> 725 MHz, ~10 s of no hashing) every few
   seconds. `rebootcnt` in `minerinfo` counts these. Lowering the clock to
   600 MHz stopped it entirely on this unit.
+- The same chip's bad-nonce share is a steep function of clock: 8 to 10
+  percent at 600 MHz, 0.1 percent at 575 MHz, and none at 550 or 500 MHz, with
+  zero board resets at all four. Measured over days at 600 and 575, and
+  reproduced in 34 minutes when `gbox trials run` stepped the unit back up
+  to 600 on 2026-09-08 (8.5 percent, guard tripped).
+- Errors lag a clock change. After the drop from 600 back to 575 MHz the
+  chip kept producing bad nonces for about half an hour (2.9 percent of its
+  nonces in the first 29 minutes), then settled to 0.1 percent over the
+  next twelve hours. Judge a clock after an hour, not after ten minutes.
+- The fan controller steers on the board sensor, so a small drop there buys
+  a large fan-speed drop. An external fan pulling air off the outlet side
+  lowered the board sensor 2.4 C (64.7 to 62.3) and the internal fans fell
+  from 1860 to 1200 RPM and stayed there. No measurable change in error
+  rates either way.
 - A second failure mode: the board accepts work and reports each job finished
   instantly without hashing; the firmware notices after minutes via
   `SEND JOB FAILD 10 TIMES, REINIT THIS CPB`.

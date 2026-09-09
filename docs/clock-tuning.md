@@ -65,6 +65,21 @@ trial adds the one column the log cannot see.
    what you bought, and the bad share and resets columns show whether the
    chip minded.
 
+Two things the SC-BOX taught about reading the rows:
+
+- **Errors lag a clock change.** After a step down from 600 to 575 MHz the
+  weak chip kept producing bad nonces for about half an hour, then went
+  quiet. A row's first 30 minutes after a step down can look worse than the
+  clock deserves. Judge after an hour, and let `gbox trials run` do the
+  waiting for you (it does not apply its bad-share rule until a step is 30
+  minutes old).
+- **Airflow is cheaper than a fan target.** The fan controller steers on the
+  board sensor, so a small drop there buys a large fan-speed drop. A desk
+  fan pulling air off the miner's outlet side lowered the board sensor by
+  2.4 °C and let the internal fans fall from 1860 to 1200 RPM and stay
+  there, with no change in error rates. Quieter, and less fan wear, for no
+  hashrate.
+
 ## Unattended trial
 
 `gbox trials run` steps through a list of clocks by itself. It reads the
