@@ -62,3 +62,8 @@ button.act { cursor:pointer; font-weight:600 } button.danger { color:var(--criti
 .dialog .changes { margin:0; padding-left:18px; font:13px/1.5 ui-monospace,Consolas,monospace; overflow-wrap:anywhere } .dialog .changes li { color:var(--ink) }
 .dialog .reqbox summary { cursor:pointer } .dialog .reqbox[open] summary { margin-bottom:6px }
 svg .marklbl { fill:var(--warn); font-size:9px; font-weight:600 } svg .mark:hover { stroke-width:3 }
+/* clock trials table */
+.scroll { overflow-x:auto } #trialtab { min-width:900px } #trialtab td { white-space:nowrap }
+#trialtab td.critical { color:var(--critical); font-weight:600 } #trialtab td.serious { color:var(--serious); font-weight:600 }
+#trialtab tr.live td { font-weight:600 } #trialtab tr.live td.critical, #trialtab tr.live td.serious { font-weight:700 }
+#trialtab td.empty { text-align:left; color:var(--muted) }

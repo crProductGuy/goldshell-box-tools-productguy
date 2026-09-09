@@ -106,6 +106,50 @@ const tests = {
     assert.strictEqual(marks[0].label, "dashboard: clock set to 625 MHz");
     assert.match(marks[1].label, /^watchdog: restart #1/);
   },
+  "trial durations read as hours and minutes"() {
+    assert.strictEqual(app.trialDuration(9.4), "9 min");
+    assert.strictEqual(app.trialDuration(58), "58 min");
+    assert.strictEqual(app.trialDuration(637.2), "10h 37m");
+    assert.strictEqual(app.trialDuration(2899), "2d 0h 19m");
+  },
+  "trial row cells: rollup with a bad-share range, partial marker, approximate HW%"() {
+    const row = { clock: 600, fan_target: 65, segments: 2, start: "2026-09-08 10:00:00", end: "2026-09-08 10:55:00", minutes: 54,
+      last: false, worst_chip: 8, bad_pct_min: 11.11, bad_pct_max: 20, bad_partial: true, bad_per_hour: 106.2, resets: 2,
+      hw_pct: 0.48, hw_approx: true, accepted_per_hour: 600, mhs: 755000, chip_temp: 70.4, fan_rpm: 2294, overheat: 1 };
+    const cells = app.trialCells(row);
+    assert.strictEqual(cells.length, app.TRIAL_COLUMNS.length);
+    const text = cells.map(c => c.text);
+    assert.strictEqual(text[0], "600 MHz");
+    assert.strictEqual(text[1], "65 °C");
+    assert.match(text[2], /^09-08 10:00/);
+    assert.strictEqual(text[3], "54 min · 2 segs");
+    assert.strictEqual(text[4], "chip 8 ≥11.1-20.0%");
+    assert.strictEqual(text[5], "106.2");
+    assert.strictEqual(text[6], "2");
+    assert.strictEqual(text[7], "~0.48%");
+    assert.strictEqual(text[8], "600");
+    assert.strictEqual(text[9], "755 GH/s");
+    assert.strictEqual(text[10], "70.4 °C · 2294 RPM · 1 overheat");
+    assert.strictEqual(cells[6].cls, "critical");            // resets above zero
+    assert.strictEqual(cells[4].cls, "critical");            // bad share above 5 percent
+  },
+  "trial row cells: clean segment, unknown fan target, live marker"() {
+    const row = { clock: 575, fan_target: null, start: "2026-09-08 10:26:00", end: "2026-09-08 21:03:00", minutes: 637.2, last: true,
+      worst_chip: null, bad_pct: null, bad_partial: false, bad_per_hour: 0, resets: 0, hw_pct: 0.31, hw_approx: false,
+      accepted_per_hour: 595.4, mhs: 735000, chip_temp: 70.4, fan_rpm: 1389, overheat: 0 };
+    const text = app.trialCells(row).map(c => c.text);
+    assert.strictEqual(text[1], "?");
+    assert.strictEqual(text[3], "10h 37m · live");
+    assert.strictEqual(text[4], "none flagged");
+    assert.strictEqual(text[7], "0.31%");
+    assert.strictEqual(text[8], "595");
+    assert.strictEqual(text[10], "70.4 °C · 1389 RPM");
+    assert.strictEqual(app.trialCells(row)[6].cls, "");
+    const mild = app.trialCells(Object.assign({}, row, { worst_chip: 8, bad_pct: 0.13, bad_per_hour: 0.8 }));
+    assert.strictEqual(mild[4].text, "chip 8 0.1%");
+    assert.strictEqual(mild[4].cls, "");
+    assert.strictEqual(app.trialCells(Object.assign({}, row, { worst_chip: 8, bad_pct: 2.5 }))[4].cls, "serious");
+  },
 };
 
 let failed = 0;

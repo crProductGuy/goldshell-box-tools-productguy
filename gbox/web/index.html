@@ -93,6 +93,13 @@
     </div>
   </section>
 
+  <section id="trials" hidden>
+    <h2>Clock trials<span>one row per clock and fan target the miner has run, from the service log, newest first</span></h2>
+    <div class="row" style="margin-bottom:6px"><label class="note"><input type="checkbox" id="trialsegs"> show each continuous run instead of one row per clock</label><span class="note" id="trialsnote"></span></div>
+    <div class="scroll"><table id="trialtab"><thead><tr></tr></thead><tbody></tbody></table></div>
+    <p class="note">Hold each clock for hours, not minutes, then compare rows. <b>Bad share</b> is the worst chip's bad nonces as a share of its nonces in that run; compare shares, not counts, because a slower clock attempts fewer. ≥ means the chip dropped off the weak list part-way (it got better). <b>Board resets</b> above zero end a trial. <b>Accepted/hr</b> is what the pool pays on but follows its share difficulty as much as the miner: use <b>hashrate</b> for throughput. <b>HW error</b> with ~ is the firmware's running average, from samples logged before the nonce totals were kept. A row ends when the clock or fan target changes, the miner restarts, or the log has a gap over five minutes; runs under 20 minutes are hidden. Method: <code>docs/clock-tuning.md</code>.</p>
+  </section>
+
   <section id="svc" hidden>
     <h2>Service<span id="svcsub"></span></h2>
     <pre class="events" id="events"></pre>

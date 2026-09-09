@@ -164,8 +164,41 @@ function eventMarkers(text) {
   });
   return out;
 }
+// ---- clock trials table (rows come from /api/trials; rollup rows carry bad_pct_min/max and segments, segment rows carry bad_pct) ----
+const TRIAL_COLUMNS = ["clock", "fan target", "from", "held", "worst chip, bad share", "bad/hour", "board resets", "HW error", "accepted/hr", "hashrate", "chip temp · fans"];
+function trialDuration(minutes) {
+  const m = Math.round(minutes);
+  if (m < 60) return m + " min";
+  const h = Math.floor(m / 60), d = Math.floor(h / 24);
+  return (d ? d + "d " : "") + (h % 24) + "h " + String(m % 60).padStart(d ? 2 : 1, "0") + "m";
+}
+function trialCells(r) {
+  const hi = r.bad_pct_max === undefined ? r.bad_pct : r.bad_pct_max, lo = r.bad_pct_min === undefined ? r.bad_pct : r.bad_pct_min;
+  let chip = "none flagged", chipCls = "";
+  if (r.worst_chip !== null && r.worst_chip !== undefined && hi !== null) {
+    const range = (lo === null || Math.abs(hi - lo) < 0.05) ? hi.toFixed(1) + "%" : lo.toFixed(1) + "-" + hi.toFixed(1) + "%";
+    chip = "chip " + r.worst_chip + " " + (r.bad_partial ? "≥" : "") + range;
+    chipCls = hi > 5 ? "critical" : hi > 1 ? "serious" : "";
+  }
+  const [unit, div] = hashUnit(r.mhs);
+  const held = trialDuration(r.minutes) + (r.segments > 1 ? " · " + r.segments + " segs" : "") + (r.last ? " · live" : "");
+  return [
+    { text: r.clock + " MHz", cls: "" },
+    { text: r.fan_target === null || r.fan_target === undefined ? "?" : r.fan_target + " °C", cls: "" },
+    { text: r.start.slice(5, 16), cls: "" },
+    { text: held, cls: "" },
+    { text: chip, cls: chipCls },
+    { text: r.bad_per_hour.toFixed(1), cls: "" },
+    { text: String(r.resets), cls: r.resets > 0 ? "critical" : "" },
+    { text: (r.hw_approx ? "~" : "") + r.hw_pct.toFixed(2) + "%", cls: "" },
+    { text: String(Math.round(r.accepted_per_hour)), cls: "" },
+    { text: Math.round(r.mhs / div) + " " + unit, cls: "" },
+    { text: r.chip_temp.toFixed(1) + " °C · " + Math.round(r.fan_rpm) + " RPM" + (r.overheat ? " · " + r.overheat + " overheat" : ""), cls: r.overheat ? "serious" : "" },
+  ];
+}
 if (typeof module !== "undefined") module.exports = { encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
-  parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers };
+  parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
+  TRIAL_COLUMNS, trialDuration, trialCells };
 
 // ---- presentation (skipped under Node, where the data layer above is unit-tested) ----
 if (typeof document !== "undefined") {
@@ -455,7 +488,45 @@ async function withMiner(fn) {
   try { return await fn(); } finally { busy = false; }
 }
 async function poll() { if (busy) return; await withMiner(refresh); }
-async function serviceTick() { await probeService(); await handOffToken(); await refreshEvents(); await refreshEnv(); }
+// ---- clock trials ----
+let trialData = null;
+async function refreshTrials() {
+  $("trials").hidden = !service;
+  if (!service) return;
+  try {
+    const r = await fetch("api/trials", { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    trialData = await r.json();
+  } catch (e) { trialData = null; $("trialsnote").textContent = "could not read the trials table (" + e.message + ")"; }
+  renderTrials();
+}
+function renderTrials() {
+  const head = $("trialtab").tHead.rows[0], body = $("trialtab").tBodies[0];
+  if (!head.children.length) TRIAL_COLUMNS.forEach(c => { const th = document.createElement("th"); th.textContent = c; head.appendChild(th); });
+  body.innerHTML = "";
+  if (!trialData) return;
+  const bySeg = $("trialsegs").checked;
+  const rows = bySeg ? trialData.segments.filter(s => !s.short) : trialData.rollup;
+  const hidden = trialData.segments.filter(s => s.short).length;
+  $("trialsnote").textContent = (hidden ? hidden + " run" + (hidden === 1 ? "" : "s") + " under " + trialData.min_minutes + " min hidden · " : "") +
+    (rows.length ? rows.length + " row" + (rows.length === 1 ? "" : "s") : "");
+  if (!rows.length) {
+    const tr = document.createElement("tr"), td = document.createElement("td");
+    td.colSpan = TRIAL_COLUMNS.length; td.className = "empty";
+    td.textContent = trialData.segments.length ? "Nothing held long enough yet: the first row appears after " + trialData.min_minutes + " minutes at one clock."
+      : "No samples yet. The table fills in as the service logs.";
+    tr.appendChild(td); body.appendChild(tr);
+    return;
+  }
+  rows.forEach(r => {
+    const tr = document.createElement("tr");
+    if (r.last) tr.className = "live";
+    trialCells(r).forEach(c => { const td = document.createElement("td"); td.textContent = c.text; if (c.cls) td.className = c.cls; tr.appendChild(td); });
+    body.appendChild(tr);
+  });
+}
+$("trialsegs").onchange = renderTrials;
+async function serviceTick() { await probeService(); await handOffToken(); await refreshEvents(); await refreshEnv(); await refreshTrials(); }
 
 // ---- controls ----
 // Flow: button -> re-read mcb/setting -> build the request -> dialog shows the exact request -> (password, re-checked
@@ -536,7 +607,7 @@ async function runConfirmed() {
     if (req.restart) setBadge("idle", "restarting, back in 60-90 s");
     $("cok").hidden = true; $("ccancel").disabled = false; $("ccancel").textContent = "close"; $("ccancel").focus();
     pending = null;
-    refreshEvents().then(refreshEnv);
+    refreshEvents().then(refreshEnv).then(refreshTrials);
     setTimeout(poll, 800);
   } catch (e) {
     const msg = e.message === "401" ? "the miner rejected the session token; nothing was sent. Close this and log in again."
@@ -560,6 +631,6 @@ $("confirm").addEventListener("keydown", e => {
   if (e.key === "Enter") { e.preventDefault(); return; }
   if (e.key === "Escape" && !$("ccancel").disabled) closeConfirm();
 });
-probeService().then(() => poll()).then(() => { refreshEnv(); refreshEvents(); });
+probeService().then(() => poll()).then(() => { refreshEnv(); refreshEvents(); refreshTrials(); });
 setInterval(poll, 10000); setInterval(serviceTick, 60000);
 } // end of presentation
