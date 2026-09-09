@@ -55,6 +55,14 @@ Start at logon:
   (no administrator rights needed; `-Uninstall` reverses it)
 - Linux: `scripts/install-linux.sh` (systemd user unit) — next step of the plan
 
+## The debug page you were never shown
+
+The stock web UI has a hidden page, `http://<miner>/#/debug`, that shows
+per-chip good and bad nonce counts, the fan controller's log, and the
+miner's own logs. It is where a weak chip is visible while the Miner page
+still looks healthy. `docs/stock-ui-debug-page.md` says how to open it,
+what each part is, and why not to leave it auto-refreshing.
+
 ## Finding the right clock
 
 Lower the clock until the weak chip stops producing bad nonces and board

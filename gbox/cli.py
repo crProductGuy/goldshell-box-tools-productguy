@@ -192,7 +192,7 @@ def cmd_trials(args, cfg, data_dir):
             hidden, "" if hidden == 1 else "s", args.min))
     _out("Compare bad share, not bad count: a slower clock attempts fewer nonces. Accepted/hour follows the pool's")
     _out("share difficulty as much as the miner; use hashrate for throughput. HW% with ~ is the firmware's running")
-    _out("average, from rows logged before v0.2.")
+    _out("average, from rows logged by versions before 0.2.0.")
 
 
 def cmd_serve(args, cfg, data_dir):

@@ -22,11 +22,15 @@ on Windows: standard-library Python only, one process, one command.
 | Dependencies | Python standard library only | install = clone (or `pipx install .`) and run; no compiler, no pip resolution failures for near-normies |
 | Process model | one process, `gbox serve` | logger thread + watchdog thread + local HTTP server; one thing to start and stop |
 | Bind address | 127.0.0.1 by default | anyone who can open the page can press the buttons; LAN exposure is an explicit flag with a warning |
-| Source of truth for the current running tools | `Projects/scbox-tools/` (not a repo) | keep it running untouched while the package is built; port from it, do not move it |
+| Source of truth for the current running tools (until 2026-09-05) | `Projects/scbox-tools/` (not a repo) | kept running untouched while the package was built; ported from, not moved. Retired 2026-09-05 when `gbox serve` replaced its three scheduled tasks. |
+| Data directory | `~/.gbox` (`GBOX_DATA` or `--data` override), not `data/` in the repo | a `pipx install` has no repo directory to put `data/` in. Decided during step 1; supersedes item 1 under "What must change". |
+| Log format | `log.csv` columns are only ever appended, never renamed or reordered; the service migrates an older log in place on start and keeps a `.bak` | the dashboard's charts and the clock-trials table read columns by header name, and a user's history must survive an upgrade. First exercised 2026-09-08 (17 to 21 columns). |
+| Unattended clock stepping | `gbox trials run` is a CLI process that talks to the miner itself; the service only serves its progress file read-only | the service never gains a clock-changing endpoint, so `--bind` exposure stays exactly as safe as it was. Cost: a trial dies with its terminal. |
+| Versioning | `0.x`; bump the minor version when the log format, the CLI surface, or the HTTP API changes; tag every release `vX.Y.Z` | users on an older log need to know which version changed what; the `~` marker in the trials table refers to "before 0.2.0". |
 
 ## What must change from `scbox-tools`
 
-1. Secrets and personal data out: `pw.hex`, CSV/logs, miner-syslog copies (carry the pool wallet), `setting_before.json` (carries the unit's MAC). All runtime state under `data/`, gitignored.
+1. Secrets and personal data out: `pw.hex`, CSV/logs, miner-syslog copies (carry the pool wallet), `setting_before.json` (carries the unit's MAC). All runtime state outside the repo, in `~/.gbox` (see Decisions; `data/` was the original idea).
 2. No hard-coded miner address, nominal hashrate, poll intervals: config + prompts.
 3. Chip count and board count read from the miner (`icinfo.drawdata` is an array of boards). Hashrate auto-scaled from the MH/s the firmware reports.
 4. Pure-Python AES-128-CBC encrypt (about 120 lines, verified against NIST FIPS-197 vector) replaces the PowerShell/openssl shell-out.
@@ -45,43 +49,54 @@ goldshell-box-tools/
 ├── pyproject.toml           `pipx install .` -> `gbox`
 ├── .gitignore
 ├── gbox/
-│   ├── __init__.py
+│   ├── __init__.py          __version__
 │   ├── aes.py               AES-128-CBC encrypt only, zero IV, zero padding, hex out
 │   ├── api.py               login, GET/PUT, parsers; ONE serialized session (a lock), 401 retry
 │   ├── config.py            config.json (optional), data dir, permissions
-│   ├── logger.py            poll thread -> data/log.csv (same columns as today)
-│   ├── watchdog.py          stall rules, capped soft restarts, event log
-│   ├── server.py            static, CSV, events, token hand-off endpoint; 127.0.0.1
-│   ├── cli.py               init | status | chips | plan | fantarget | restart | serve
+│   ├── poller.py            poll thread -> ~/.gbox/log.csv; COLUMNS append-only; migrate_columns
+│   ├── watchdog.py          stall rules, capped soft restarts
+│   ├── events.py            the event log (one line per thing the tools did)
+│   ├── trials.py            log.csv -> runs per clock and fan target -> table; run_trial (the unattended runner)
+│   ├── server.py            static, CSV, events, trials table, trial progress, token hand-off, event line; 127.0.0.1
+│   ├── cli.py               init | status | chips | plan | fantarget | restart | trials [run] | serve
 │   └── web/
 │       ├── index.html       works standalone (file://) and served
-│       ├── app.js
+│       ├── app.js           data layer above a `typeof document` guard (unit-tested under Node), DOM below
 │       └── style.css
 ├── tests/
 │   ├── test_aes.py          FIPS-197 vector + the zero-padding contract
+│   ├── test_api.py          session lock, 401 retry, re-login
 │   ├── test_parsers.py      minerinfo / icinfo / setting fixtures (sanitized)
+│   ├── test_poller.py       one sample to CSV, error rows, header migration, config round trip
 │   ├── test_watchdog.py     stall detection with a fake clock, caps, gaps
-│   ├── test_server.py       routes, no URL logging, bind address
+│   ├── test_server.py       routes, no URL logging, bind address, trials endpoints
+│   ├── test_trials.py       segment boundaries, every column, rollup, the runner with a fake clock
+│   ├── test_cli.py          gbox trials and gbox trials run against the fake miner and a real service
+│   ├── test_app_js.py       runs app_test.js under Node when Node is present
+│   ├── app_test.js          request builders, event markers, trial row formatting
 │   ├── fake_miner.py        HTTP stub serving the fixtures + accepting PUTs; used by tests and by hand
 │   └── fixtures/
 ├── scripts/
-│   ├── install-linux.sh
-│   ├── gbox.service
-│   └── install-windows.ps1
+│   ├── install-windows.ps1  Startup .vbs launcher (done)
+│   ├── install-linux.sh     systemd --user unit (step 3)
+│   └── gbox.service         (step 3)
 ├── docs/
 │   ├── plan.md              this file
-│   ├── firmware-api.md      endpoints, cipher, quirks (dead manual field, target clamp, token race, fan fields ignored)
-│   ├── case-study-scbox.md  the 2026-09-05 diagnosis
-│   └── architecture.md      browser / service / miner diagram
-├── Dockerfile               optional
-└── SECURITY.md
+│   ├── firmware-api.md      endpoints, cipher, quirks, counters, hashboard behavior seen
+│   ├── stock-ui-debug-page.md  the hidden /#/debug page of the stock UI and what each part shows
+│   ├── clock-tuning.md      the method: manual and unattended clock trials, reading the table, power
+│   ├── security-notes.md    what the firmware exposes (token, credentials in the API, factory reset)
+│   ├── case-study-scbox.md  the 2026-09-05 diagnosis and the clock trials that followed (step 4)
+│   └── architecture.md      browser / service / miner diagram (step 4)
+├── Dockerfile               optional (step 4)
+└── SECURITY.md              (step 4; drafts from security-notes.md)
 ```
 
 ## Credential flow
 
 1. User opens the dashboard (file or served). Pop-up asks for the miner password. Page encrypts it (WebCrypto, PKCS#7 trick documented in `firmware-api.md`), logs in, keeps the session token in browser storage.
 2. If a service is reachable at the page's origin (`/api/health`), the page POSTs the token to `/api/token`. The service keeps it in memory only and uses it for the logger and watchdog. Standalone page: this step is skipped silently.
-3. CLI commands prompt for the password each run. `gbox serve --remember` is the only path that writes a password to disk.
+3. CLI commands prompt for the password each run, or read `GBOX_PASSWORD`. `gbox serve --remember` is the only path that writes a password to disk; once it has, every CLI command on that machine reads it from `config.json` and does not prompt, which is what lets `gbox trials run` start unattended. `gbox trials` (the table) reads only the log and needs no credentials.
 4. Honest note for docs: on this firmware the token is deterministic from the password and never expires, so the browser copy is password-equivalent. The stock UI stores the same token the same way.
 
 ## Protected buttons (scope)
@@ -92,6 +107,13 @@ Each button: a confirm that shows the exact request; password re-entry for
 clock and restart; an event-log line on success (with markers on the fan
 chart when served). Never press-through on Enter.
 
+As built (2026-09-07): the revert button became a firmware preset picker,
+and it asks for the password too, because on this unit a preset is a clock
+change to 725 MHz, the dangerous direction. The confirm dialog leads with
+one line per changed field and folds the full request under a toggle.
+Mark has not yet ruled on the extra password prompt; one flag in
+`presetRequest()` reverses it.
+
 ## Firmware facts that shape the code
 
 - Login: `GET /user/login?username=admin&password=<hex>&cipher=true`; hex is AES-128-CBC of the password with key `!!!!!!!!!!!!!!!!`, zero IV, zero padding. Returns `{"JWT Token": ...}`.
@@ -101,14 +123,27 @@ chart when served). Never press-through on Enter.
 - `/dbg/*` endpoints are big text files regenerated per request; `dbg/fanctrllog` grows to ~1 MB; read it at most once a minute.
 - `cpb/hshistory`: 288 samples, one per minute, MH/s, newest last.
 - CORS is `Access-Control-Allow-Origin: *`, which is what makes the standalone page possible.
+- `Accepted` shares per hour follow the pool's per-connection difficulty as much as the miner. The same unit logged 1521/hr and 643/hr at one clock and one hashrate on two pool sessions. So the clock-trials table carries a hashrate column and treats accepted/hour as "what the pool pays on", not throughput.
+- `Hardware Errors` is the sum of the chips' bad nonces. A per-run error rate needs the all-chip good-nonce total, which is why the logger keeps `nonces_good`. Counters reset on a controller restart, so runs break where `Device Elapsed` drops. Details in `firmware-api.md`, "Counters".
+- The stock UI has a hidden `/#/debug` page that renders the `/dbg/` endpoints; most owners never find it. `docs/stock-ui-debug-page.md` documents it because it is the fastest way for a user to confirm what the dashboard says without installing anything.
 
 ## Order of work (each a session-sized gate)
 
 1. Restructure: package, config, AES, serialized API, single process, fake miner, tests green on Windows against fixtures and against the real unit. Done-when: `gbox serve` replaces the three scheduled tasks on this PC and `python -m unittest` passes.
 2. Buttons: built against the fake miner, then the real unit with Mark pressing them. Done-when: all four controls work with confirm + password + event log, standalone and served.
-2b. Clock trials (added 2026-09-08 after the 500/550/575/600 MHz experiment): the logger keeps all-chip nonce totals, fan target and the overheat flag; `gbox/trials.py` cuts `log.csv` into runs per clock and fan target (breaking on restarts, pool resets and gaps) and pools them; the dashboard shows the table above the Service section and `gbox trials` prints it; `gbox trials run` steps through a clock list unattended with abort rules and always ends on a safe clock. The runner is a CLI process, not a service thread, so the service never gains a clock-changing endpoint. Method for users in `docs/clock-tuning.md`. Done-when: the table reproduces the hand-built comparison from the experiment, a scripted runner test covers completion, both abort rules, stale log and Ctrl-C, and the page shows a running trial's progress.
-3. Linux: installer + systemd unit tested on the Ubuntu box or in a container. Done-when: fresh Ubuntu, three commands, dashboard up, survives logout.
-4. Docs, sanitizing pass, screenshots, one security review at feature-complete (Mark's standing default), then the first commit with README, LICENSE and .gitignore together, and push to crProductGuy.
+2b. Clock trials, added 2026-09-08 after the 500/550/575/600 MHz experiment. The logger keeps all-chip nonce totals, the fan target, and the overheat flag. `gbox/trials.py` cuts `log.csv` into runs per clock and fan target, breaking on restarts, pool resets, and gaps, and pools them. The dashboard shows the table above the Service section and `gbox trials` prints it. `gbox trials run` steps through a clock list unattended with abort rules and always ends on a safe clock. The runner is a CLI process, not a service thread, so the service never gains a clock-changing endpoint. Method for users in `docs/clock-tuning.md`. Done-when: the table reproduces the hand-built comparison from the experiment; a scripted runner test covers completion, both abort rules, a stale log, and Ctrl-C; and the page shows a running trial's progress. Done 2026-09-08, deployed and run on the real unit the same night.
+3. Linux: installer + systemd unit tested on the Ubuntu box or in a container. Both installers must produce the same thing: the same `gbox serve` command line, the same data directory rule (`~/.gbox`), a service that survives logout and reboot, and an uninstall that reverses it. `scripts/install-windows.ps1` is the reference for behavior. Done-when: fresh Ubuntu, three commands, dashboard up, survives logout.
+4. Docs and release polish. The first commit and push happened 2026-09-06 (0.1.0), and 0.2.0 followed on 2026-09-09. What remains: `docs/case-study-scbox.md`, for which every number is in `firmware-api.md`, `clock-tuning.md`, and the STATUS checkpoint of 2026-09-09; `docs/architecture.md`; `SECURITY.md` from `security-notes.md`; screenshots, where the Clock trials table with the guard-trip row is the one that tells the story; a sanitizing pass; and one security review at feature-complete, Mark's standing default. The 2b diff had its own review on 2026-09-08 with no findings.
+
+## Deferred, with the reason (not in scope until Mark says so)
+
+| Item | Why it is not in the plan | What would change the answer |
+|---|---|---|
+| Token check on `POST /api/event` | loopback-only by default; anyone who can reach the service can already read the miner. A forged log line is the whole exposure. | `--bind` on a LAN becoming the normal setup |
+| Hardware watchdog (smart plug cycled on ping loss) | a frozen controller defeats the software watchdog (2026-09-06 needed a power cycle); the fix is outside the software | a second freeze, or a user asking |
+| Service hands its token to the page under `--remember` | changes the credential flow above (the page would never ask for a password on a served dashboard) | Mark deciding the convenience is worth the wider token exposure |
+| A settings write endpoint in the service | would let a trial be started from the page; rejected in 2b for the security reason in Decisions | never, unless the token check above exists first |
+| Runner event lines carry the `dashboard:` prefix | they go through `/api/event`; an `origin` field is a small change | cosmetic; fold into step 4 if convenient |
 
 ## Stop-losses for the build sessions
 
