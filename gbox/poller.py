@@ -1,11 +1,13 @@
 """The poll loop: one sample per interval into log.csv, then the watchdog.
 
-One thread, two requests per sample (minerinfo, icinfo), through the
-serialized session. The columns are what the dashboard's fan and
-temperature chart reads by header name, so adding a column is safe and
-renaming one is not.
+One thread, three requests per sample (minerinfo, icinfo, setting), through
+the serialized session. The columns are what the dashboard's fan and
+temperature chart and the clock-trials table read by header name, so adding
+a column is safe and renaming one is not. Columns are only ever appended;
+`migrate_columns` brings an older log up to date on service start.
 """
 import datetime
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -14,22 +16,58 @@ from . import api
 
 COLUMNS = ["time", "http", "elapsed", "mhs_av", "mhs_20s", "hwerr", "hwerr_pct", "accepted",
            "rejected", "clock", "fan0", "fan1", "tstemp0", "tstemp1", "tstemp2", "rebootcnt",
-           "weak_chips"]
+           "weak_chips", "nonces_good", "nonces_bad", "temp_target", "overheat"]
 
 
 def sample(miner):
     """One sample as a dict keyed by COLUMNS. Raises MinerError on failure."""
     info = miner.minerinfo()
     boards = miner.boards()
+    setting = miner.setting()
     weak = ";".join("%d:%d/%d" % (c["chip"], c["good"], c["bad"])
                     for board in boards for c in api.weak_chips(board))
+    chips = [c for board in boards for c in board]
     return {
         "http": "ok", "elapsed": info["elapsed"], "mhs_av": info["mhs_av"], "mhs_20s": info["mhs_20s"],
         "hwerr": info["hw_errors"], "hwerr_pct": info["hw_pct"], "accepted": info["accepted"],
         "rejected": info["rejected"], "clock": info["clock"], "fan0": info["fan0"], "fan1": info["fan1"],
         "tstemp0": info["chip_temp"], "tstemp1": info["chip_temp1"], "tstemp2": info["board_temp"],
         "rebootcnt": info["rebootcnt"], "weak_chips": weak,
+        "nonces_good": sum(c["good"] for c in chips), "nonces_bad": sum(c["bad"] for c in chips),
+        "temp_target": setting.get("temp_target"), "overheat": info["overheat"],
     }
+
+
+def migrate_columns(csv_path):
+    """Bring a log written with an older, shorter header up to COLUMNS in place.
+
+    Old rows are padded with empty fields so the header and every row agree.
+    The original is copied to log.csv.bak first (once; a later migration
+    does not overwrite an older backup). Returns True if the file changed.
+    A missing file, a current header, or a header this code does not know
+    are left alone.
+    """
+    csv_path = Path(csv_path)
+    if not csv_path.is_file():
+        return False
+    with open(csv_path, encoding="utf-8", newline="") as f:
+        header = f.readline().rstrip("\r\n")
+        old = header.split(",") if header else []
+        if not old or old == COLUMNS or COLUMNS[:len(old)] != old or len(old) >= len(COLUMNS):
+            return False
+        body = f.read()
+    pad = "," * (len(COLUMNS) - len(old))
+    backup = csv_path.with_name(csv_path.name + ".bak")
+    if not backup.exists():
+        shutil.copyfile(csv_path, backup)
+    tmp = csv_path.with_name(csv_path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8", newline="") as f:
+        f.write(",".join(COLUMNS) + "\n")
+        for line in body.splitlines():
+            if line:
+                f.write(line + pad + "\n")
+    tmp.replace(csv_path)
+    return True
 
 
 def error_row(exc):

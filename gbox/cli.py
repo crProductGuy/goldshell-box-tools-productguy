@@ -6,6 +6,7 @@
     gbox plan 600                  set the clock (25 MHz steps) via the manual power plan
     gbox fantarget 65              fan controller target on the board sensor
     gbox restart                   soft restart
+    gbox trials                    error and throughput per clock, from the service log
     gbox serve                     dashboard + logger + watchdog in one process
 
 Commands that talk to the miner prompt for the web UI password unless the
@@ -19,9 +20,9 @@ import os
 import sys
 import threading
 
-from . import __version__, api, config
+from . import __version__, api, config, trials
 from .events import EventLog
-from .poller import Poller
+from .poller import COLUMNS, Poller, migrate_columns
 from .server import ServiceState, make_server
 from .watchdog import Watchdog
 
@@ -134,6 +135,23 @@ def cmd_restart(args, cfg, data_dir):
     _out("restart sent; the miner takes about 60-90 s to come back and start hashing")
 
 
+def cmd_trials(args, cfg, data_dir):
+    path = data_dir / "log.csv"
+    t = trials.table(path, min_minutes=args.min)
+    if not t["segments"]:
+        _out("no samples in %s: run `gbox serve` and log in on the dashboard, then hold each clock for a while" % path)
+        return
+    _out(trials.format_table(t, segments=args.segments))
+    _out()
+    hidden = sum(1 for s in t["segments"] if s["short"])
+    if hidden and not args.segments:
+        _out("(%d segment%s under %d min hidden; --segments lists segments, --min changes the cutoff)" % (
+            hidden, "" if hidden == 1 else "s", args.min))
+    _out("Compare bad share, not bad count: a slower clock attempts fewer nonces. Accepted/hour follows the pool's")
+    _out("share difficulty as much as the miner; use hashrate for throughput. HW% with ~ is the firmware's running")
+    _out("average, from rows logged before v0.2.")
+
+
 def cmd_serve(args, cfg, data_dir):
     # pythonw has no stdio; the stock servers write to stderr and would die on it
     for name in ("stdout", "stderr"):
@@ -161,6 +179,8 @@ def cmd_serve(args, cfg, data_dir):
 
     config.ensure_dir(data_dir)
     events = EventLog(data_dir / "events.log")
+    if migrate_columns(data_dir / "log.csv"):
+        events.write("service: log.csv header updated to %d columns (copy kept as log.csv.bak)" % len(COLUMNS))
     miner = _miner(args, cfg, need_password=False)
     state = ServiceState(cfg, miner, data_dir, events=events)
     try:
@@ -226,6 +246,10 @@ def build_parser():
     sp.add_argument("temp", type=int)
     sp.set_defaults(fn=cmd_fantarget)
     sub.add_parser("restart", help="soft restart the miner").set_defaults(fn=cmd_restart)
+    sp = sub.add_parser("trials", help="error and throughput per clock and fan target, from the service log")
+    sp.add_argument("--segments", action="store_true", help="one row per continuous run instead of one per clock")
+    sp.add_argument("--min", type=int, default=trials.MIN_MINUTES, help="hide runs shorter than this many minutes (default %d)" % trials.MIN_MINUTES)
+    sp.set_defaults(fn=cmd_trials)
     sp = sub.add_parser("serve", help="run dashboard, logger and watchdog")
     sp.add_argument("--bind", help="listen address (default 127.0.0.1; anything else is exposed)")
     sp.add_argument("--port", type=int)

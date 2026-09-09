@@ -91,6 +91,28 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.post("/api/other", b"{}"), 404)
         self.assertFalse(self.miner.has_token)
 
+    def test_trials_table_follows_the_log(self):
+        status, headers, body = self.get("/api/trials")
+        t = json.loads(body)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "application/json")
+        self.assertEqual((t["rollup"], t["segments"]), ([], []))
+        self.miner.set_token(TOKEN)
+        self.poller.poll_once()
+        t = json.loads(self.get("/api/trials")[2])
+        self.assertEqual(len(t["segments"]), 1)
+        self.assertEqual(t["segments"][0]["clock"], 600)
+        self.assertTrue(t["segments"][0]["short"])
+        self.assertEqual(t["rollup"], [])
+        st = (self.data / "log.csv").stat()
+        self.assertEqual(self.state.trials_cache[0], (st.st_mtime_ns, st.st_size))
+        cached = self.state.trials_cache[1]
+        self.get("/api/trials")
+        self.assertIs(self.state.trials_cache[1], cached)          # unchanged log: served from cache
+        self.poller.poll_once()
+        self.get("/api/trials")
+        self.assertIsNot(self.state.trials_cache[1], cached)       # log grew: recomputed
+
     def test_csv_and_events(self):
         with self.assertRaises(urllib.error.HTTPError) as cm:
             self.get("/api/log.csv")

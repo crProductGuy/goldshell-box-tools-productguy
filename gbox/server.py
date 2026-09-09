@@ -17,7 +17,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import __version__
+from . import __version__, trials
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 STATIC = {"/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/style.css": "style.css"}
@@ -48,6 +48,20 @@ class ServiceState:
         self.watchdog = watchdog
         self.events = events
         self.lock = threading.Lock()
+        self.trials_cache = (None, None)     # ((mtime_ns, size) of log.csv, table) so a refresh does not re-parse
+
+    def trials_table(self):
+        """The clock-trials table, recomputed only when log.csv changed."""
+        path = self.data_dir / "log.csv"
+        try:
+            st = path.stat()
+            key = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            key = None
+        with self.lock:
+            if self.trials_cache[0] != key or self.trials_cache[1] is None:
+                self.trials_cache = (key, trials.table(path))
+            return self.trials_cache[1]
 
     def health(self):
         p, w = self.poller, self.watchdog
@@ -118,6 +132,8 @@ def make_handler(state):
             if path == "/api/latest":
                 latest = state.poller.latest if state.poller else None
                 return self._json(200, latest or {})
+            if path == "/api/trials":
+                return self._json(200, state.trials_table())
             self._send(404, "not found")
 
         def _json_body(self):
