@@ -737,3 +737,43 @@ was only in the session. Pinned the window (last good row 22:21:53 with
 nothing abnormal in it, unreachable 51 min), pasted `gbox trials` verbatim
 into STATUS.md, and at Mark's word copied STATUS.md beside his
 miner-status PDFs in OneDrive. Nothing on the miner or the service touched.
+
+## 2026-09-10 16:19 to 17:40, session I: the scrub, the rename, and what was holding the door
+
+**The goal, Mark, 16:19.** "pick up goldshell project, read status.md, do
+the directory rename (goldshell... to goldshell...-productguy, I believe -
+check the notes). scrub the transcript. What are next steps after that?"
+Two chores that three sessions had deferred, each because it had started
+inside the directory it was meant to rename.
+
+**The scrub ran first** and found the password ten more times in the
+2026-09-08/09 transcript, in three encodings; all replaced. The script's
+directory list was widened so a later run reaches transcripts of sessions
+started from the parent folder or from the renamed checkout.
+
+**The rename failed twice more**, "being used by another process", with
+the service stopped and this session's shells parked outside the
+directory. Rather than kill by guesswork, the agent wrote a short
+PowerShell script that reads every process's working directory from its
+process block, since no Sysinternals tooling is installed here. It named
+the holders: two idle Claude Code sessions from earlier days, the console
+the 09-08 clock trial had run in, three orphaned `tail -F` monitors left
+behind by earlier Monitor calls, two Explorer windows, and two leftovers
+of session G's own tests. The lesson, now in the machine notes: Windows
+will not rename a directory while any process has it as its working
+directory, and idle agent sessions and file-manager windows count.
+
+**Pushback from the harness, and a question.** The auto-mode classifier
+refused to end the two Claude sessions, and earlier the worktree removal.
+The agent stopped and asked; Mark closed every stale session and window
+himself. The Explorer windows were navigated away instead of closed. While
+the question stood, the service was relaunched from the old path so the
+miner was not left unwatched.
+
+**Then the routine part:** rename, launcher path, relaunch, health check,
+`git worktree repair` for the merged worktree the classifier would not
+let go, memory copied to the new project path, notes updated, export
+re-run, 165 tests green from the new location.
+
+**Left for later.** The worktree removal itself, the two wording fixes,
+the one-point chart, and the accepted build order, unchanged.
