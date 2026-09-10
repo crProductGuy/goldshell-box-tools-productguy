@@ -86,6 +86,15 @@ class KasaLegacyTest(unittest.TestCase):
         self.fake.meter, self.fake.relay = None, 0
         self.assertEqual(self.plug.describe(), "HS110(US), off, no meter")
 
+    def test_alias_is_one_printable_line_at_most_64_chars(self):
+        # anyone on the LAN can rename a Kasa plug; the name must not carry a newline or an escape into a log or a terminal
+        self.fake.alias = "lamp\nwatchdog: forged\x1b[31m" + "x" * 100
+        alias = self.plug.identify()["alias"]
+        self.assertNotIn("\n", alias)
+        self.assertNotIn("\x1b", alias)
+        self.assertTrue(alias.startswith("lamp watchdog: forged"))
+        self.assertLessEqual(len(alias), 64)
+
     def test_multi_outlet_plug_is_refused(self):
         self.fake.sysinfo = lambda: {"model": "HS300(US)", "children": [], "err_code": 0, "deviceId": "x", "alias": "strip"}
         with self.assertRaises(PlugError):
@@ -94,11 +103,12 @@ class KasaLegacyTest(unittest.TestCase):
 
 class DiscoverTest(unittest.TestCase):
     def test_finds_a_legacy_plug_once_with_its_meter(self):
-        with FakePlug(udp_port=0, watts=188.0) as fake:
+        with FakePlug(udp_port=0, watts=188.0, alias="bench\x07\nplug") as fake:
             found = plugmod.discover(timeout=0.5, port=fake.udp_port, klap_port=1, targets=("127.0.0.1", "127.0.0.1"))
         self.assertEqual(len(found), 1)
         d = found[0]
         self.assertEqual(d["host"], "127.0.0.1")
+        self.assertEqual(d["alias"], "bench  plug")
         self.assertEqual(d["model"], "HS110(US)")
         self.assertEqual(d["protocol"], "legacy")
         self.assertTrue(d["relay"])
