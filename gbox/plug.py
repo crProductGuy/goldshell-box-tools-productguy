@@ -51,6 +51,14 @@ def xor_decrypt(data):
     return out.decode("utf-8", errors="replace")
 
 
+def _clean_name(text, limit=64):
+    """A plug's name as one printable line. Anyone on the LAN can rename a legacy Kasa plug,
+    so the name must not carry a newline into the event log or an escape sequence into a terminal."""
+    if not isinstance(text, str):
+        return ""
+    return "".join(ch if ch.isprintable() else " " for ch in text)[:limit]
+
+
 def _split_host(host, default_port):
     if ":" in host and not host.startswith("["):
         h, _, p = host.rpartition(":")
@@ -141,9 +149,9 @@ class KasaLegacy(Plug):
     def identify(self):
         info = self._sysinfo()
         return {
-            "model": info.get("model", "?"), "alias": info.get("alias", ""), "device_id": info.get("deviceId", ""),
-            "hw": info.get("hw_ver", "?"), "fw": info.get("sw_ver", "?"),
-            "meter": self.watts() is not None,
+            "model": _clean_name(info.get("model", "?"), 32), "alias": _clean_name(info.get("alias", "")),
+            "device_id": info.get("deviceId", ""), "hw": _clean_name(info.get("hw_ver", "?"), 16),
+            "fw": _clean_name(info.get("sw_ver", "?"), 48), "meter": self.watts() is not None,
         }
 
     def state(self):
@@ -227,9 +235,11 @@ def discover(timeout=3.0, port=LEGACY_PORT, klap_port=KLAP_DISCOVERY_PORT, targe
                 continue
             si = r.get("system", {}).get("get_sysinfo", {})
             found[addr[0]] = {
-                "host": addr[0], "protocol": "legacy", "model": si.get("model", "?"), "alias": si.get("alias", ""),
-                "device_id": si.get("deviceId", ""), "relay": bool(si.get("relay_state")) if "relay_state" in si else None,
-                "watts": _watts_from(r.get("emeter", {}).get("get_realtime")), "hw": si.get("hw_ver", "?"), "fw": si.get("sw_ver", "?"),
+                "host": addr[0], "protocol": "legacy", "model": _clean_name(si.get("model", "?"), 32),
+                "alias": _clean_name(si.get("alias", "")), "device_id": si.get("deviceId", ""),
+                "relay": bool(si.get("relay_state")) if "relay_state" in si else None,
+                "watts": _watts_from(r.get("emeter", {}).get("get_realtime")),
+                "hw": _clean_name(si.get("hw_ver", "?"), 16), "fw": _clean_name(si.get("sw_ver", "?"), 48),
             }
             found[addr[0]]["meter"] = found[addr[0]]["watts"] is not None
     # newer firmware: answers a fixed probe on 20002 with a JSON body after a 16-byte header
@@ -255,8 +265,9 @@ def discover(timeout=3.0, port=LEGACY_PORT, klap_port=KLAP_DISCOVERY_PORT, targe
                 continue
             scheme = res.get("mgt_encrypt_schm") or {}
             found[addr[0]] = {
-                "host": addr[0], "protocol": (scheme.get("encrypt_type") or "klap").lower(), "model": res.get("device_model", "?"),
-                "alias": "", "device_id": res.get("device_id", ""), "relay": None, "watts": None, "meter": False,
-                "hw": res.get("hw_ver", "?"), "fw": res.get("fw_ver", "?"),
+                "host": addr[0], "protocol": _clean_name(str(scheme.get("encrypt_type") or "klap"), 16).lower(),
+                "model": _clean_name(res.get("device_model", "?"), 32), "alias": "", "device_id": res.get("device_id", ""),
+                "relay": None, "watts": None, "meter": False,
+                "hw": _clean_name(res.get("hw_ver", "?"), 16), "fw": _clean_name(res.get("fw_ver", "?"), 48),
             }
     return [found[k] for k in sorted(found)]
