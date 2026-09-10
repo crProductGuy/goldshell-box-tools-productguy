@@ -1,6 +1,6 @@
 # One marginal chip: how this project was built
 
-This is the story of goldshell-box-tools, written from the session log,
+This is the story of goldshell-box-tools-productguy, written from the session log,
 the git history, and the docs. It covers five days in September 2026, one
 old SC-BOX miner, its owner, and an AI coding agent. The owner is Mark, a
 product manager with an engineering past who does not write production code

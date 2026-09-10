@@ -1,11 +1,11 @@
-# Plan: goldshell-box-tools
+# Plan: goldshell-box-tools-productguy
 
 Decided with Mark on 2026-09-05. This file is the design of record for the
 public release. `STATUS.md` at the repo root tracks progress against it.
 
 ## Goal
 
-A public, MIT-licensed toolkit at github.com/crProductGuy/goldshell-box-tools
+A public, MIT-licensed toolkit at github.com/crProductGuy/goldshell-box-tools-productguy
 that lets a somewhat-technical owner of a Goldshell Box-series miner see what
 the stock UI hides, change the settings the stock UI cannot reach, and keep
 the miner hashing unattended. Install must be easy on Ubuntu-class Linux and
@@ -15,7 +15,7 @@ on Windows: standard-library Python only, one process, one command.
 
 | Decision | Choice | Why |
 |---|---|---|
-| Repo name | `goldshell-box-tools`, command `gbox` | findability; other Box models share the firmware |
+| Repo name | `goldshell-box-tools-productguy` (renamed 2026-09-09 from `goldshell-box-tools`); package name `goldshell-box-tools`, command `gbox` | "goldshell box" stays in the name for findability, and other Box models share the firmware; the suffix ties the repo to Mark's nym among many generic repos. A `pg-` prefix was rejected because `pg` reads as PostgreSQL. GitHub redirects the old name. The package and command did not change. |
 | License | MIT | Bitcoin Core's license; shortest; no obligations on forks. GPLv3 was the alternative, rejected for a gift. Apache-2.0 adds a patent grant nothing here needs. |
 | Secrets | none on disk by default | user preference. The dashboard pop-up is the only place a password is typed. Opt-in `--remember` stores it in `config.json` with owner-only permissions for unattended reboots, and the README says what that trades away. |
 | Standalone page | yes | `gbox/web/index.html` must work opened as a file with no service: live status and the read-only view. The service adds the fan/temperature history, the event log and reboot survival. |
@@ -42,7 +42,7 @@ on Windows: standard-library Python only, one process, one command.
 ## Package layout
 
 ```
-goldshell-box-tools/
+goldshell-box-tools-productguy/
 ├── README.md                what and why, 3-command quick start, screenshots
 ├── LICENSE                  MIT
 ├── STATUS.md                checkpoint: done / not done / open / next action
@@ -147,7 +147,7 @@ the most dangerous one.
 | Item | Why it is not in the plan | What would change the answer |
 |---|---|---|
 | Token check on `POST /api/event` | loopback-only by default; anyone who can reach the service can already read the miner. A forged log line is the whole exposure. | `--bind` on a LAN becoming the normal setup |
-| Hardware watchdog (smart plug cycled on ping loss) | a frozen controller defeats the software watchdog (2026-09-06 needed a power cycle); the fix is outside the software | a second freeze, or a user asking |
+| Hardware watchdog (smart plug cycled on ping loss) | a frozen controller defeats the software watchdog; the fix is outside the software. **The second freeze happened 2026-09-09 19:00** (off the wire for nearly three hours, six restarts timed out, 53 W at the wall, cleared by a power cycle), so the trigger named here has fired. | Mark's call on scope; a smart plug the service can toggle on ping loss is the shape of it |
 | Service hands its token to the page under `--remember` | changes the credential flow above (the page would never ask for a password on a served dashboard) | Mark deciding the convenience is worth the wider token exposure |
 | A settings write endpoint in the service | would let a trial be started from the page; rejected in 2b for the security reason in Decisions | never, unless the token check above exists first |
 | Runner event lines carry the `dashboard:` prefix | they go through `/api/event`; an `origin` field is a small change | cosmetic; fold into step 4 if convenient |

@@ -140,3 +140,13 @@ Verified 2026-09-08 on the SC-BOX, from the gbox log:
 - A second failure mode: the board accepts work and reports each job finished
   instantly without hashing; the firmware notices after minutes via
   `SEND JOB FAILD 10 TIMES, REINIT THIS CPB`.
+- A third, in the controller rather than the board: the unit drops off the
+  network entirely (no HTTP, no ping, no ARP) with the fans still turning.
+  Seen 2026-09-06 and again 2026-09-09, both times after days of clean
+  hashing at a manual clock. A soft restart cannot reach it; only a power
+  cycle clears it, and the manual power plan survives the cycle. At the
+  wall it drew about 53 W while hung, against 183 W hashing, and blew
+  barely warm air: the hashboard is idle and only the controller is
+  running. A plug-in power meter therefore tells the state from across the
+  room, and a smart plug that cycles power on ping loss would cover what
+  the software watchdog cannot.

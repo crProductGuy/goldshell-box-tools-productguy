@@ -1,4 +1,4 @@
-# goldshell-box-tools: construction and evolution log
+# goldshell-box-tools-productguy: construction and evolution log
 
 The record of how this project was defined, extended, and decided, session
 by session: the owner's prompts (quoted or closely paraphrased), the
@@ -480,3 +480,42 @@ repo; Mark confirmed it was.
 **Left out.** The essay is written after this entry; the meta-prompt repo
 Mark proposed in the same turn is a separate project and gets its own
 log.
+
+## 2026-09-09, late evening: the rename, the second freeze, and a word banned
+
+**Goal, in Mark's words.** "rename it to goldshell-box-tools-productguy,
+do all of it." Earlier the same evening: "get rid of that damned AI-speak
+'honest'. I NEVER say that, and neither should you, because it implies that
+the speaker is shading the truth other times." And: "Keep the
+preset-picker password."
+
+**Decisions and reasoning.** The name: Mark first proposed a `pg-` prefix
+for "Product Guy"; Claude recommended against it because `pg` reads as
+PostgreSQL to most developers and offered `productguy-` as prefix or
+`-productguy` as suffix; Mark chose the suffix. The package name and the
+`gbox` command stay as they were. "Honest" and its relatives (honestly,
+candidly, frankly, unvarnished, and kin) are now a rule in Mark's private
+anti-patterns file and a failing check in the public agent-style-guide;
+five occurrences were removed from this repo's docs, two of them
+pre-dating this session. The preset picker keeps its password prompt:
+every clock change asks, no exception for the most dangerous one.
+
+**Built.** The rename on GitHub (Mark, in the browser, as the repo owner);
+remote URL, README, AGENTS.md, plan, essay, homepage URL, and this file's
+name updated. The local directory rename is deferred to the next session,
+because this session's shells held the directory open and Windows refused
+the rename; the Startup launcher was briefly pointed at the new path, left
+the service down for a few minutes, and was reverted.
+
+**Finding.** During that few minutes the log showed the miner had been off
+the network since 19:00, the second frozen-controller episode after
+2026-09-06: six watchdog restarts timed out, the daily cap was hit at
+20:29, no ping, no ARP. Mark power-cycled it at about 21:50. His wall
+meter read 53 W while it was hung, against 183 W hashing, with barely warm
+air: the hashboard idle, only the controller alive. That number is now in
+`firmware-api.md`, and the plan's deferred-items table records that the
+trigger for a hardware watchdog has fired.
+
+**Pushback.** On the prefix, above. And when Mark asked whether Claude
+could switch the browser's GitHub account for him: no, because that is his
+sign-in; he did it himself.
