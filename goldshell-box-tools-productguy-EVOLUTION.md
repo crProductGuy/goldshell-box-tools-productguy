@@ -708,3 +708,32 @@ for the CYCLE word instead of bypassing the guard. Omitting `--remember`.
 transcript scrub still need a session started outside the directory. The
 event-line wording about the `.bak` copy. The trials table's watts
 column and GH/s per watt are next in the accepted build order.
+
+## 2026-09-09 23:18 to 2026-09-10 16:40, session H: a screenshot read, a wrong guess corrected, the freeze pinned down
+
+**The goal, Mark, 23:18.** "check the miner. Report looks funny. Fans full
+but doesn't seem to be hashing. maybe needs a soft reset?" Then a PDF of
+the dashboard at 23:15, two minutes after the third freeze ended.
+
+**Read from the service, not the miner.** The log showed accepted shares
+climbing, 700 GH/s, fans already falling from 4440 to 3840 RPM: a fresh
+boot, not a fault. Answer: no soft restart; it would only wipe the
+firmware's history buffer again and send the fans back to full.
+
+**A wrong guess, corrected.** The agent said "something power-cycled it
+at 23:13", inferred from the 42 s uptime. Session F, running at the same
+time, had the plug's meter and knew the relay never opened: the first
+self-recovery in three freezes. Restated to Mark the next day.
+
+**The screenshot explained.** Empty hashrate graph: the miner's 288-slot
+buffer is wiped by a boot and had one sample, and a one-point path draws
+nothing (open item). Fans at 90 percent: how the fan daemon starts. Chip
+8 "failing" at 4 bad of 69: noise in the first minutes, under 1 percent
+within the hour every time.
+
+**Mark, 16:30:** "have you saved this history ... and the service log
+perf table?" No: the raw rows were in the service's files, the read-out
+was only in the session. Pinned the window (last good row 22:21:53 with
+nothing abnormal in it, unreachable 51 min), pasted `gbox trials` verbatim
+into STATUS.md, and at Mark's word copied STATUS.md beside his
+miner-status PDFs in OneDrive. Nothing on the miner or the service touched.
