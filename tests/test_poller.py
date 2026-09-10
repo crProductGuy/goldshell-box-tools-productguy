@@ -63,7 +63,7 @@ class PollerTest(unittest.TestCase):
         self.assertEqual(r["nonces_bad"], "2894")
         self.assertEqual(r["temp_target"], "65")
         self.assertEqual(r["overheat"], "0")
-        self.assertEqual(poller.COLUMNS[-4:], ["nonces_good", "nonces_bad", "temp_target", "overheat"])
+        self.assertEqual(poller.COLUMNS[17:21], ["nonces_good", "nonces_bad", "temp_target", "overheat"])
 
     def test_old_header_is_migrated_with_a_backup(self):
         old = poller.COLUMNS[:17]
@@ -76,7 +76,7 @@ class PollerTest(unittest.TestCase):
         with open(self.csv, encoding="utf-8") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
-        self.assertEqual(lines[1], "2026-09-05 21:05:52,ok,1,2,3,4,0.4,5,0,600.0,3000,3000,70,70,63,0,8:1/1,,,,")
+        self.assertEqual(lines[1], "2026-09-05 21:05:52,ok,1,2,3,4,0.4,5,0,600.0,3000,3000,70,70,63,0,8:1/1,,,,,")
         self.assertEqual(lines[2].count(","), len(poller.COLUMNS) - 1)
         self.assertTrue((self.csv.parent / "log.csv.bak").exists())
         rows = self.rows()
@@ -101,6 +101,88 @@ class PollerTest(unittest.TestCase):
         p.poll_once()
         self.assertEqual(len(wd._rows), 1)
         self.assertEqual(wd._rows[0][1:], (True, 17582))
+
+    def test_21_column_header_from_0_2_0_is_migrated(self):
+        old = poller.COLUMNS[:21]
+        self.assertEqual(old[-1], "overheat")
+        with open(self.csv, "w", encoding="utf-8", newline="") as f:
+            f.write(",".join(old) + "\n")
+            f.write("2026-09-08 21:28:17,ok,1,2,3,4,0.4,5,0,575.0,1200,1200,70,70,63,0,8:1/1,556876,1711,65,0\n")
+        self.assertTrue(poller.migrate_columns(self.csv))
+        self.assertTrue(self.csv.with_name("log.csv.bak").exists())
+        with open(self.csv, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(lines[0], ",".join(poller.COLUMNS))
+        self.assertTrue(lines[1].endswith(",65,0,"))
+
+
+class PollerPlugTest(unittest.TestCase):
+    """The watts column: read from the plug after the miner sample, empty without a meter, never a failed sample."""
+
+    def setUp(self):
+        from gbox.plug import KasaLegacy
+        from tests.fake_plug import FakePlug
+        self.fm = FakeMiner().start()
+        self.addCleanup(self.fm.stop)
+        self.fake = FakePlug(watts=188.0).start()
+        self.addCleanup(self.fake.stop)
+        self.plug = KasaLegacy(self.fake.address, timeout=1.0)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.csv = Path(self.tmp.name) / "log.csv"
+        self.lines = []
+        self.events = EventLog()
+        self.events.write = lambda m: self.lines.append(m)
+
+    def rows(self):
+        with open(self.csv, newline="", encoding="utf-8") as f:
+            return list(csv.DictReader(f))
+
+    def test_watts_is_the_last_column_and_empty_without_a_plug(self):
+        self.assertEqual(poller.COLUMNS[-1], "watts")
+        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30)
+        p.poll_once()
+        self.assertEqual(self.rows()[0]["watts"], "")
+        self.assertIsNone(p.plug_watts)
+
+    def test_watts_and_relay_read_from_the_plug(self):
+        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, plug=self.plug, events=self.events)
+        p.poll_once()
+        self.assertEqual(self.rows()[0]["watts"], "188.0")
+        self.assertEqual(p.plug_watts, 188.0)
+        self.assertIs(p.plug_state, True)
+        self.assertEqual(p.plug_info["model"], "HS110(US)")
+        self.assertEqual(self.lines, [])
+
+    def test_no_meter_leaves_the_column_empty_but_reads_the_relay(self):
+        self.fake.meter = None
+        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, plug=self.plug, events=self.events)
+        p.poll_once()
+        self.assertEqual(self.rows()[0]["watts"], "")
+        self.assertIs(p.plug_state, True)
+
+    def test_watts_read_even_when_the_miner_sample_failed(self):
+        p = poller.Poller(api.Miner("127.0.0.1:1", password="password", timeout=1), self.csv, 30, plug=self.plug)
+        row = p.poll_once()
+        self.assertTrue(row["http"].startswith("ERR:"))
+        self.assertEqual(self.rows()[0]["watts"], "188.0")
+
+    def test_plug_outage_keeps_the_sample_and_logs_one_line_per_transition(self):
+        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, plug=self.plug, events=self.events)
+        p.poll_once()
+        self.fake.hang = True
+        for _ in range(3):
+            row = p.poll_once()
+            self.assertEqual(row["http"], "ok")
+        self.assertEqual(self.rows()[-1]["watts"], "")
+        self.assertIsNone(p.plug_state)
+        self.assertEqual(sum("plug unreachable" in l for l in self.lines), 1)
+        self.fake.hang = False
+        p.poll_once()
+        p.poll_once()
+        self.assertEqual(self.rows()[-1]["watts"], "188.0")
+        self.assertEqual(sum("plug back" in l for l in self.lines), 1)
+        self.assertEqual(len(self.lines), 2)
 
 
 class ConfigTest(unittest.TestCase):

@@ -86,6 +86,24 @@ class ServiceState:
                 "restarts_today": w.restarts_today() if w else 0,
                 "last_reason": w.last_reason if w else None,
             },
+            "power": self.power_health(),
+        }
+
+    def power_health(self):
+        """The plug as the poller last saw it; nothing here queries the plug."""
+        p, w = self.poller, self.watchdog
+        cfg = self.cfg.power
+        info = (p.plug_info if p else None) or {}
+        state = p.plug_state if p else None
+        return {
+            "configured": cfg is not None,
+            "model": info.get("model"),
+            "meter": bool(info.get("meter")),
+            "state": {True: "on", False: "off"}.get(state),
+            "watts": p.plug_watts if p else None,
+            "cycle": bool(cfg.get("cycle")) if cfg else False,
+            "cycles_today": w.cycles_today() if w and hasattr(w, "cycles_today") else 0,
+            "last_reason": getattr(w, "last_power_reason", None) if w else None,
         }
 
 

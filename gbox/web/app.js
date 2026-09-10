@@ -155,14 +155,26 @@ function settingDiff(before, after) {
 function describeRequest(base, req) {
   return req.method + " " + base + "/" + req.path + "\n" + (req.body === null || req.body === undefined ? "(no body)" : JSON.stringify(req.body, null, 1));
 }
-// Event-log lines worth a marker on the fan chart: what the buttons did and what the watchdog did.
+// Event-log lines worth a marker on the fan chart: what the buttons did, what the watchdog did, what the plug did.
 function eventMarkers(text) {
   const out = [];
   (text || "").split(/\r?\n/).forEach(line => {
-    const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) ((?:dashboard|watchdog): .*)$/.exec(line);
+    const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) ((?:dashboard|watchdog|power): .*)$/.exec(line);
     if (m) out.push({ t: new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime(), label: m[7] });
   });
   return out;
+}
+function markerGlyph(label) {
+  return label.startsWith("power") ? "P" : label.startsWith("watchdog") ? "W" : "▼";
+}
+// The plug, as /api/health reports it: appended to the service line. Empty without a plug.
+function powerLine(service) {
+  const p = (service && service.power) || {};
+  if (!p.configured) return "";
+  const reading = p.state == null ? "unreachable" :
+    p.state + ", " + (p.meter && p.watts != null ? Math.round(p.watts) + " W" : "no meter");
+  return " · plug " + (p.model || "?") + " " + reading + ", " + (p.cycle ? "armed" : "dry run") + ", " +
+    p.cycles_today + (p.cycles_today === 1 ? " cycle" : " cycles") + " today";
 }
 // ---- clock trials table (rows come from /api/trials; rollup rows carry bad_pct_min/max and segments, segment rows carry bad_pct) ----
 const TRIAL_COLUMNS = ["clock", "fan target", "from", "held", "worst chip, bad share", "bad/hour", "board resets", "HW error", "accepted/hr", "hashrate", "chip temp · fans"];
@@ -209,7 +221,7 @@ function trialStatus(run, nowMs) {
 }
 if (typeof module !== "undefined") module.exports = { encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
-  TRIAL_COLUMNS, trialDuration, trialCells, trialStatus };
+  markerGlyph, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus };
 
 // ---- presentation (skipped under Node, where the data layer above is unit-tested) ----
 if (typeof document !== "undefined") {
@@ -261,7 +273,7 @@ async function probeService() {
     const w = service.watchdog || {};
     $("svcsub").textContent = "gbox " + service.version + " · poll every " + service.poll_interval + " s · " + service.samples + " samples, " + service.errors + " errors" +
       (service.latest_time ? " · last " + service.latest_time : "") + " · watchdog " + (w.enabled ? "on, " + w.restarts_today + " restarts today" : "off") +
-      (service.has_token || service.can_login ? "" : " · waiting for login");
+      (service.has_token || service.can_login ? "" : " · waiting for login") + powerLine(service);
     if (service.last_error) $("svcsub").textContent += " · " + service.last_error;
   }
   return service;
@@ -474,7 +486,7 @@ function renderEnv() {
   eventMarks.filter(m => now - m.t <= spanMin * 60000 && m.t <= now).forEach(m => {
     const xx = L + (W - L - R) * (1 - (now - m.t) / (spanMin * 60000));
     s += "<line class=\"mark\" x1=\"" + xx.toFixed(1) + "\" x2=\"" + xx.toFixed(1) + "\" y1=\"" + (T - 4) + "\" y2=\"" + y0 + "\"><title>" + esc(new Date(m.t).toLocaleTimeString() + " " + m.label) + "</title></line>" +
-      "<text class=\"marklbl\" x=\"" + (xx + 3).toFixed(1) + "\" y=\"" + (T + 4) + "\">" + (m.label.startsWith("watchdog") ? "W" : "▼") + "</text>";
+      "<text class=\"marklbl\" x=\"" + (xx + 3).toFixed(1) + "\" y=\"" + (T + 4) + "\">" + markerGlyph(m.label) + "</text>";
   });
   s += "<line class=\"cross\" id=\"ecx\" y1=\"" + T + "\" y2=\"" + y0 + "\" style=\"display:none\"/></svg><div class=\"tip\" id=\"etip\"></div>";
   box.innerHTML = s;
