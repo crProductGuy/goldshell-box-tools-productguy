@@ -632,3 +632,79 @@ Tasmota, one for KLAP that cannot be verified here.
 **Left out.** Any write to either plug; SNMP, Matter, Meross and Wemo;
 the directory rename from the previous checkpoint, which needs a session
 started outside the directory.
+
+## 2026-09-10 midday, session G: 0.3.0 deployed, the plug proven twice
+
+**Goal, in Mark's words** (from the brief he approved at noon, carried
+in `STATUS.md`): "deploy the power-cycle module and prove it on the real
+plug, in four steps": merge and release 0.3.0, record the plug, one
+deliberate cycle with the miner hashing, one cycle provoked through the
+watchdog, then leave the live service armed. "I authorize you to
+power-cycle the Kasa when you get to that. I accept your recommendation
+on not running up the clock." The session was told to restate the task
+before acting, and did: goal, context, constraints, done-when.
+
+**Deploy.** The branch's 165 tests were run once more before the merge
+and passed. `main` fast-forwarded, the previous session's log entry
+committed, `v0.3.0` tagged and pushed. The service restarted from the
+Startup launcher and reported 0.3.0; it widened the log to 22 columns.
+One small mismatch surfaced there: the event line says a copy was kept
+as `log.csv.bak`, but the migration deliberately never overwrites an
+older backup, so the `.bak` on disk is still the 21-column copy from
+09-08. Design, not fault; the wording is looser than the code.
+
+**Recording the plug.** Discovery listed the same two plugs as the night
+before: the HS105 with its relay off and the HS110 reading 187 W with the
+miner hashing at about 183 W on the wall meter. `gbox power init` refused
+a piped "y" ("no terminal to confirm on: pass --yes") and was rerun with
+`--yes`; the guard did what it was built for and the flag is the
+intended unattended path. Dry run first, one more restart, status
+showed the plug and 187 W in the new column.
+
+**The deliberate cycle.** `gbox power cycle` needs a terminal and the
+typed word CYCLE, and Git Bash's winpty refuses piped input, so the
+agent could not confirm it programmatically. Rather than work around the
+guard, it opened a visible PowerShell 7 window at the prompt and waited;
+Mark saw the window ("I saw this modal over this terminal") and typed
+the word. 12:11:07: relay open 15 s, then closed. The meter went 187 W,
+39 W, 38 W, 190 W on the 30 s polls; the miner answered a timeout, then
+an HTTP 500 while booting, then a good sample 66 seconds after the cut,
+at 575 MHz manual with zero board resets. Sixty-six seconds is faster
+than the two to three minutes the guide promises, and under the
+watchdog's two-minute unreachable threshold, so the live watchdog never
+stirred. The live config was then armed and the service restarted;
+status reads ARMED.
+
+**The provoked cycle.** The only on-demand test of the judgment path
+against real hardware: a second instance on a scratch data directory,
+its config a copy of the live one with the miner address changed to a
+LAN address that answers neither ping nor ARP, port 8767, power armed.
+`--remember` from the brief was dropped as unnecessary, since the copied
+config already carries the stored password. A Monitor watched its event
+log and a detached 40-minute stop-loss stood ready to kill it, because
+after the settle gap the ladder would run again and cycle a second time.
+The ladder ran as designed and on the
+clock the guide predicts: login timeouts from the first poll, the first
+failed soft restart at 12:18:27, the second at 12:32:58 after the
+ten-minute gap, and at 12:33:13, with the episode 17 minutes old, `power:
+cycled #1 today: off 15 s, on (miner unreachable for 2 min; 187 W
+before)`. The scratch instance was killed 30 seconds later, then the
+stop-loss timer. The live service, which had no part in the decision,
+recorded the outage from the other side: a timed-out poll with the plug
+at 39 W, an HTTP 500 while the controller booted, and a good sample at
+12:34:12, 60 seconds after the cut, at 575 MHz with zero board resets and
+189 W. Its own watchdog never reached the two-minute threshold, so the
+live event log carries only the deliberate cycle; the provoked one lives
+in the scratch instance's event log, copied into the data directory as
+`provoke-2026-09-10/`. Two power cycles, both authorized, both survived
+at the manual clock.
+
+**Decisions taken without Mark, flagged.** Using `--yes` on `init` after
+the piped answer was refused (the identity condition in the brief held:
+the plug whose meter fell to 34 W during the freeze). Opening a window
+for the CYCLE word instead of bypassing the guard. Omitting `--remember`.
+
+**Left for later.** The worktree removal, the directory rename and the
+transcript scrub still need a session started outside the directory. The
+event-line wording about the `.bak` copy. The trials table's watts
+column and GH/s per watt are next in the accepted build order.
