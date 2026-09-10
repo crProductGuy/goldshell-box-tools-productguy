@@ -142,11 +142,16 @@ Verified 2026-09-08 on the SC-BOX, from the gbox log:
   `SEND JOB FAILD 10 TIMES, REINIT THIS CPB`.
 - A third, in the controller rather than the board: the unit drops off the
   network entirely (no HTTP, no ping, no ARP) with the fans still turning.
-  Seen 2026-09-06 and again 2026-09-09, both times after days of clean
-  hashing at a manual clock. A soft restart cannot reach it; only a power
-  cycle clears it, and the manual power plan survives the cycle. At the
-  wall it drew about 53 W while hung, against 183 W hashing, and blew
-  barely warm air: the hashboard is idle and only the controller is
-  running. A plug-in power meter therefore tells the state from across the
-  room, and a smart plug that cycles power on ping loss would cover what
-  the software watchdog cannot.
+  Seen 2026-09-06, 2026-09-09 19:00 and 2026-09-09 22:22, the first two
+  after days of clean hashing at a manual clock, the third 34 minutes
+  after the power cycle that cleared the second. A soft restart cannot
+  reach it, and the manual power plan survives a power cycle. At the wall
+  it drew about 53 W while hung on a plug-in meter, and a steady 33.5 to
+  34 W on a Kasa HS110's meter during the third episode, against 183 to
+  188 W hashing; it blew barely warm air: the hashboard is idle and only
+  the controller is running. The third episode ended on its own after 51
+  minutes: the web backend answered an HTTP 500 during boot, the meter
+  went from 34 W straight to 188 W, and the uptime counter restarted. A
+  plug-in power meter tells the state from across the room, and the
+  smart-plug rung of the watchdog (`docs/power-cycle.md`) is the
+  automatic version of the hand on the plug.

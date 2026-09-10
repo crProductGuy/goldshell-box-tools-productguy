@@ -27,6 +27,11 @@ on Windows: standard-library Python only, one process, one command.
 | Log format | `log.csv` columns are only ever appended, never renamed or reordered; the service migrates an older log in place on start and keeps a `.bak` | the dashboard's charts and the clock-trials table read columns by header name, and a user's history must survive an upgrade. First exercised 2026-09-08 (17 to 21 columns). |
 | Unattended clock stepping | `gbox trials run` is a CLI process that talks to the miner itself; the service only serves its progress file read-only | the service never gains a clock-changing endpoint, so `--bind` exposure stays exactly as safe as it was. Cost: a trial dies with its terminal. |
 | Versioning | `0.x`; bump the minor version when the log format, the CLI surface, or the HTTP API changes; tag every release `vX.Y.Z` | users on an older log need to know which version changed what; the `~` marker in the trials table refers to "before 0.2.0". |
+| Power rung (2026-09-10) | an optional `power` block in `config.json`; the watchdog cycles a smart plug only on the frozen-controller signature (unreachable, two failed soft restarts, `after_minutes`, under the daily cap, the recorded device with its relay on); **dry run by default** | three controller freezes that only a power cycle clears (`firmware-api.md`). Dry run first because a tool that can cut a miner's power must prove its judgment in the log before the relay moves. The design and the research behind it: `power-cycle-proposal.md`. |
+| No power button on the page | a deliberate cycle is `gbox power cycle` with a typed word; the service has no plug endpoint | keeps `--bind` exposure exactly as safe as before; the plug has no password of its own for the page to prove |
+| Plug identity | `gbox power init` records the plug's device id; every cycle checks it and refuses any other device | the plug believed to be on the miner turned out to be a different one on a different appliance (2026-09-09); a DHCP change must never point the watchdog at the wrong relay |
+| Watts in the log | `watts` is the appended 22nd column, empty without a meter | evidence in the event line and the log first; a gate on watts is one line to add if the evidence says so. Also the input for a later GH/s-per-watt column in the trials table. |
+| Plug drivers | Kasa legacy protocol first (both plugs on hand); Shelly Gen2 and Tasmota next; a generic HTTP driver for REST PDUs; KLAP last | standard-library rule, so every protocol is reimplemented; Shelly outnumbers Kasa two to one among local-control users; KLAP needs credentials and cannot be verified without a device |
 
 ## What must change from `scbox-tools`
 
@@ -54,11 +59,12 @@ goldshell-box-tools-productguy/
 │   ├── api.py               login, GET/PUT, parsers; ONE serialized session (a lock), 401 retry
 │   ├── config.py            config.json (optional), data dir, permissions
 │   ├── poller.py            poll thread -> ~/.gbox/log.csv; COLUMNS append-only; migrate_columns
-│   ├── watchdog.py          stall rules, capped soft restarts
+│   ├── watchdog.py          stall rules, capped soft restarts, the power rung (dry run by default)
+│   ├── plug.py              smart plug drivers (Kasa legacy), LAN discovery, the driver interface
 │   ├── events.py            the event log (one line per thing the tools did)
 │   ├── trials.py            log.csv -> runs per clock and fan target -> table; run_trial (the unattended runner)
-│   ├── server.py            static, CSV, events, trials table, trial progress, token hand-off, event line; 127.0.0.1
-│   ├── cli.py               init | status | chips | plan | fantarget | restart | trials [run] | serve
+│   ├── server.py            static, CSV, events, trials table, trial progress, token hand-off, event line, plug state; 127.0.0.1
+│   ├── cli.py               init | status | chips | plan | fantarget | restart | trials [run] | power ... | serve
 │   └── web/
 │       ├── index.html       works standalone (file://) and served
 │       ├── app.js           data layer above a `typeof document` guard (unit-tested under Node), DOM below
@@ -68,13 +74,16 @@ goldshell-box-tools-productguy/
 │   ├── test_api.py          session lock, 401 retry, re-login
 │   ├── test_parsers.py      minerinfo / icinfo / setting fixtures (sanitized)
 │   ├── test_poller.py       one sample to CSV, error rows, header migration, config round trip
-│   ├── test_watchdog.py     stall detection with a fake clock, caps, gaps
-│   ├── test_server.py       routes, no URL logging, bind address, trials endpoints
+│   ├── test_watchdog.py     stall detection with a fake clock, caps, gaps; the power rung's five conditions
+│   ├── test_plug.py         the Kasa driver against the fake plug: framing, meter shapes, cycle, discovery
+│   ├── test_config.py       the optional power block: defaults, validation, round trip
+│   ├── test_server.py       routes, no URL logging, bind address, trials endpoints, the health power block
 │   ├── test_trials.py       segment boundaries, every column, rollup, the runner with a fake clock
-│   ├── test_cli.py          gbox trials and gbox trials run against the fake miner and a real service
+│   ├── test_cli.py          gbox trials, gbox trials run, gbox power ... against the fakes and a real service
 │   ├── test_app_js.py       runs app_test.js under Node when Node is present
-│   ├── app_test.js          request builders, event markers, trial row formatting
+│   ├── app_test.js          request builders, event markers, trial row formatting, the service power line
 │   ├── fake_miner.py        HTTP stub serving the fixtures + accepting PUTs; used by tests and by hand
+│   ├── fake_plug.py         a Kasa plug on the legacy protocol, with a meter, a relay, and failure knobs
 │   └── fixtures/
 ├── scripts/
 │   ├── install-windows.ps1  Startup .vbs launcher (done)
@@ -85,7 +94,9 @@ goldshell-box-tools-productguy/
 │   ├── firmware-api.md      endpoints, cipher, quirks, counters, hashboard behavior seen
 │   ├── stock-ui-debug-page.md  the hidden /#/debug page of the stock UI and what each part shows
 │   ├── clock-tuning.md      the method: manual and unattended clock trials, reading the table, power
-│   ├── security-notes.md    what the firmware exposes (token, credentials in the API, factory reset)
+│   ├── power-cycle.md       the smart-plug rung: which plugs, discover, init, dry run, the five conditions, arming
+│   ├── power-cycle-proposal.md  the research and design behind it (market, repos, protocols, PDUs, effort)
+│   ├── security-notes.md    what the firmware exposes (token, credentials in the API, factory reset); smart plugs
 │   ├── case-study-scbox.md  the 2026-09-05 diagnosis and the clock trials that followed (step 4)
 │   └── architecture.md      browser / service / miner diagram (step 4)
 ├── Dockerfile               optional (step 4)
@@ -147,7 +158,7 @@ the most dangerous one.
 | Item | Why it is not in the plan | What would change the answer |
 |---|---|---|
 | Token check on `POST /api/event` | loopback-only by default; anyone who can reach the service can already read the miner. A forged log line is the whole exposure. | `--bind` on a LAN becoming the normal setup |
-| Hardware watchdog (smart plug cycled on ping loss) | a frozen controller defeats the software watchdog; the fix is outside the software. **The second freeze happened 2026-09-09 19:00** (off the wire for nearly three hours, six restarts timed out, 53 W at the wall, cleared by a power cycle), so the trigger named here has fired. | Mark's call on scope; a smart plug the service can toggle on ping loss is the shape of it |
+| ~~Hardware watchdog (smart plug cycled on ping loss)~~ | **Built 2026-09-10 as the power rung** (Decisions above, `power-cycle.md`), after the third freeze on 2026-09-09 22:22. "Ping loss" became "unreachable plus two failed soft restarts": standard-library Python cannot send ICMP without administrator rights on any OS, and the TCP connect the watchdog already makes failed at the same moment ping did in every episode. | Follow-ons: Shelly, Tasmota and generic HTTP drivers; KLAP; watts and GH/s per watt in the trials table |
 | Service hands its token to the page under `--remember` | changes the credential flow above (the page would never ask for a password on a served dashboard) | Mark deciding the convenience is worth the wider token exposure |
 | A settings write endpoint in the service | would let a trial be started from the page; rejected in 2b for the security reason in Decisions | never, unless the token check above exists first |
 | Runner event lines carry the `dashboard:` prefix | they go through `/api/event`; an `origin` field is a small change | cosmetic; fold into step 4 if convenient |

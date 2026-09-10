@@ -81,6 +81,20 @@ the firmware's own web UI.
 - `/mcb/facrst`: factory reset, one unauthenticated-looking PUT away once
   you hold the token. This toolkit never calls it.
 
+## Smart plugs (the optional power rung)
+
+- A TP-Link Kasa plug on its original local protocol (port 9999) answers
+  any host on the LAN with no authentication: relay state, energy reading,
+  schedules, and, through `cnCloud get_info`, the e-mail address of the
+  TP-Link account it is registered to. This toolkit never logs that reply
+  and never writes the plug's identifiers to the repo or the docs. Anyone
+  on your LAN can switch such a plug; keep it on the same trusted segment
+  as the miner.
+- Newer Kasa firmware and all Tapo plugs use an encrypted protocol (KLAP)
+  keyed by the account credentials. This version does not drive them.
+- The service never exposes the plug: no endpoint switches it, and the
+  watchdog only cycles the device whose id was recorded at setup.
+
 ## Network posture
 
 - The web backend answers any origin (`Access-Control-Allow-Origin: *`).
