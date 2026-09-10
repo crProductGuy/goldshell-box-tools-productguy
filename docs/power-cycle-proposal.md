@@ -179,8 +179,8 @@ protocol cannot be verified here without buying a new plug.
 
 **Firmware risk:** TP-Link has moved HS100 (UK, 2020), HS200, EP10, HS300
 v2 and KP125M to KLAP by update. A legacy plug works until an update; the
-driver should probe 20002 first and fall back to 9999, and say clearly
-when a plug has moved and needs credentials.
+driver should probe 20002 first and fall back to 9999, and say when a
+plug has moved and needs credentials.
 
 **Cloud:** the Kasa app has a "continue without an account" mode, and
 provisioning over the plug's setup access point without the app is
@@ -399,7 +399,7 @@ PDU (30 A, 240 V, 7500 W, four C13 and two C19, SNMP, Modbus/TCP, HTTP).
 Its HTTP API shape and price were not reachable tonight. The 240 V PDUs
 sold by the mining shops are metered, not switched.
 
-**Relay ratings, stated plainly:** a 15 A plug relay at 120 V is within
+**Relay ratings:** a 15 A plug relay at 120 V is within
 spec for a 200 W Box. It is not a defensible switch for a 240 V, 3 kW ASIC,
 and switching a large PSU's inrush through a consumer relay is a welding
 risk on the ratings alone. No community reports of welded plug relays were

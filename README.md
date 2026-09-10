@@ -12,13 +12,15 @@ KD-BOX, HS-BOX, LT-BOX and relatives running the "cloud-box" MCB_V5 firmware):
   trap: manual clock in 25 MHz steps, fan target, firmware preset, and a
   soft restart. Each shows what changes and the exact request before
   sending it; clock, preset, and restart ask for the miner password again
-- a logger and a watchdog that soft-restarts the miner when it stops hashing
+- a logger and a watchdog that soft-restarts the miner when it stops hashing,
+  and, with a Kasa smart plug on the miner's cord, power-cycles a frozen
+  controller that a soft restart cannot reach (dry run until you arm it)
 - a clock-trials table, on the dashboard and as `gbox trials`, that compares
   every clock and fan target the miner has run: worst-chip bad share, board
   resets, HW error rate, shares per hour, hashrate, temperature, fan speed.
   `gbox trials run 550 575 600 --hours 4` steps through a list unattended
   and backs off to a safe clock at the first board reset
-- a command line: `gbox status | chips | plan | fantarget | restart | trials | serve`
+- a command line: `gbox status | chips | plan | fantarget | restart | trials | power | serve`
 
 Born from a diagnosis of an SC-BOX running at 30 percent: one marginal chip was
 resetting the whole board every nine seconds at the factory clock, and the
@@ -54,6 +56,28 @@ Start at logon:
 - Windows: `powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1`
   (no administrator rights needed; `-Uninstall` reverses it)
 - Linux: `scripts/install-linux.sh` (systemd user unit) — next step of the plan
+
+## Power-cycling a hung miner
+
+A frozen controller drops off the network and cannot take the watchdog's
+soft restart; only a power cycle clears it. If the miner is plugged into a
+TP-Link Kasa smart plug on its original local protocol, the service can do
+the cycle itself, and read the plug's energy meter where the model has one
+(HS110, KP115, KP125, EP25; the HS100/103/105 have none):
+
+```
+python -m gbox power discover                 # which plugs answer on the LAN, with their meters
+python -m gbox power init --plug 192.0.2.34   # record the miner's plug; stays in dry run
+python -m gbox power status                   # relay, watts, dry run or armed, cycles today
+python -m gbox power cycle                    # a deliberate cycle, after typing CYCLE
+```
+
+In dry run the event log says "would cycle" and nothing moves. The watchdog
+cycles only when the miner is unreachable, two soft restarts have failed,
+fifteen minutes have passed, the plug is the recorded device with its relay
+on, and the daily cap has room. Arm it with `"cycle": true` in the config
+block once you have watched it judge a real freeze. The guide is
+`docs/power-cycle.md`; it also says which plugs and PDUs fit larger miners.
 
 ## The debug page you were never shown
 
@@ -94,7 +118,10 @@ throughput number than it looks.
 - The service listens on 127.0.0.1 only unless you pass `--bind`. Anyone who
   can open the page can read the miner, write lines into the event log and,
   with the miner password, press the buttons. The page sends every change
-  to the miner directly; the service only records what happened.
+  to the miner directly; the service only records what happened. The smart
+  plug has no button on the page and no endpoint in the service: a cycle
+  comes from the watchdog's own judgment or from `gbox power cycle` at a
+  terminal.
 
 ## How this was built
 
