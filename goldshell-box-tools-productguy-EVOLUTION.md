@@ -519,3 +519,116 @@ trigger for a hardware watchdog has fired.
 **Pushback.** On the prefix, above. And when Mark asked whether Claude
 could switch the browser's GitHub account for him: no, because that is his
 sign-in; he did it himself.
+
+## 2026-09-09 night to 09-10, session F: the power-cycle module, researched and proposed
+
+**Goal, in Mark's words.** "go into research mode, then planning mode
+overnight. I want to add an optional module to this tool to allow
+auto-power-cycle of a hung miner. I have TPlink Kasa brand smart switches
+around here, including an HS-105 ... already inline with this miner power
+plug ... 1) Estimate the market share % of the top 5 wifi-controllable
+consumer smart plugs ... 2) check for any other repos that I overlooked.
+3) quick action: scan that HS-105 ... It has an energy sensing readout in
+it ... 4) go into planning mode, devise a plan for adding this feature,
+with effort estimate including making it windows, Mac, and Linux-friendly
+... Give me a secondary recommendation for a smart plug brand or set of
+models to support, including home PDU modules." The trigger was the
+second controller freeze, the evening before: a soft restart cannot reach
+a frozen controller, and only a power cycle clears it.
+
+**How the session ran.** Unattended, so every question was written into
+the proposal with the assumed answer instead of asked. Three research
+agents ran in parallel with search budgets and a stop rule; the plug
+probe ran in the main session, read-only by decision, since the miner was
+believed to hang off that plug. The test suite was run once at the start.
+
+**Findings that changed the design.** The plug named as inline with the
+miner reported its relay off while the miner hashed, so it was not the
+miner's plug; LAN discovery found a second Kasa plug with an energy meter
+reading a steady 188 W, matching the wall meter. The HS-105 has no energy
+meter on any hardware version, contrary to the brief. Two consequences
+went straight into the design: an `init` command that records the plug's
+device id and refuses to cycle any other device, and a `discover` command,
+because the owner's own recollection of which plug was where was wrong.
+Four minutes into the trace the miner froze for the third time, 34
+minutes after the previous power cycle, and the metering plug's reading
+fell from 188 W to 38 W in the same minute: the identity question was
+answered by the failure the module is meant to fix. The session did not
+cycle the plug (not authorized, and the push notification to Mark could
+not be delivered); the plan records the open decision. The plan came back
+approved with no word from Mark, read as the harness's auto mode rather
+than Mark, so nothing was built until he spoke.
+
+**23:27, Mark.** "recheck miner, I think it's hashing now, 183W ... I
+don't think it needs a power cycle. confirm." Confirmed: the miner had
+come back at 23:13 with the plug's relay closed the whole time, the first
+self-recovery in three freezes. **23:30, Mark:** "I didn't touch the
+power or the machine, so maybe it did self-recover. I like the 15 min
+power cycle if apparently dead. What do you need from me to build to the
+plan?" Three questions, three answers: build tonight unattended in a
+worktree and stop before merge; commit the proposal with the plug names
+removed; one security pass at feature-complete.
+
+**Built, 23:35 to 00:05, test-first throughout.** Phase 1: the driver,
+discovery, the fake plug, the config block, the four `gbox power`
+commands. Phase 2: the watchdog rung, the watts column, the health block,
+the page's service line and marker, the wiring in `gbox serve`, the
+guide, README, plan, security and firmware notes, version 0.3.0. From 101
+tests to 165 plus 21 in JavaScript. Two mistakes caught by the tests and
+worth recording: a config block assigned directly skipped the defaults
+merge (fixed by making it a property), and a test that used the default
+service port reached the live service and wrote one stray line into the
+real event log (fixed by pointing test configs at a dead port). The
+security pass found nothing above threshold and suggested cleaning plug
+names before they reach a log or a terminal, since anyone on the LAN can
+rename a legacy Kasa plug; built and tested. A scratch walk-through with
+the fake miner and fake plug showed the dry run writing "would cycle"
+after the second failed soft restart and, armed, cycling the fake relay
+and counting one cycle on the page. Nothing merged, nothing restarted,
+nothing pushed: the branch waits for Mark.
+
+**Decision taken without Mark, flagged for him.** A second cycle after a
+settle gap needs the whole ladder again (two fresh failed soft restarts),
+the more conservative reading of the plan, rather than firing at the
+first judgment after the gap. **Morning of 2026-09-10, Mark:** "I agree
+with your call." He also had the stray test line deleted from the live
+event log. The night was clean: 12.7 hours at 575 MHz, 19 bad nonces of
+128,705, chip 8 off the weak list.
+
+**Noon, Mark.** Asked what comes next and whether to provoke a real
+plug cycle, run up the clock, or build more. Recommended: merge and
+deploy; one deliberate cycle; a watchdog-provoked cycle by pointing a
+second service instance at a dead address (the only on-demand test of
+the judgment path against real hardware, one power cycle); no clock
+increase, since nothing ties the freezes to clock and a higher clock
+only reproduces chip 8's known failure; then watts per clock in the
+trials table, the Linux installer, the Shelly and Tasmota drivers, the
+case study, KLAP last. Mark: "Do 1-4 now ... I authorize you to
+power-cycle the Kasa when you get to that. I accept your recommendation
+on not running up the clock." Asked whether to compact or restart the
+session first; the answer was restart, per the session-hygiene rules
+(14 hours, several gates), with the brief written into `STATUS.md`. The
+session ended there; the merge and the cycles belong to the next one.
+
+**Research.** No public source gives brand-level smart plug share;
+estimates were given as ranges with the basis stated, TP-Link plausibly
+first. Home Assistant's install counts put Shelly nearly two to one ahead
+of Kasa among local-control users, which set Shelly as the second driver.
+Fourteen repos were inventoried; none is usable as a dependency (standard
+library rule, and the reference one is GPL), and none is needed: the
+legacy protocol is about sixty lines. The newer KLAP protocol needs an
+AES decrypt the repo lacks and account credentials, and no device on this
+LAN speaks it.
+
+**Proposed.** The cycle as the next rung of the existing watchdog ladder:
+unreachable, two soft restarts failed, fifteen minutes, plug answers with
+the right identity and reports on, under the daily cap. Dry run by
+default, so the log proves the judgment before the relay moves. No
+dashboard button, keeping the service free of state-changing endpoints.
+Watts as an appended log column, evidence rather than a gate. Effort about
+one and a half sessions for the feature, half more for Shelly and
+Tasmota, one for KLAP that cannot be verified here.
+
+**Left out.** Any write to either plug; SNMP, Matter, Meross and Wemo;
+the directory rename from the previous checkpoint, which needs a session
+started outside the directory.
