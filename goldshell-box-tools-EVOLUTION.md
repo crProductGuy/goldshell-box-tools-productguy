@@ -357,9 +357,11 @@ clock) or in the background. **Mark** chose the recommendation: 600 MHz for
 6 hours, end at 575, visible window.
 
 **21:50, Mark.** Reported an error line from the window and a preference:
+<!-- gstyle-ignore-start -->
 "BTW I have been using PowerShell, not Windows PowerShell ... Note that you
 should avoid powershell.exe and instead use pwsh.exe on this machine and
-any other Windows machines of mine." The error was Claude's own quoting
+any other Windows machines of mine."
+<!-- gstyle-ignore-end --> The error was Claude's own quoting
 mistake in the launch command; the preference went into a memory and, at
 Mark's request, into the machine notes file every agent reads.
 
@@ -382,7 +384,7 @@ versus 4.0 GH/s per watt: efficiency barely moves, absolute spend drops 18
 percent, and the miner hashes at all).
 
 **16:19, Mark.** "Have you saved all the important learnings here into
-docs?" Honest answer: mostly; four findings were only in the gitignored
+docs?" Answer: mostly; four findings were only in the gitignored
 STATUS.md. They went into `firmware-api.md` (a Counters section) and the
 guide.
 

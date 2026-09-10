@@ -97,7 +97,7 @@ goldshell-box-tools/
 1. User opens the dashboard (file or served). Pop-up asks for the miner password. Page encrypts it (WebCrypto, PKCS#7 trick documented in `firmware-api.md`), logs in, keeps the session token in browser storage.
 2. If a service is reachable at the page's origin (`/api/health`), the page POSTs the token to `/api/token`. The service keeps it in memory only and uses it for the logger and watchdog. Standalone page: this step is skipped silently.
 3. CLI commands prompt for the password each run, or read `GBOX_PASSWORD`. `gbox serve --remember` is the only path that writes a password to disk; once it has, every CLI command on that machine reads it from `config.json` and does not prompt, which is what lets `gbox trials run` start unattended. `gbox trials` (the table) reads only the log and needs no credentials.
-4. Honest note for docs: on this firmware the token is deterministic from the password and never expires, so the browser copy is password-equivalent. The stock UI stores the same token the same way.
+4. The docs say outright: on this firmware the token is deterministic from the password and never expires, so the browser copy is password-equivalent. The stock UI stores the same token the same way.
 
 ## Protected buttons (scope)
 
@@ -111,8 +111,9 @@ As built (2026-09-07): the revert button became a firmware preset picker,
 and it asks for the password too, because on this unit a preset is a clock
 change to 725 MHz, the dangerous direction. The confirm dialog leads with
 one line per changed field and folds the full request under a toggle.
-Mark has not yet ruled on the extra password prompt; one flag in
-`presetRequest()` reverses it.
+Decided 2026-09-09: the preset picker keeps its password prompt. Every
+action that changes the clock asks for the password, with no exception for
+the most dangerous one.
 
 ## Firmware facts that shape the code
 
