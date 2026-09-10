@@ -158,8 +158,8 @@ service started logging. The columns:
   different. The SC-BOX log has a 1521/hr run and a 643/hr run at the same
   clock and the same hashrate. Compare it only within one pool session, and
   use the hashrate column for throughput.
-- **Hashrate.** Mean 20-second hashrate over the run. The honest throughput
-  number.
+- **Hashrate.** Mean 20-second hashrate over the run. The throughput number
+  that does not depend on the pool.
 - **Chip temp, fans.** Mean chip temperature and fan speed, and how many
   samples had the overheat flag set. Lower is less stress and less noise at
   the same output.

@@ -102,7 +102,7 @@ morning. The design that shipped keeps the password in one place, the
 dashboard's login box; the page hands the session token to the local
 service over localhost, in memory only; the command line prompts every
 time; and `--remember` is an explicit opt-in whose trade-off the README
-states. One honest note went into the docs: on this firmware the token is
+states. The docs say outright that on this firmware the token is
 deterministic and never expires, so the browser's copy is password-
 equivalent, the same as the stock UI's.
 
