@@ -7,6 +7,8 @@
     gbox fantarget 65              fan controller target on the board sensor
     gbox restart                   soft restart
     gbox trials                    error and throughput per clock, from the service log
+    gbox power discover|init|status|cycle
+                                   a smart plug that can cut power to a frozen controller
     gbox serve                     dashboard + logger + watchdog in one process
 
 Commands that talk to the miner prompt for the web UI password unless the
@@ -20,7 +22,7 @@ import os
 import sys
 import threading
 
-from . import __version__, api, config, trials
+from . import __version__, api, config, plug as plugmod, trials
 from .events import EventLog
 from .poller import COLUMNS, Poller, migrate_columns
 from .server import ServiceState, make_server
@@ -195,6 +197,146 @@ def cmd_trials(args, cfg, data_dir):
     _out("average, from rows logged by versions before 0.2.0.")
 
 
+# ---------------------------------------------------------------- power (smart plug)
+
+def _ask_yes(prompt):
+    """True for y/yes at a terminal. Dies without a terminal: unattended runs must pass --yes."""
+    if not sys.stdin or not sys.stdin.isatty():
+        _die("no terminal to confirm on: pass --yes if this is the miner's plug")
+    try:
+        return input(prompt).strip().lower() in ("y", "yes")
+    except EOFError:
+        return False
+
+
+def _service_health(cfg):
+    """The running service's /api/health, or None when nothing answers."""
+    import json
+    import urllib.request
+    try:
+        with urllib.request.urlopen(_service_url(cfg) + "/api/health", timeout=3) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except Exception:
+        return None
+
+
+def _service_event(cfg, text):
+    """Write one line to the service's event log. Returns True when the service took it."""
+    import json
+    import urllib.request
+    body = json.dumps({"message": text}).encode("utf-8")
+    req = urllib.request.Request(_service_url(cfg) + "/api/event", data=body, method="POST",
+                                 headers={"Content-Type": "application/json"})
+    try:
+        urllib.request.urlopen(req, timeout=5).close()
+        return True
+    except Exception:
+        return False
+
+
+def _configured_plug(cfg):
+    if cfg.power is None:
+        _die("no plug configured: `gbox power discover` to find it, then `gbox power init --plug <address>`")
+    return plugmod.make(cfg.power)
+
+
+def _fmt_watts(w):
+    return ("%.0f W" % w) if w is not None else "no meter"
+
+
+def cmd_power_discover(args, cfg, data_dir):
+    found = plugmod.discover(timeout=args.timeout, port=args.port, targets=tuple(args.target) if args.target else None)
+    if not found:
+        _out("none found (plugs on the newer KLAP firmware answer discovery but cannot be driven yet;")
+        _out("a plug on another subnet is not found by broadcast: try `gbox power init --plug <address>`)")
+        return
+    _out("%-16s %-12s %-24s %-5s %-9s %s" % ("address", "model", "name", "relay", "meter", "protocol"))
+    for d in found:
+        relay = {True: "on", False: "off", None: "?"}[d["relay"]]
+        meter = _fmt_watts(d["watts"]) if d["meter"] else "no"
+        _out("%-16s %-12s %-24s %-5s %-9s %s" % (d["host"], d["model"], d["alias"][:24], relay, meter, d["protocol"]))
+    if any(d["protocol"] != "legacy" for d in found):
+        _out("(a %s plug needs the TP-Link account credentials; this version drives legacy-protocol plugs only)"
+             % ", ".join(sorted({d["protocol"] for d in found if d["protocol"] != "legacy"})))
+
+
+def cmd_power_init(args, cfg, data_dir):
+    p = plugmod.make({"driver": args.driver, "host": args.plug})
+    info = p.identify()
+    state = p.state()
+    w = p.watts() if info["meter"] else None
+    _out("%s '%s' (hw %s, fw %s): relay %s, %s" % (info["model"], info["alias"], info["hw"], info["fw"],
+                                                    "on" if state else "off", _fmt_watts(w)))
+    if not info["meter"]:
+        _out("(no energy meter on this model: the watchdog will not see the miner's draw, only the relay)")
+    if not args.yes and not _ask_yes("Is this the plug the miner is powered from? [y/N] "):
+        _die("nothing written")
+    block = dict(cfg.power or {})
+    block.update({"driver": args.driver, "host": args.plug, "device_id": info["device_id"]})
+    block.setdefault("cycle", False)
+    cfg.power = block
+    cfg.validate()
+    path = config.save(cfg, data_dir)
+    _out("wrote", path)
+    _out("power block %s: the watchdog logs 'would cycle' and does nothing until you set \"cycle\": true"
+         % ("stays in dry run" if not cfg.power["cycle"] else "is ARMED"))
+    _out("restart `gbox serve` to pick it up; `gbox power status` shows the plug any time")
+
+
+def cmd_power_status(args, cfg, data_dir):
+    p = _configured_plug(cfg)
+    info = p.identify()
+    matches = info["device_id"] == cfg.power.get("device_id")
+    w = p.watts() if info["meter"] else None
+    _out("plug: %s '%s' at %s, relay %s, %s%s" % (info["model"], info["alias"], cfg.power["host"],
+                                                  "on" if p.state() else "off", _fmt_watts(w),
+                                                  "" if matches else "  ** DEVICE ID DOES NOT MATCH config.json: not the plug that was set up **"))
+    _out("mode: %s (after %d min unreachable and two failed soft restarts; %d s off; at most %d cycles a day)" % (
+        "ARMED" if cfg.power.get("cycle") else "dry run", cfg.power["after_minutes"], cfg.power["off_seconds"],
+        cfg.power["max_cycles_per_day"]))
+    h = _service_health(cfg)
+    if h is None:
+        _out("service not running (or not at %s): cycles today unknown" % _service_url(cfg))
+    else:
+        pw = h.get("power") or {}
+        _out("service: %d cycles today%s" % (pw.get("cycles_today", 0),
+                                              (", last: " + pw["last_reason"]) if pw.get("last_reason") else ""))
+
+
+def cmd_power_cycle(args, cfg, data_dir):
+    p = _configured_plug(cfg)
+    off_seconds = args.off_seconds if args.off_seconds is not None else cfg.power["off_seconds"]
+    if not 3 <= off_seconds <= 120:
+        _die("--off-seconds must be 3 to 120")
+    info = p.identify()
+    if info["device_id"] != cfg.power.get("device_id"):
+        _die("the plug at %s is not the device id recorded by `gbox power init`; nothing sent" % cfg.power["host"])
+    w = p.watts() if info["meter"] else None
+    _out("about to cut power to %s '%s' for %d s. It reads %s now%s." % (
+        info["model"], info["alias"], off_seconds, _fmt_watts(w),
+        "" if w is None or w < cfg.power["idle_watts"] else " (that looks like a miner hashing, not a hung one)"))
+    if not sys.stdin or not sys.stdin.isatty():
+        _die("no terminal to confirm on; nothing sent")
+    try:
+        word = input("type CYCLE to confirm: ").strip()
+    except EOFError:
+        word = ""
+    if word != "CYCLE":
+        _die("not confirmed; nothing sent")
+    p.cycle(off_seconds)
+    line = "power: cycled by hand (gbox power cycle; %s before)" % _fmt_watts(w)
+    _out("cycled: off %d s, then on. The miner takes 2-3 minutes to boot and start hashing." % off_seconds)
+    if _service_event(cfg, line):
+        _out("event line written to the service log")
+    else:
+        _out("(service not reachable: nothing was logged)")
+
+
+def cmd_power(args, cfg, data_dir):
+    return {"discover": cmd_power_discover, "init": cmd_power_init, "status": cmd_power_status,
+            "cycle": cmd_power_cycle}[args.power_cmd](args, cfg, data_dir)
+
+
 def cmd_serve(args, cfg, data_dir):
     # pythonw has no stdio; the stock servers write to stderr and would die on it
     for name in ("stdout", "stderr"):
@@ -306,6 +448,23 @@ def build_parser():
     run.add_argument("--max-resets", type=int, default=0, help="board resets tolerated in one step before aborting (default 0)")
     run.add_argument("--max-bad", type=float, default=3.0, help="worst chip bad share, percent, tolerated before aborting (default 3)")
     run.set_defaults(fn=cmd_trials)
+    sp = sub.add_parser("power", help="a smart plug that can cut power to a frozen controller (optional)",
+                        description="Find, set up, read and, by hand, cycle the smart plug the miner is powered from. "
+                                    "The watchdog uses it only after soft restarts have failed, and only once armed.")
+    psub = sp.add_subparsers(dest="power_cmd", required=True)
+    d = psub.add_parser("discover", help="list plugs that answer on the LAN")
+    d.add_argument("--timeout", type=float, default=3.0, help="seconds to wait for answers (default 3)")
+    d.add_argument("--port", type=int, default=plugmod.LEGACY_PORT, help=argparse.SUPPRESS)
+    d.add_argument("--target", action="append", help=argparse.SUPPRESS)
+    i = psub.add_parser("init", help="record the miner's plug in config.json (dry run until armed)")
+    i.add_argument("--plug", required=True, help="plug address (IP or hostname, optional :port)")
+    i.add_argument("--driver", default="kasa", choices=sorted(plugmod.DRIVERS))
+    i.add_argument("--yes", action="store_true", help="skip the 'is this the miner's plug?' question")
+    psub.add_parser("status", help="relay, watts, dry run or armed, cycles today")
+    c = psub.add_parser("cycle", help="cut power and restore it, after typing CYCLE")
+    c.add_argument("--off-seconds", type=int, help="relay open this long (default: config, %d)" % config.DEFAULT_POWER["off_seconds"])
+    sp.set_defaults(fn=cmd_power)
+
     sp = sub.add_parser("serve", help="run dashboard, logger and watchdog")
     sp.add_argument("--bind", help="listen address (default 127.0.0.1; anything else is exposed)")
     sp.add_argument("--port", type=int)
@@ -329,6 +488,8 @@ def main(argv=None):
         _die(e)
     except api.MinerError as e:
         _die("miner: %s" % e)
+    except plugmod.PlugError as e:
+        _die("plug: %s" % e, 2)
     except ValueError as e:
         _die(e)
 
