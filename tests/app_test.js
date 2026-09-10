@@ -106,6 +106,29 @@ const tests = {
     assert.strictEqual(marks[0].label, "dashboard: clock set to 625 MHz");
     assert.match(marks[1].label, /^watchdog: restart #1/);
   },
+  "power lines get a marker too, drawn as P"() {
+    const log = "2026-09-09 22:39:00 power: would cycle now (miner unreachable for 2 min; 34 W before)\n" +
+                "2026-09-09 22:40:00 power: plug back\n" +
+                "2026-09-09 22:41:00 service: started v0.3.0\n";
+    const marks = app.eventMarkers(log);
+    assert.strictEqual(marks.length, 2);
+    assert.match(marks[0].label, /^power: would cycle/);
+    assert.strictEqual(app.markerGlyph(marks[0].label), "P");
+    assert.strictEqual(app.markerGlyph("watchdog: restart #1 sent"), "W");
+    assert.strictEqual(app.markerGlyph("dashboard: clock set to 575 MHz"), "▼");
+  },
+  "the service line says what the plug reads, or nothing without one"() {
+    assert.strictEqual(app.powerLine({ power: { configured: false } }), "");
+    assert.strictEqual(app.powerLine({}), "");
+    const on = { configured: true, model: "HS110(US)", meter: true, state: "on", watts: 187.8, cycle: false, cycles_today: 0, last_reason: null };
+    assert.strictEqual(app.powerLine({ power: on }), " · plug HS110(US) on, 188 W, dry run, 0 cycles today");
+    const armed = Object.assign({}, on, { cycle: true, cycles_today: 1, state: "off", watts: 0 });
+    assert.strictEqual(app.powerLine({ power: armed }), " · plug HS110(US) off, 0 W, armed, 1 cycle today");
+    const noMeter = Object.assign({}, on, { model: "HS105(US)", meter: false, watts: null });
+    assert.strictEqual(app.powerLine({ power: noMeter }), " · plug HS105(US) on, no meter, dry run, 0 cycles today");
+    const dark = Object.assign({}, on, { state: null, watts: null });
+    assert.strictEqual(app.powerLine({ power: dark }), " · plug HS110(US) unreachable, dry run, 0 cycles today");
+  },
   "trial durations read as hours and minutes"() {
     assert.strictEqual(app.trialDuration(9.4), "9 min");
     assert.strictEqual(app.trialDuration(58), "58 min");

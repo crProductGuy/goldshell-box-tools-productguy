@@ -373,23 +373,35 @@ def cmd_serve(args, cfg, data_dir):
     except OSError as e:
         _die("cannot listen on %s:%d (%s). Another gbox serve running?" % (cfg.bind, cfg.port, e))
 
+    plug = None
+    if cfg.power is not None and not args.no_power:
+        plug = plugmod.make(cfg.power)
+        try:
+            info = plug.identify()
+            events.write("service: power plug %s '%s', meter %s, %s" % (
+                info["model"], info["alias"], "yes" if info["meter"] else "no",
+                "ARMED: the watchdog may cycle it" if cfg.power["cycle"] else "dry run: the watchdog logs what it would do"))
+        except plugmod.PlugError as e:
+            events.write("service: power plug did not answer at start (%s); will keep trying each poll" % e)
     wd = None
     if cfg.watchdog.get("enabled", True) and not args.no_watchdog:
         w = cfg.watchdog
         wd = Watchdog(miner.restart, events, cfg.poll_interval, stall_minutes=w["stall_minutes"],
                       unreachable_minutes=w["unreachable_minutes"], min_gap_minutes=w["min_gap_minutes"],
-                      max_restarts_per_day=w["max_restarts_per_day"])
-    poller = Poller(miner, data_dir / "log.csv", cfg.poll_interval, watchdog=wd, events=events)
+                      max_restarts_per_day=w["max_restarts_per_day"], plug=plug, power=cfg.power)
+    poller = Poller(miner, data_dir / "log.csv", cfg.poll_interval, watchdog=wd, events=events, plug=plug)
     state.poller, state.watchdog = poller, wd
 
     url = "http://%s:%d/" % ("127.0.0.1" if cfg.bind in ("0.0.0.0", "") else cfg.bind, cfg.port)
-    events.write("service: started v%s, miner %s, poll %ds, watchdog %s, listening on %s:%d" % (
-        __version__, cfg.host, cfg.poll_interval, "on" if wd else "off", cfg.bind, cfg.port))
+    events.write("service: started v%s, miner %s, poll %ds, watchdog %s, power plug %s, listening on %s:%d" % (
+        __version__, cfg.host, cfg.poll_interval, "on" if wd else "off",
+        ("armed" if cfg.power["cycle"] else "dry run") if plug else "none", cfg.bind, cfg.port))
     if cfg.bind not in ("127.0.0.1", "localhost", "::1"):
         _out("WARNING: listening on %s. Anyone who can reach this address can read the miner's status," % cfg.bind)
         _out("         write to the event log and, with the miner password, press the buttons. Use a firewall or a VPN.")
-    _out("gbox %s: dashboard at %s  (miner %s, poll every %ds, watchdog %s)" % (
-        __version__, url, cfg.host, cfg.poll_interval, "on" if wd else "off"))
+    _out("gbox %s: dashboard at %s  (miner %s, poll every %ds, watchdog %s, power plug %s)" % (
+        __version__, url, cfg.host, cfg.poll_interval, "on" if wd else "off",
+        ("armed" if cfg.power["cycle"] else "dry run") if plug else "none"))
     if not miner.has_credentials:
         _out("no stored password: the logger starts once you log in on the dashboard")
     _out("data in", data_dir)
@@ -472,6 +484,7 @@ def build_parser():
     sp.add_argument("--remember", action="store_true", help="prompt for the password once and store it for unattended restarts")
     sp.add_argument("--forget", action="store_true", help="remove a stored password")
     sp.add_argument("--no-watchdog", action="store_true")
+    sp.add_argument("--no-power", action="store_true", help="ignore the power block in config.json for this run")
     sp.set_defaults(fn=cmd_serve)
     return p
 

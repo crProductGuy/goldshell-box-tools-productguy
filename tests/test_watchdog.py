@@ -1,7 +1,9 @@
 """Watchdog rules with a fake clock: stall, unreachable, settle gap, cap, sample gaps."""
 import unittest
 
+from gbox.config import DEFAULT_POWER
 from gbox.events import EventLog
+from gbox.plug import Plug, PlugError
 from gbox.watchdog import Watchdog
 
 
@@ -123,6 +125,192 @@ class WatchdogTest(unittest.TestCase):
         # after the gap, a full frozen window is judged again
         self.feed(10, accepted=500)
         self.assertEqual(self.restart.restarts, 1)
+
+
+class FakePlugObject(Plug):
+    """An in-memory plug: no sockets, a call log, knobs for every refusal path."""
+
+    def __init__(self, device_id="plug-1", relay=True, watts=34.0, meter=True):
+        self.device_id, self.relay, self.watts_value, self.meter = device_id, relay, watts, meter
+        self.calls = []
+        self.fail_identify = False
+        self.fail_off = False
+
+    def identify(self):
+        if self.fail_identify:
+            raise PlugError("plug did not answer")
+        return {"model": "HS110(US)", "alias": "test", "device_id": self.device_id, "meter": self.meter, "hw": "1.0", "fw": "t"}
+
+    def state(self):
+        if self.fail_identify:
+            raise PlugError("plug did not answer")
+        return self.relay
+
+    def watts(self):
+        return self.watts_value if self.meter else None
+
+    def off(self):
+        self.calls.append("off")
+        if self.fail_off:
+            raise PlugError("plug did not answer")
+        self.relay = False
+
+    def on(self):
+        self.calls.append("on")
+        self.relay = True
+
+
+class PowerCycleTest(unittest.TestCase):
+    """The power rung: only on the frozen-controller signature, only after soft restarts failed, only the right plug."""
+
+    INTERVAL = 30
+
+    def setUp(self):
+        self.clock = FakeClock()
+        self.restart = Recorder()
+        self.restart.fail = True                     # a frozen controller cannot take a soft restart
+        self.lines = []
+        self.events = EventLog()
+        self.events.write = lambda m: self.lines.append(m)
+        self.plug = FakePlugObject()
+        self.power = dict(DEFAULT_POWER, host="x", device_id="plug-1", cycle=True)
+        self.wd = self.make()
+
+    def make(self, plug="default", **power):
+        p = dict(self.power, **power)
+        return Watchdog(self.restart, self.events, self.INTERVAL, stall_minutes=5, unreachable_minutes=2,
+                        min_gap_minutes=10, max_restarts_per_day=6, clock=self.clock,
+                        plug=self.plug if plug == "default" else plug, power=p, sleep=lambda s: None)
+
+    def feed(self, n, ok=True, accepted=None, wd=None):
+        wd = wd or self.wd
+        last = None
+        for i in range(n):
+            self.clock.tick(self.INTERVAL)
+            acc = accepted(i) if callable(accepted) else accepted
+            wd.observe(ok, acc)
+            last = wd.check()
+        return last
+
+    def freeze(self, minutes, wd=None):
+        """A healthy window, then the miner off the network for `minutes`. Returns the time the episode began."""
+        self.feed(10, accepted=lambda i: i, wd=wd)
+        t0 = self.clock() + self.INTERVAL
+        self.feed(round(minutes * 60 / self.INTERVAL), ok=False, wd=wd)
+        return t0
+
+    def power_lines(self):
+        return [l for l in self.lines if l.startswith("power:")]
+
+    def test_no_plug_never_cycles(self):
+        wd = self.make(plug=None)
+        self.freeze(60, wd=wd)
+        self.assertEqual(self.plug.calls, [])
+        self.assertEqual(self.power_lines(), [])
+
+    def test_cycles_once_after_two_failed_restarts_and_the_delay(self):
+        t0 = self.freeze(14)
+        self.assertEqual(self.plug.calls, [])                       # one failed restart so far, under 15 min
+        self.feed(10, ok=False)                                     # 19 min: the second restart fails
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.assertGreaterEqual(self.clock() - t0, 15 * 60)
+        self.assertEqual(self.wd.cycles_today(), 1)
+        cycled = [l for l in self.power_lines() if l.startswith("power: cycled")]
+        self.assertEqual(len(cycled), 1)
+        self.assertIn("34 W before", cycled[0])
+        self.assertIn("unreachable", cycled[0])
+
+    def test_dry_run_logs_once_and_never_switches(self):
+        wd = self.make(cycle=False)
+        self.freeze(60, wd=wd)
+        self.assertEqual(self.plug.calls, [])
+        would = [l for l in self.power_lines() if "would cycle" in l]
+        self.assertEqual(len(would), 1)
+        self.assertIn("34 W", would[0])
+        self.assertEqual(wd.cycles_today(), 0)
+
+    def test_stalled_but_reachable_miner_gets_soft_restarts_only(self):
+        self.restart.fail = False
+        self.feed(10, accepted=lambda i: i)
+        self.feed(40, accepted=500)                                 # frozen counter, HTTP fine
+        self.assertGreaterEqual(self.restart.restarts, 2)
+        self.assertEqual(self.plug.calls, [])
+
+    def test_accepted_soft_restart_does_not_count_as_failed(self):
+        self.restart.fail = False                                   # the PUT is accepted although polls fail
+        self.freeze(60)
+        self.assertEqual(self.plug.calls, [])
+
+    def test_wrong_device_id_refuses_and_logs_once(self):
+        wd = self.make(device_id="some-other-plug")
+        self.freeze(60, wd=wd)
+        self.assertEqual(self.plug.calls, [])
+        refusals = [l for l in self.power_lines() if "not the configured device" in l]
+        self.assertEqual(len(refusals), 1)
+
+    def test_relay_already_off_refuses_and_logs_once(self):
+        self.plug.relay = False
+        self.freeze(60)
+        self.assertEqual(self.plug.calls, [])
+        self.assertEqual(sum("is off" in l for l in self.power_lines()), 1)
+
+    def test_plug_not_answering_refuses_and_logs_once(self):
+        self.plug.fail_identify = True
+        self.freeze(60)
+        self.assertEqual(self.plug.calls, [])
+        self.assertEqual(sum("did not answer" in l for l in self.power_lines()), 1)
+        self.assertGreaterEqual(sum("restart attempt failed" in l for l in self.lines), 2)   # soft path untouched
+
+    def test_cap_per_day(self):
+        wd = self.make(max_cycles_per_day=1)
+        self.freeze(20, wd=wd)
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.feed(10, accepted=lambda i: i, wd=wd)                  # the miner came back
+        self.clock.tick(25 * 60)                                    # past the settle gap
+        self.freeze(40, wd=wd)
+        self.assertEqual(self.plug.calls, ["off", "on"])            # no second cycle
+        self.assertEqual(sum("cap" in l for l in self.power_lines()), 1)
+
+    def test_settle_gap_after_a_cycle_then_judged_again(self):
+        self.freeze(20)
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        restarts_before = sum("restart attempt failed" in l for l in self.lines)
+        self.feed(38, ok=False)                                     # 19 min inside the 20-min settle gap
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.assertEqual(sum("restart attempt failed" in l for l in self.lines), restarts_before)
+        self.feed(30, ok=False)                                     # 34 min: gap over, window, first fresh restart failed
+        self.assertEqual(self.plug.calls, ["off", "on"])            # the ladder needs two fresh failed restarts
+        self.assertEqual(self.wd.episode_failed_restarts, 1)
+        self.feed(20, ok=False)                                     # 44 min: gap, window, second failed restart, cycle
+        self.assertEqual(self.plug.calls, ["off", "on", "off", "on"])
+        self.assertEqual(self.wd.cycles_today(), 2)
+
+    def test_on_still_attempted_when_off_failed(self):
+        self.plug.fail_off = True
+        self.freeze(20)
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.assertEqual(sum("cycle failed" in l for l in self.power_lines()), 1)
+
+    def test_ok_sample_resets_the_failed_restart_count(self):
+        self.freeze(5)                                              # one failed restart
+        self.feed(10, accepted=lambda i: i)                         # back, briefly
+        self.clock.tick(15 * 60)
+        self.freeze(5)                                              # a new episode: one failed restart again
+        self.assertEqual(self.plug.calls, [])                       # two in total, but not two in this episode
+
+    def test_no_meter_says_so_in_the_line(self):
+        self.plug.meter = False
+        self.freeze(20)
+        cycled = [l for l in self.power_lines() if l.startswith("power: cycled")]
+        self.assertEqual(len(cycled), 1)
+        self.assertIn("no meter", cycled[0])
+
+    def test_health_fields(self):
+        self.assertEqual(self.wd.cycles_today(), 0)
+        self.assertIsNone(self.wd.last_power_reason)
+        self.freeze(20)
+        self.assertEqual(self.wd.cycles_today(), 1)
+        self.assertIn("unreachable", self.wd.last_power_reason)
 
 
 if __name__ == "__main__":

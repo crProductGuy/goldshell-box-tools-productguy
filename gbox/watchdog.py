@@ -1,4 +1,4 @@
-"""Stall detection and capped soft restarts.
+"""Stall detection, capped soft restarts, and the power rung above them.
 
 Pure logic, fed one sample per poll by the poller and judged with an
 injectable clock so the rules can be tested in milliseconds.
@@ -14,6 +14,25 @@ interval:
   cap the reason is logged once per episode and nothing is sent
 - samples with a gap in them (the PC slept, the service paused) are not
   judged until a full window of fresh, contiguous samples exists
+
+The power rung, only when a plug is configured. A frozen controller cannot
+take a soft restart (three episodes on record: no HTTP, no ping, the PUT
+times out, the hashboard idle at about 34 W). The rung reads exactly that
+signature and nothing looser:
+
+1. the reason is "unreachable" (a stalled-but-reachable miner gets soft
+   restarts, as before)
+2. at least two soft restarts in this episode raised (an accepted PUT means
+   the controller is alive and gets its settle time)
+3. the episode is at least `after_minutes` old
+4. fewer than `max_cycles_per_day` cycles in the rolling day
+5. the plug answers, is the device recorded at setup, and reports its relay
+   on (off means someone switched it off on purpose)
+
+With `cycle` false (the default) the log says "would cycle" once per
+episode and nothing moves. With it true: off, `off_seconds`, on, then
+`settle_minutes` in which nothing is judged; a second cycle needs the whole
+ladder again. An episode ends at the first successful sample.
 """
 import time
 from collections import deque
@@ -21,7 +40,8 @@ from collections import deque
 
 class Watchdog:
     def __init__(self, restart, events, interval, stall_minutes=5, unreachable_minutes=2,
-                 min_gap_minutes=10, max_restarts_per_day=6, clock=time.time):
+                 min_gap_minutes=10, max_restarts_per_day=6, clock=time.time,
+                 plug=None, power=None, sleep=time.sleep):
         self._restart = restart
         self._events = events
         self.interval = float(interval)
@@ -35,15 +55,38 @@ class Watchdog:
         self._capped_logged = False
         self.last_restart = None
         self.last_reason = None
+        # the power rung
+        self.plug = plug
+        self.power = dict(power or {})
+        self._sleep = sleep
+        self.episode_start = None           # time of the first failed sample after the last good one
+        self.episode_failed_restarts = 0    # soft restarts that raised in this episode (reset by a cycle too)
+        self._cycle_times = deque()
+        self.power_gap_until = None
+        self._power_logged = False          # one "would cycle" / refusal / cap line per episode
+        self.last_power_reason = None
 
     def observe(self, ok, accepted, t=None):
-        self._rows.append((self._clock() if t is None else t, bool(ok), accepted))
+        t = self._clock() if t is None else t
+        self._rows.append((t, bool(ok), accepted))
+        if ok:
+            self.episode_start = None
+            self.episode_failed_restarts = 0
+            self._power_logged = False
+        elif self.episode_start is None:
+            self.episode_start = t
 
     def restarts_today(self):
         cutoff = self._clock() - 86400
         while self._restart_times and self._restart_times[0] < cutoff:
             self._restart_times.popleft()
         return len(self._restart_times)
+
+    def cycles_today(self):
+        cutoff = self._clock() - 86400
+        while self._cycle_times and self._cycle_times[0] < cutoff:
+            self._cycle_times.popleft()
+        return len(self._cycle_times)
 
     def external_restart(self):
         """Someone else (the dashboard's button) restarted the miner: start the settle gap.
@@ -57,6 +100,8 @@ class Watchdog:
         """The reason a restart is due, or None."""
         now = self._clock()
         floor = (self.last_restart + self.min_gap) if self.last_restart else float("-inf")
+        if self.power_gap_until is not None:
+            floor = max(floor, self.power_gap_until)
         rows = [r for r in self._rows if r[0] > floor]
         if len(rows) < self.stall_rows:
             return None
@@ -84,6 +129,7 @@ class Watchdog:
                 self._events.write("watchdog: %s, but %d restarts in 24 h is the cap; not restarting"
                                    % (reason, self.max_restarts))
                 self._capped_logged = True
+            self._consider_power(reason)
             return reason
         now = self._clock()
         self.last_restart = now
@@ -92,5 +138,55 @@ class Watchdog:
             self._restart()
             self._events.write("watchdog: restart #%d sent (%s)" % (self.restarts_today(), reason))
         except Exception as e:
+            self.episode_failed_restarts += 1
             self._events.write("watchdog: restart attempt failed: %s (%s)" % (e, reason))
+        self._consider_power(reason)
         return reason
+
+    # ------------------------------------------------------------ the power rung
+
+    def _power_once(self, line):
+        if not self._power_logged:
+            self._events.write(line)
+            self._power_logged = True
+
+    def _consider_power(self, reason):
+        if self.plug is None or not reason.startswith("miner unreachable"):
+            return
+        if self.episode_failed_restarts < 2 or self.episode_start is None:
+            return
+        now = self._clock()
+        if now - self.episode_start < float(self.power["after_minutes"]) * 60:
+            return
+        cap = int(self.power["max_cycles_per_day"])
+        if self.cycles_today() >= cap:
+            self._power_once("power: would cycle (%s), but %d cycles in 24 h is the cap; not cycling" % (reason, cap))
+            return
+        try:
+            info = self.plug.identify()
+            if info.get("device_id") != self.power.get("device_id"):
+                self._power_once("power: the plug is not the configured device (id differs); not cycling")
+                return
+            if not self.plug.state():
+                self._power_once("power: plug is off (someone switched it off); not cycling")
+                return
+            w = self.plug.watts() if info.get("meter") else None
+        except Exception as e:
+            self._power_once("power: plug did not answer (%s); not cycling" % e)
+            return
+        before = ("%.0f W before" % w) if w is not None else "no meter"
+        if not self.power.get("cycle"):
+            self._power_once("power: would cycle now (%s; %s); dry run, set \"cycle\": true in config.json to arm"
+                             % (reason, before))
+            return
+        self.last_power_reason = reason
+        self._cycle_times.append(now)
+        self.power_gap_until = now + float(self.power["settle_minutes"]) * 60
+        self.episode_failed_restarts = 0
+        self._power_logged = False
+        try:
+            self.plug.cycle(int(self.power["off_seconds"]), sleep=self._sleep)
+            self._events.write("power: cycled #%d today: off %d s, on (%s; %s)"
+                               % (self.cycles_today(), int(self.power["off_seconds"]), reason, before))
+        except Exception as e:
+            self._events.write("power: cycle failed: %s (%s; %s)" % (e, reason, before))

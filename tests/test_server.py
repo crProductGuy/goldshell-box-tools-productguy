@@ -189,6 +189,33 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.post("/api/event", json.dumps({"message": "fan target set to 70 C"}).encode()), 204)
         self.assertEqual(self.state.watchdog.told, 1)
 
+    def test_health_power_block_when_no_plug(self):
+        p = json.loads(self.get("/api/health")[2])["power"]
+        self.assertFalse(p["configured"])
+        self.assertIsNone(p["watts"])
+        self.assertEqual(p["cycles_today"], 0)
+
+    def test_health_power_block_from_the_poller_and_watchdog(self):
+        from gbox.plug import KasaLegacy
+        from gbox.watchdog import Watchdog
+        from tests.fake_plug import FakePlug
+        fake = FakePlug(watts=188.0).start()
+        self.addCleanup(fake.stop)
+        self.cfg.power = {"host": fake.address, "device_id": fake.device_id}
+        plug = KasaLegacy(fake.address, timeout=1.0)
+        self.state.watchdog = Watchdog(lambda: None, self.events, 30, plug=plug, power=self.cfg.power)
+        self.state.poller = Poller(api.Miner(self.fm.address, password="password"), self.data / "log.csv", 30,
+                                   plug=plug, events=self.events)
+        self.state.poller.poll_once()
+        p = json.loads(self.get("/api/health")[2])["power"]
+        self.assertTrue(p["configured"])
+        self.assertEqual(p["model"], "HS110(US)")
+        self.assertEqual(p["state"], "on")
+        self.assertEqual(p["watts"], 188.0)
+        self.assertIs(p["cycle"], False)
+        self.assertEqual(p["cycles_today"], 0)
+        self.assertIsNone(p["last_reason"])
+
 
 if __name__ == "__main__":
     unittest.main()

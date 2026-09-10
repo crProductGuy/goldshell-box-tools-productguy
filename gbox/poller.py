@@ -5,6 +5,12 @@ the serialized session. The columns are what the dashboard's fan and
 temperature chart and the clock-trials table read by header name, so adding
 a column is safe and renaming one is not. Columns are only ever appended;
 `migrate_columns` brings an older log up to date on service start.
+
+With a smart plug configured, the plug's relay and meter are read after the
+miner sample (never concurrently with it) and the watts go in the last
+column, empty when the plug has no meter or did not answer. A plug outage
+never fails a sample; it is one event line on the way out and one on the
+way back.
 """
 import datetime
 import shutil
@@ -16,7 +22,7 @@ from . import api
 
 COLUMNS = ["time", "http", "elapsed", "mhs_av", "mhs_20s", "hwerr", "hwerr_pct", "accepted",
            "rejected", "clock", "fan0", "fan1", "tstemp0", "tstemp1", "tstemp2", "rebootcnt",
-           "weak_chips", "nonces_good", "nonces_bad", "temp_target", "overheat"]
+           "weak_chips", "nonces_good", "nonces_bad", "temp_target", "overheat", "watts"]
 
 
 def sample(miner):
@@ -75,7 +81,7 @@ def error_row(exc):
 
 
 class Poller(threading.Thread):
-    def __init__(self, miner, csv_path, interval, watchdog=None, events=None, clock=time.time):
+    def __init__(self, miner, csv_path, interval, watchdog=None, events=None, clock=time.time, plug=None):
         super().__init__(name="gbox-poller", daemon=True)
         self.miner = miner
         self.csv_path = Path(csv_path)
@@ -88,6 +94,32 @@ class Poller(threading.Thread):
         self.samples = 0
         self.errors = 0
         self.last_error = None
+        self.plug = plug
+        self.plug_info = None       # identify() once it answered: model, alias, meter
+        self.plug_state = None      # True on, False off, None unknown or no plug
+        self.plug_watts = None
+        self._plug_down = False
+
+    def read_plug(self):
+        """Relay and watts from the plug into plug_state and plug_watts; one event line per transition."""
+        if self.plug is None:
+            return
+        try:
+            if self.plug_info is None:
+                self.plug_info = self.plug.identify()
+            self.plug_state = self.plug.state()
+            self.plug_watts = self.plug.watts() if self.plug_info.get("meter") else None
+            if self._plug_down:
+                self._plug_down = False
+                if self.events:
+                    self.events.write("power: plug back")
+        except Exception as e:
+            self.plug_state = None
+            self.plug_watts = None
+            if not self._plug_down:
+                self._plug_down = True
+                if self.events:
+                    self.events.write("power: plug unreachable (%s); the watchdog cannot cycle until it answers" % e)
 
     def stop(self):
         self._stop.set()
@@ -108,6 +140,8 @@ class Poller(threading.Thread):
             self.errors += 1
             self.last_error = row["http"]
         row["time"] = now
+        self.read_plug()
+        row["watts"] = self.plug_watts
         self._append(row)
         self.latest = row
         if self.watchdog is not None and not row["http"].startswith("ERR:NoCredentials"):
