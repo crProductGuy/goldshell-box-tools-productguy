@@ -155,3 +155,11 @@ Verified 2026-09-08 on the SC-BOX, from the gbox log:
   plug-in power meter tells the state from across the room, and the
   smart-plug rung of the watchdog (`docs/power-cycle.md`) is the
   automatic version of the hand on the plug.
+- Two deliberate power cycles of a healthy unit (2026-09-10, 15 s off,
+  through the HS110): the web backend answered again 60 and 66 seconds
+  after the cut, at the manual clock, `rebootcnt` 0 and `Device Elapsed`
+  under 30 s on the first sample. While the controller booted the plug read
+  38 to 41 W and one poll got an HTTP 500, the same signature as the
+  self-recovery above. Power was back to 189 to 190 W on the first good
+  sample. The 2 to 3 minutes the guide quotes is the conservative figure;
+  a minute is what this unit does.
