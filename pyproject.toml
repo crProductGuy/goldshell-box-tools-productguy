@@ -21,7 +21,7 @@ classifiers = [
 gbox = "gbox.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/crProductGuy/goldshell-box-tools"
+Homepage = "https://github.com/crProductGuy/goldshell-box-tools-productguy"
 
 [tool.setuptools]
 packages = ["gbox"]

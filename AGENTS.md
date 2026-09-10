@@ -1,4 +1,4 @@
-# AGENTS.md: goldshell-box-tools
+# AGENTS.md: goldshell-box-tools-productguy
 
 Instructions for any coding agent working in this repository. Claude Code
 reads this file through `CLAUDE.md`, which holds the single line
@@ -19,7 +19,7 @@ Read these before acting, in this order:
 - `STATUS.md` — checkpoint: done, not done, open items, exact next action.
   Gitignored; exists only on the machine where the work happens. If it is
   missing, say so and work from `docs/plan.md` and the evolution log.
-- `goldshell-box-tools-EVOLUTION.md` — the construction and evolution log,
+- `goldshell-box-tools-productguy-EVOLUTION.md` — the construction and evolution log,
   committed. One entry per session: the goal in the owner's words, questions
   and answers, proposals and decisions with reasoning, findings that changed
   the design, what was built and how it was verified, pushback, what was
