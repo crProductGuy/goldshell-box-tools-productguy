@@ -325,7 +325,7 @@ def cmd_power_cycle(args, cfg, data_dir):
         _die("not confirmed; nothing sent")
     p.cycle(off_seconds)
     line = "power: cycled by hand (gbox power cycle; %s before)" % _fmt_watts(w)
-    _out("cycled: off %d s, then on. The miner takes 2-3 minutes to boot and start hashing." % off_seconds)
+    _out("cycled: off %d s, then on. The SC-BOX is back hashing in about a minute (60 to 66 s measured); allow two or three on other units." % off_seconds)
     if _service_event(cfg, line):
         _out("event line written to the service log")
     else:
@@ -364,8 +364,9 @@ def cmd_serve(args, cfg, data_dir):
 
     config.ensure_dir(data_dir)
     events = EventLog(data_dir / "events.log")
-    if migrate_columns(data_dir / "log.csv"):
-        events.write("service: log.csv header updated to %d columns (copy kept as log.csv.bak)" % len(COLUMNS))
+    note = migrate_columns(data_dir / "log.csv")
+    if note:
+        events.write("service: log.csv header updated to %d columns (%s)" % (len(COLUMNS), note))
     miner = _miner(args, cfg, need_password=False)
     state = ServiceState(cfg, miner, data_dir, events=events)
     try:

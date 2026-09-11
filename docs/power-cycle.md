@@ -124,7 +124,7 @@ cycle with the miner in a known state:
 gbox power cycle
 about to cut power to HS110(US) 'workbench' for 15 s. It reads 188 W now (that looks like a miner hashing, not a hung one).
 type CYCLE to confirm: CYCLE
-cycled: off 15 s, then on. The miner takes 2-3 minutes to boot and start hashing.
+cycled: off 15 s, then on. The SC-BOX is back hashing in about a minute (60 to 66 s measured); allow two or three on other units.
 event line written to the service log
 ```
 

@@ -115,6 +115,23 @@ class PollerTest(unittest.TestCase):
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
         self.assertTrue(lines[1].endswith(",65,0,"))
 
+    def test_migration_note_says_whether_the_backup_is_new(self):
+        """The first migration writes log.csv.bak; a later one keeps the older backup and says so."""
+        old = poller.COLUMNS[:21]
+        with open(self.csv, "w", encoding="utf-8", newline="") as f:
+            f.write(",".join(old) + "\n2026-09-08 21:28:17,ok,1,2,3,4,0.4,5,0,575.0,1200,1200,70,70,63,0,8:1/1,556876,1711,65,0\n")
+        note = poller.migrate_columns(self.csv)
+        self.assertEqual(note, "copy kept as log.csv.bak")
+        backup = self.csv.with_name("log.csv.bak")
+        first_backup = backup.read_text(encoding="utf-8")
+        # a second, later migration: the log is short again (as after a downgrade), the old backup stays
+        with open(self.csv, "w", encoding="utf-8", newline="") as f:
+            f.write(",".join(old) + "\n2026-09-09 10:00:00,ok,1,2,3,4,0.4,5,0,575.0,1200,1200,70,70,63,0,8:1/1,1,2,65,0\n")
+        note = poller.migrate_columns(self.csv)
+        self.assertEqual(note, "the older log.csv.bak was left as is")
+        self.assertEqual(backup.read_text(encoding="utf-8"), first_backup)
+        self.assertFalse(poller.migrate_columns(self.csv))          # current header: no note, no change
+
 
 class PollerPlugTest(unittest.TestCase):
     """The watts column: read from the plug after the miner sample, empty without a meter, never a failed sample."""
