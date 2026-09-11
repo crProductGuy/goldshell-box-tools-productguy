@@ -775,5 +775,29 @@ miner was not left unwatched.
 let go, memory copied to the new project path, notes updated, export
 re-run, 165 tests green from the new location.
 
-**Left for later.** The worktree removal itself, the two wording fixes,
-the one-point chart, and the accepted build order, unchanged.
+**Mark, 19:16: "check out the 6-minute visible gap in the fan speed and
+2 temp traces on the graphs, from 16:22 - 16.28."** With a screenshot.
+The log settled it: the gap is the service stopped for the rename attempt
+(last row 16:23:46, `service: started` at 16:28:55, every row on either
+side `ok`), and a second, shorter one at 17:27 to 17:29 for the rename
+itself. The hashrate chart above has no hole because it comes from the
+miner's own buffer. The agent noted that the chart cannot tell a service
+outage from a miner outage and offered a marker at each service start;
+Mark: "yes, please. add that!"
+
+**Built (0.3.0, web files only, no restart):** `service: started` lines
+now join the marker set on the fan chart, drawn as S, hover for the line;
+other `service:` lines still do not. The caption gained a one-line legend
+for the four glyphs. Test-first: the marker test was rewritten to expect
+the S and to keep excluding the token line, failed, then passed; 21 JS
+and 165 Python tests green. Checked in Chrome against the fake miner on a
+scratch service: a dashed line at the start time with the right hover
+text. Two things learned on the way: the browser had cached last night's
+`app.js` for that port, so a hard reload was needed, and the page only
+redraws markers on its 60-second service tick, so a check inside the
+first minute shows nothing. Merged fast-forward; the live dashboard
+serves the new file at once.
+
+**Left for later.** The power-cycle worktree removal, the two wording
+fixes, the one-point chart, the glyph hiding under the series label when
+the event is recent, and the accepted build order, unchanged.
