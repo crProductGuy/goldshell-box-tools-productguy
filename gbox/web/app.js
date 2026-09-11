@@ -155,17 +155,18 @@ function settingDiff(before, after) {
 function describeRequest(base, req) {
   return req.method + " " + base + "/" + req.path + "\n" + (req.body === null || req.body === undefined ? "(no body)" : JSON.stringify(req.body, null, 1));
 }
-// Event-log lines worth a marker on the fan chart: what the buttons did, what the watchdog did, what the plug did.
+// Event-log lines worth a marker on the fan chart: what the buttons did, what the watchdog did, what the plug did,
+// and each service start, so a gap in the traces reads as "the service was down" rather than "the miner was".
 function eventMarkers(text) {
   const out = [];
   (text || "").split(/\r?\n/).forEach(line => {
-    const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) ((?:dashboard|watchdog|power): .*)$/.exec(line);
+    const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) ((?:dashboard|watchdog|power): .*|service: started .*)$/.exec(line);
     if (m) out.push({ t: new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime(), label: m[7] });
   });
   return out;
 }
 function markerGlyph(label) {
-  return label.startsWith("power") ? "P" : label.startsWith("watchdog") ? "W" : "▼";
+  return label.startsWith("service") ? "S" : label.startsWith("power") ? "P" : label.startsWith("watchdog") ? "W" : "▼";
 }
 // The plug, as /api/health reports it: appended to the service line. Empty without a plug.
 function powerLine(service) {
@@ -481,7 +482,7 @@ function renderEnv() {
     if (m === 0) s += "<text x=\"" + xx + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"end\">now</text>";
     else if (m % labelEvery === 0 && xx > L + 24) s += "<text x=\"" + xx + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"middle\">-" + (m / 60) + " h</text>";
   }
-  // markers: what the buttons and the watchdog did, hover for the event text
+  // markers: what the buttons, the watchdog and the plug did, and each service start (S); hover for the event text
   const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
   eventMarks.filter(m => now - m.t <= spanMin * 60000 && m.t <= now).forEach(m => {
     const xx = L + (W - L - R) * (1 - (now - m.t) / (spanMin * 60000));

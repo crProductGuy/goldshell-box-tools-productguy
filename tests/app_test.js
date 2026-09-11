@@ -97,19 +97,24 @@ const tests = {
     assert.match(txt, /"manualPowerplan": "625 MHz 0\.41 V 90 RPM 90 RPM"/);
     assert.strictEqual(app.describeRequest("http://m", app.restartRequest()), "PUT http://m/mcb/restart\n(no body)");
   },
-  "event markers are parsed from the event log, service lines excluded"() {
-    const log = "2026-09-06 10:00:00 service: started v0.1.0\n2026-09-06 10:05:30 dashboard: clock set to 625 MHz\n" +
+  "event markers are parsed from the event log; a service start counts, other service lines do not"() {
+    const log = "2026-09-06 10:00:00 service: started v0.1.0, miner 192.168.1.100, poll 30s, watchdog on\n" +
+      "2026-09-06 10:00:05 service: session token received from the dashboard\n" +
+      "2026-09-06 10:05:30 dashboard: clock set to 625 MHz\n" +
       "2026-09-06 11:10:00 watchdog: restart #1 sent (miner unreachable for 2 min)\nnot a log line\n";
     const marks = app.eventMarkers(log);
-    assert.strictEqual(marks.length, 2);
-    assert.strictEqual(marks[0].t, new Date(2026, 8, 6, 10, 5, 30).getTime());
-    assert.strictEqual(marks[0].label, "dashboard: clock set to 625 MHz");
-    assert.match(marks[1].label, /^watchdog: restart #1/);
+    assert.strictEqual(marks.length, 3);
+    assert.strictEqual(marks[0].t, new Date(2026, 8, 6, 10, 0, 0).getTime());
+    assert.match(marks[0].label, /^service: started v0\.1\.0/);
+    assert.strictEqual(app.markerGlyph(marks[0].label), "S");
+    assert.strictEqual(marks[1].t, new Date(2026, 8, 6, 10, 5, 30).getTime());
+    assert.strictEqual(marks[1].label, "dashboard: clock set to 625 MHz");
+    assert.match(marks[2].label, /^watchdog: restart #1/);
   },
   "power lines get a marker too, drawn as P"() {
     const log = "2026-09-09 22:39:00 power: would cycle now (miner unreachable for 2 min; 34 W before)\n" +
                 "2026-09-09 22:40:00 power: plug back\n" +
-                "2026-09-09 22:41:00 service: started v0.3.0\n";
+                "2026-09-09 22:41:00 service: power plug HS110(US) 'x', meter yes, ARMED: the watchdog may cycle it\n";
     const marks = app.eventMarkers(log);
     assert.strictEqual(marks.length, 2);
     assert.match(marks[0].label, /^power: would cycle/);
