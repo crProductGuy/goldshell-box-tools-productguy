@@ -798,6 +798,29 @@ redraws markers on its 60-second service tick, so a check inside the
 first minute shows nothing. Merged fast-forward; the live dashboard
 serves the new file at once.
 
-**Left for later.** The power-cycle worktree removal, the two wording
-fixes, the one-point chart, the glyph hiding under the series label when
-the event is recent, and the accepted build order, unchanged.
+**Mark, 21:5x: "Push what you can. I don't understand what Housekeeping
+Item 1 is."** Pushed. The item was the merged power-cycle worktree still
+sitting in the project folder; explained as a leftover copy of the code
+whose branch was already in `main`, and removed at his word. Then: "do
+the two wording fixes and the one-point chart."
+
+**Three small fixes, test-first, one worktree (`902e9cc`).** The
+migration event line had claimed "copy kept as log.csv.bak" every time,
+while the code deliberately never overwrites an older backup; now
+`migrate_columns` returns the note that is true ("copy kept" or "the
+older log.csv.bak was left as is") and the service writes that. The
+cycle command had promised two to three minutes to boot; the SC-BOX was
+measured at 60 to 66 seconds twice, so it now says about a minute and
+allows two or three on other units, with the guide's example matching.
+The hashrate chart, handed a buffer with one sample after a boot, drew
+an axis and nothing else; the buffer handling moved into a small tested
+helper and one sample now yields a sentence saying what the number is
+and that the graph starts at the next sample. Each test was written to
+fail first, and did. 22 JS and 166 Python tests green. The one-sample
+note was seen in Chrome by pointing the fake miner at a fixture copy
+whose buffer holds a single value. No service restart: nothing running
+in the service changed behavior before its next start.
+
+**Left for later.** The glyph hiding under the series label when the
+event is recent, and the accepted build order, unchanged: watts and GH/s
+per watt in the trials table next.
