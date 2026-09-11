@@ -201,6 +201,8 @@ class PowerCommandTest(unittest.TestCase):
         self.assertEqual(self.relay_commands(), [0, 1])
         self.assertEqual(self.fake.relay, 1)
         self.assertIn("cycled", text)
+        self.assertIn("back hashing in about a minute", text)  # observed 60 to 66 s on the SC-BOX, not "2-3 minutes"
+        self.assertNotIn("2-3 minutes", text)
         self.assertIn("nothing was logged", text)              # no service running
 
     def test_cycle_refuses_a_plug_whose_device_id_differs(self):

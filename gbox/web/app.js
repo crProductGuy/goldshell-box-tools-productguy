@@ -220,9 +220,16 @@ function trialStatus(run, nowMs) {
   return "Trial running: step " + run.step + " of " + run.clocks.length + ", " + run.clock + " MHz, " + progress + ", ends at " + run.end + " MHz. " +
     "Started from the command line; Ctrl-C there stops it.";
 }
+// The miner's hashrate buffer as the chart draws it: leading zeros (slots a boot wiped) dropped, values in the display unit.
+// A lone sample comes back as one point; the caller says so instead of drawing a path that has no length.
+function chartData(hist) {
+  const [unit, div] = hashUnit(Math.max.apply(null, hist)), vals = hist.map(v => v / div);
+  const first = vals.findIndex(v => v > 0);
+  return { unit: unit, data: first < 0 ? [] : vals.slice(first) };
+}
 if (typeof module !== "undefined") module.exports = { encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
-  markerGlyph, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus };
+  markerGlyph, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData };
 
 // ---- presentation (skipped under Node, where the data layer above is unit-tested) ----
 if (typeof document !== "undefined") {
@@ -388,10 +395,13 @@ function renderChips(boards, minutes) {
 
 function niceMax(v) { const p = Math.pow(10, Math.floor(Math.log10(Math.max(v, 1)))); return Math.ceil(v / p * 2) / 2 * p; }
 function renderChart(hist) {
-  const box = $("chart"), [unit, div] = hashUnit(Math.max.apply(null, hist)), vals = hist.map(v => v / div);
-  const first = vals.findIndex(v => v > 0);
-  if (first < 0) { box.innerHTML = "<p class=\"note\">no history yet</p>"; return; }
-  const data = vals.slice(first), W = Math.max(box.clientWidth, 320), H = 232, L = 44, R = 12, T = 26, B = 34;
+  const box = $("chart"), { unit, data } = chartData(hist);
+  if (data.length === 0) { box.innerHTML = "<p class=\"note\">no history yet</p>"; return; }
+  if (data.length === 1) {
+    box.innerHTML = "<p class=\"note\">one sample so far, " + Math.round(data[0]) + " " + unit + ": a boot wipes the miner's own buffer, and the graph starts at the second sample, a minute from now.</p>";
+    return;
+  }
+  const W = Math.max(box.clientWidth, 320), H = 232, L = 44, R = 12, T = 26, B = 34;
   const yMax = niceMax(Math.max.apply(null, data) * 1.05), step = yMax / 4;
   const x = i => L + (W - L - R) * i / Math.max(data.length - 1, 1), y = v => T + (H - T - B) * (1 - v / yMax);
   const path = data.map((v, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(v).toFixed(1)).join(" ");

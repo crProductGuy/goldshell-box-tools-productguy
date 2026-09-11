@@ -49,9 +49,10 @@ def migrate_columns(csv_path):
 
     Old rows are padded with empty fields so the header and every row agree.
     The original is copied to log.csv.bak first (once; a later migration
-    does not overwrite an older backup). Returns True if the file changed.
-    A missing file, a current header, or a header this code does not know
-    are left alone.
+    does not overwrite an older backup). Returns a short note for the event
+    log when the file changed, saying whether the backup is new or an older
+    one was kept, and False otherwise. A missing file, a current header, or
+    a header this code does not know are left alone.
     """
     csv_path = Path(csv_path)
     if not csv_path.is_file():
@@ -64,8 +65,11 @@ def migrate_columns(csv_path):
         body = f.read()
     pad = "," * (len(COLUMNS) - len(old))
     backup = csv_path.with_name(csv_path.name + ".bak")
-    if not backup.exists():
+    if backup.exists():
+        note = "the older %s was left as is" % backup.name
+    else:
         shutil.copyfile(csv_path, backup)
+        note = "copy kept as %s" % backup.name
     tmp = csv_path.with_name(csv_path.name + ".tmp")
     with open(tmp, "w", encoding="utf-8", newline="") as f:
         f.write(",".join(COLUMNS) + "\n")
@@ -73,7 +77,7 @@ def migrate_columns(csv_path):
             if line:
                 f.write(line + pad + "\n")
     tmp.replace(csv_path)
-    return True
+    return note
 
 
 def error_row(exc):
