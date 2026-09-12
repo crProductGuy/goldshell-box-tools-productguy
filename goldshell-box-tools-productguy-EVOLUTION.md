@@ -1013,7 +1013,7 @@ so a boot's counter reset never shows as a negative; opened as a file
 with no log they say "since 18:00 (page opened)" instead of the old
 "since page opened" with no time. Three JS tests, one existing row-shape
 test extended. 187 Python and 33 JS tests green; Chrome on the scratch
-service. Merged, tagged `v0.4.3`, live at 18:06.
+service. Merged, tagged `v0.4.3`, live at 18:01.
 
 The three style-checker failures in this log were false positives, and
 Mark asked for the checker fixed rather than the text: `is_quoted` only
