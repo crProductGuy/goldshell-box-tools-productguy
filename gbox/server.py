@@ -157,7 +157,7 @@ def make_handler(state):
             if path == "/api/log.csv":
                 return self._file(state.data_dir / "log.csv", "text/csv; charset=utf-8")
             if path == "/api/events":
-                lines = state.events.tail(200) if state.events else []
+                lines = state.events.tail(2000) if state.events else []   # weeks of quiet operation; the interventions table reads it all
                 return self._send(200, "".join(lines))
             if path == "/api/latest":
                 latest = state.poller.latest if state.poller else None
