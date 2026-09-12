@@ -824,3 +824,72 @@ in the service changed behavior before its next start.
 **Left for later.** The glyph hiding under the series label when the
 event is recent, and the accepted build order, unchanged: watts and GH/s
 per watt in the trials table next.
+
+## 2026-09-10 late to 2026-09-12 11:45, session J: 0.4.0 planned, expanded, built and released; the power rung proves itself overnight
+
+**The goal, Mark, 2026-09-10 late evening.** "Go into planning mode and
+make a proposal 1) adding Watts and GH/s per watt in the Trials table, 2)
+for adding a graph line for watts along the same timescale ... in a new
+graph section below Fan and Temp, with a note that it's from supported
+TPLink Kasa devices ... 3) a box for current wattage at the top, after
+Shares and Clock." Then, the next day: "Add to the rolling log at the
+bottom: interventions that this software made ... Add right-hand '% of
+Max' axes on the graphs where the max can be known ... In the future, I
+want to generalize this to Goldshell SC Lite models ... Advise and ask me
+if there are any reasons to split this work."
+
+**Questions and answers.** Rows logged before the plug show "?" (no
+manual Kill A Watt table). The Power tile is always shown. 0.4.0 with a
+tag, because two endpoints gain fields. The finder he had in mind was
+find.goldshell.com, which had failed to show his own running unit. No
+other Goldshell hardware here or coming; owners of other models test the
+drafts. Fan percent is RPM over the model's maximum RPM, not the
+firmware's duty cycle, because reading the duty cycle every poll would
+add a few-hundred-KB fetch to each cycle. The interventions table
+includes his own actions. Split as advised: 0.4.0 now, other models as
+0.5.0 with its own plan.
+
+**Research that shaped the plan.** The other developer's repository for
+the SC Lite uses the same web API family (same login handshake, same
+settings endpoint), which means the login and settings code carries over
+unchanged; what differs is per-board data from a cgminer endpoint that
+returns 500 on the BOX, a debug page that can be locked, a power-plan
+string with a millivolt and a trailing term, and a fixed 85 °C fan
+target. Goldshell's finder is an account-based listing, not a LAN scan.
+The SC-BOX and SC-BOX II spec pages would not render to a fetch; their
+figures come from retailer listings that agree, and the model table says
+so per row. The plan file records all of it with sources.
+
+**Built, test-first, one worktree per step.** A regression from the
+previous session came first: the hashrate hover read a variable the
+one-sample fix had removed; fixed alone, merged, live. Then the trials
+columns (a segment's watts is the mean over the rows that have a reading,
+with its own count, because the plug can miss a poll; a rollup weights by
+that count; GH/s per watt always in GH/s), a model table in both
+languages with a test that keeps them identical, the health endpoint
+gaining the miner's model, its rated figures and the plug's name, the
+page's log-row parser made null-safe for watts (a blank cell is a hole,
+never zero), the interventions parser with its join to the samples for
+"miner back after N s", the shared panel scaffold with a right-hand
+percent axis, the watts section with the verified Kasa list and
+TP-Link's link, and the Power tile. 175 Python and 26 JS tests. Verified
+in Chrome against the fake miner and fake plug; one screenshot showed
+the axis title clipping, fixed. The security pass found nothing; its one
+note, a non-string model value crashing the health handler, was fixed
+with a test. Tagged v0.4.0, pushed, one service restart.
+
+**What the log had been doing while the plan was written.** The
+acceptance test the previous checkpoint named ran three times overnight:
+freezes at 23:43, 05:40 and 06:25, each followed by two failed soft
+restarts and a power cycle, each cycle bringing the miner back in about
+a minute. A fourth freeze at 10:25 met the daily cap of three cycles and
+the miner stayed hung. Four freezes in eleven hours against three in the
+week before: a change in the unit, worth watching. **A gap found on the
+restart:** the caps are in-memory counters, so the 0.4.0 restart handed
+the watchdog three fresh cycles on a still-hung miner. Within what Mark
+armed, and the ladder will most likely recover the unit, but a restart
+should not reset a safety cap; reading the counts back from the event
+log at start is the fix, recorded as the next item.
+
+**Left for later.** The cap persistence. The 0.5.0 plan for other
+models. Event-log rotation. The glyph under the series label.
