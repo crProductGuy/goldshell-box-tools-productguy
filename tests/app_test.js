@@ -11,6 +11,13 @@ const setting = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "mcb
 const frozen = JSON.stringify(setting);
 
 const tests = {
+  "clockLabel: the wall-clock time under 'now', 24-hour, minutes only"() {
+    assert.strictEqual(app.clockLabel(new Date(2026, 8, 12, 15, 7, 9).getTime()), "15:07");
+    assert.strictEqual(app.clockLabel(new Date(2026, 8, 12, 0, 0, 0).getTime()), "00:00");
+  },
+  "VERSION is the page's own version string"() {
+    assert.match(app.VERSION, /^\d+\.\d+\.\d+$/);
+  },
   "clock range comes from the presets, current from the manual plan"() {
     assert.deepStrictEqual(app.clockRange(setting), { min: 300, max: 725, step: 25, current: 600 });
     const preset = Object.assign({}, setting, { manual: false });

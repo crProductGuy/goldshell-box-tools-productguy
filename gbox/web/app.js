@@ -319,7 +319,11 @@ function chartData(hist) {
   const first = vals.findIndex(v => v > 0);
   return { unit: unit, div: div, data: first < 0 ? [] : vals.slice(first) };
 }
-if (typeof module !== "undefined") module.exports = { encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
+// The page's own version, shown in the header: opened as a file there is no service to ask. tests/test_app_js.py keeps it equal to gbox.__version__.
+const VERSION = "0.4.1";
+// The wall-clock time under a chart's "now" label: 24-hour, minutes only, so the last refresh reads at a glance.
+function clockLabel(t) { const d = new Date(t); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
+if (typeof module !== "undefined") module.exports = { VERSION, clockLabel, encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
   markerGlyph, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf,
   powerTile, envRowsFrom, interventions, interventionCounts };
@@ -328,7 +332,7 @@ if (typeof module !== "undefined") module.exports = { encryptPassword, login, fe
 if (typeof document !== "undefined") {
 const $ = id => document.getElementById(id);
 const fmt = (v, d) => (v === null || v === undefined || isNaN(v)) ? "—" : v.toLocaleString(undefined, { minimumFractionDigits: d || 0, maximumFractionDigits: d || 0 });
-let baseline = null, lastAccepted = null, lastAcceptedChange = Date.now(), lastHistory = null, fanPct = null, unauthorizedStreak = 0, lastFanRead = 0;
+let baseline = null, lastAccepted = null, lastAcceptedChange = Date.now(), lastHistory = null, lastHistoryAt = 0, fanPct = null, unauthorizedStreak = 0, lastFanRead = 0;
 let service = null, tokenHandedTo = null;   // service: /api/health payload when this page is served by gbox
 let lastModel = null;                       // the miner's model string from /mcb/status, for the "% of rated" axes
 const SAMPLE_MIN = 1; // minutes per history sample (verified 2026-09-05 against the miner buffer)
@@ -495,7 +499,7 @@ function render(d) {
   const up = info.elapsed || 0, upText = Math.floor(up / 3600) + " h " + Math.floor(up % 3600 / 60) + " min";
   lastModel = status.model || null;
   $("title").textContent = status.model || "Goldshell Box"; document.title = (status.model || "Goldshell Box") + " status";
-  $("meta").textContent = "fw " + status.firmware + " · up " + upText;
+  $("meta").textContent = "fw " + status.firmware + " · up " + upText + " · gbox " + VERSION;
   $("updated").textContent = "updated " + new Date().toLocaleTimeString();
 
   const dl = $("info"); dl.innerHTML = "";
@@ -507,7 +511,7 @@ function render(d) {
    ["uptime", upText], ["overheat flag", info.overheat]]
    .forEach(kvp => { const dt = document.createElement("dt"), dd = document.createElement("dd"); dt.textContent = kvp[0]; dd.textContent = kvp[1]; dl.append(dt, dd); });
 
-  renderChips(d.boards, minutes); renderControls(setting); lastHistory = d.history; renderChart(d.history);
+  renderChips(d.boards, minutes); renderControls(setting); lastHistory = d.history; lastHistoryAt = now; renderChart(d.history);
 }
 
 function renderChips(boards, minutes) {
@@ -545,7 +549,7 @@ function renderChart(hist) {
     return;
   }
   const rated = ratedFor(lastModel), ratedV = rated ? rated.rated_mhs / div : null;
-  const W = Math.max(box.clientWidth, 320), H = 232, L = 44, R = 12, T = 26, B = 34, RW = ratedV ? 44 : 0, xR = W - R - RW;
+  const W = Math.max(box.clientWidth, 320), H = 246, L = 44, R = 12, T = 26, B = 48, RW = ratedV ? 44 : 0, xR = W - R - RW;
   const yMax = niceMax(Math.max(Math.max.apply(null, data) * 1.05, ratedV ? ratedV * 1.1 : 0)), step = yMax / 4;
   const x = i => L + (xR - L) * i / Math.max(data.length - 1, 1), y = v => T + (H - T - B) * (1 - v / yMax);
   const path = data.map((v, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(v).toFixed(1)).join(" ");
@@ -558,7 +562,7 @@ function renderChart(hist) {
   for (let m = 0; m <= span; m += 5) {
     const major = m % 60 === 0, mid = m % 15 === 0, len = major ? 9 : mid ? 6 : 3, xx = xAtMin(m);
     s += "<line class=\"tick" + (major ? " major" : "") + "\" x1=\"" + xx + "\" x2=\"" + xx + "\" y1=\"" + y0 + "\" y2=\"" + (y0 + len) + "\"/>";
-    if (m === 0) s += "<text x=\"" + xx + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"end\">now</text>";
+    if (m === 0) s += "<text x=\"" + xx + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"end\">now</text><text x=\"" + xx + "\" y=\"" + (y0 + 34) + "\" text-anchor=\"end\">" + clockLabel(lastHistoryAt || Date.now()) + "</text>";
     else if (m % labelEvery === 0 && xx > L + 24) s += "<text x=\"" + xx + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"middle\">-" + (m / 60) + " h</text>";
   }
   s += "<text x=\"" + (L - 6) + "\" y=\"" + (T - 12) + "\" text-anchor=\"end\">" + unit + "</text>";
@@ -607,7 +611,7 @@ function logSpanMin() { return Math.max(lastHistory.filter(v => v > 0).length * 
 // event markers, an optional right-hand "% of rated" axis per panel, and one hover tooltip. Each panel:
 // { label, min, max, step, series: [[rowKey, cssClass, name]...], rated: { value, title } | null }.
 function drawPanels(box, panels, rows, spanMin, now, tipText, aria) {
-  const W = Math.max(box.clientWidth, 320), L = 44, R = 12, PH = 130, GAP = 34, T = 24, B = 34, n = panels.length;
+  const W = Math.max(box.clientWidth, 320), L = 44, R = 12, PH = 130, GAP = 34, T = 24, B = 48, n = panels.length;
   const H = T + n * PH + (n - 1) * GAP + B, RW = panels.some(p => p.rated) ? 44 : 0, xR = W - R - RW, y0 = T + n * PH + (n - 1) * GAP;
   const xOf = t => L + (xR - L) * (1 - (now - t) / (spanMin * 60000));
   const has = v => v !== null && v !== undefined && !isNaN(v);
@@ -632,7 +636,7 @@ function drawPanels(box, panels, rows, spanMin, now, tipText, aria) {
   for (let m = 0; m <= spanMin; m += 5) {
     const major = m % 60 === 0, mid = m % 15 === 0, len = major ? 9 : mid ? 6 : 3, xx = xAtMin(m);
     s += "<line class=\"tick" + (major ? " major" : "") + "\" x1=\"" + xx + "\" x2=\"" + xx + "\" y1=\"" + y0 + "\" y2=\"" + (y0 + len) + "\"/>";
-    if (m === 0) s += "<text x=\"" + xx + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"end\">now</text>";
+    if (m === 0) s += "<text x=\"" + xx + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"end\">now</text><text x=\"" + xx + "\" y=\"" + (y0 + 34) + "\" text-anchor=\"end\">" + clockLabel(now) + "</text>";
     else if (m % labelEvery === 0 && xx > L + 24) s += "<text x=\"" + xx + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"middle\">-" + (m / 60) + " h</text>";
   }
   // markers: what the buttons, the watchdog and the plug did, and each service start (S); hover for the event text
