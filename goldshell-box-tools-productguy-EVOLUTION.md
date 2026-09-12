@@ -493,8 +493,8 @@ preset-picker password."
 for "Product Guy"; Claude recommended against it because `pg` reads as
 PostgreSQL to most developers and offered `productguy-` as prefix or
 `-productguy` as suffix; the owner chose the suffix. The package name and the
-`gbox` command stay as they were. "Honest" and its relatives (honestly,
-candidly, frankly, unvarnished, and kin) are now a rule in the owner's private
+`gbox` command stay as they were. "Honest" and its relatives ("honestly",
+"candidly", "frankly", "unvarnished", and kin) are now a rule in the owner's private
 anti-patterns file and a failing check in the public agent-style-guide;
 five occurrences were removed from this repo's docs, two of them
 pre-dating this session. The preset picker keeps its password prompt:
