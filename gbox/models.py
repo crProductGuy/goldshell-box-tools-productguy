@@ -46,7 +46,8 @@ MODELS = {
 
 
 def _key(model):
-    return "".join(ch for ch in (model or "").casefold() if ch not in " -_")
+    text = model if isinstance(model, str) else ("" if model is None else str(model))   # the miner's JSON is untrusted
+    return "".join(ch for ch in text.casefold() if ch not in " -_")
 
 
 _BY_KEY = {_key(k): v for k, v in MODELS.items()}
