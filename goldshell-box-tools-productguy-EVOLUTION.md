@@ -807,7 +807,7 @@ the two wording fixes and the one-point chart."
 **Three small fixes, test-first, one worktree (`902e9cc`).** The
 migration event line had claimed "copy kept as log.csv.bak" every time,
 while the code deliberately never overwrites an older backup; now
-`migrate_columns` returns the note that is true ("copy kept" or "the
+`migrate_columns` returns whichever note is true ("copy kept" or "the
 older log.csv.bak was left as is") and the service writes that. The
 cycle command had promised two to three minutes to boot; the SC-BOX was
 measured at 60 to 66 seconds twice, so it now says about a minute and
