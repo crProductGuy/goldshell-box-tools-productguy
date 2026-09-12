@@ -106,7 +106,13 @@ Only on the frozen-controller signature, all five at once:
    default watchdog timings the second failed restart lands at about 17
    minutes, so this is where the ladder reaches the plug.
 4. Fewer than **`max_cycles_per_day`** cycles in the rolling day (default
-   3).
+   3). Each cycle costs two slots of the watchdog's own
+   `max_restarts_per_day` (every attempt takes a slot, failed or not), so
+   that cap must be at least twice this one; the config refuses anything
+   less. A unit that freezes often can run 8 cycles a day against 20
+   restarts. Both caps are read back from the event log when the service
+   starts, so restarting the service does not hand the watchdog a fresh
+   day (on 2026-09-12 it did, and a fourth cycle ran on a hung miner).
 5. The plug **answers, is the recorded device, and reports its relay on**.
    A plug that is off was switched off on purpose; the watchdog leaves it
    alone and says so once.
@@ -174,6 +180,7 @@ removes the feature; nothing else changes.
 | `power: plug is off (someone switched it off); not cycling` | left alone on purpose |
 | `power: plug did not answer (...); not cycling` | the network, not the miner, may be the problem |
 | `power: would cycle (...), but N cycles in 24 h is the cap; not cycling` | the daily cap |
+| `service: watchdog picked up N restarts and M cycles from the last 24 h of the event log; the daily caps carry on` | the service restarted; the caps did not reset |
 | `dashboard: power: cycled by hand (gbox power cycle; ...)` | you ran the command |
 
 ## What the page never does

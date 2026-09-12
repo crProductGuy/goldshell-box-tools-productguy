@@ -390,6 +390,7 @@ def cmd_serve(args, cfg, data_dir):
         wd = Watchdog(miner.restart, events, cfg.poll_interval, stall_minutes=w["stall_minutes"],
                       unreachable_minutes=w["unreachable_minutes"], min_gap_minutes=w["min_gap_minutes"],
                       max_restarts_per_day=w["max_restarts_per_day"], plug=plug, power=cfg.power)
+        wd.seed_from_events(events.tail(4000))     # the caps survive this restart
     poller = Poller(miner, data_dir / "log.csv", cfg.poll_interval, watchdog=wd, events=events, plug=plug)
     state.poller, state.watchdog = poller, wd
 

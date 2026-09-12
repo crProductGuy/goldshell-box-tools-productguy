@@ -315,3 +315,82 @@ class PowerCycleTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SeedFromEventsTest(unittest.TestCase):
+    """The daily caps survive a service restart: the watchdog reads its own lines back from the event log."""
+    INTERVAL = 30
+    T0 = 1_700_000_000.0        # a fixed "now"; event lines are stamped in local time, so build them from it
+
+    @staticmethod
+    def stamp(t):
+        import datetime
+        return datetime.datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M:%S")
+
+    def setUp(self):
+        self.clock = FakeClock(self.T0)
+        self.restart = Recorder()
+        self.events = EventLog()
+        self.plug = FakePlugObject()
+        self.power = dict(DEFAULT_POWER, host="x", device_id="plug-1", cycle=True, max_cycles_per_day=3)
+        self.wd = Watchdog(self.restart, self.events, self.INTERVAL, stall_minutes=5, unreachable_minutes=2,
+                           min_gap_minutes=10, max_restarts_per_day=6, clock=self.clock,
+                           plug=self.plug, power=self.power, sleep=lambda s: None)
+        self.wrote = []
+        self.events.write = lambda m: self.wrote.append(m) or m
+
+    def lines(self, *items):
+        return ["%s %s\n" % (self.stamp(self.T0 - ago), text) for ago, text in items]
+
+    def test_counts_only_recent_watchdog_restarts_and_cycles(self):
+        n = self.wd.seed_from_events(self.lines(
+            (90000, "watchdog: restart #1 sent (miner unreachable for 2 min)"),      # 25 h ago: out
+            (7200, "watchdog: restart #2 sent (accepted shares frozen for 5 min)"),
+            (3600, "watchdog: restart attempt failed: PUT mcb/restart: timed out (miner unreachable for 2 min)"),
+            (3000, "power: cycled #1 today: off 15 s, on (miner unreachable for 2 min; 43 W before)"),
+            (2000, "dashboard: power: cycled by hand (gbox power cycle; 187 W before)"),   # not the watchdog's
+            (1000, "power: would cycle now (miner unreachable for 2 min; 40 W before); dry run"),
+            (500, "service: started v0.4.0, miner x, poll 30s, watchdog on, power plug armed, listening on 127.0.0.1:8765"),
+        ))
+        self.assertEqual(n, (2, 1))
+        self.assertEqual(self.wd.restarts_today(), 2)
+        self.assertEqual(self.wd.cycles_today(), 1)
+        self.assertEqual(len(self.wrote), 1)
+        self.assertIn("2 restarts and 1 cycle", self.wrote[0])
+
+    def test_failed_attempts_count_against_the_restart_cap_as_they_do_live(self):
+        # check() appends to _restart_times before calling restart(), so a timed-out attempt used a slot
+        self.wd.seed_from_events(self.lines(
+            (3600, "watchdog: restart attempt failed: PUT mcb/restart: timed out (miner unreachable for 2 min)")))
+        self.assertEqual(self.wd.restarts_today(), 1)
+
+    def test_nothing_to_seed_writes_nothing(self):
+        self.assertEqual(self.wd.seed_from_events(self.lines((10, "service: started v0.4.0, x"))), (0, 0))
+        self.assertEqual(self.wrote, [])
+
+    def test_garbage_lines_are_ignored(self):
+        self.assertEqual(self.wd.seed_from_events(["", "not a line\n", "2026-13-99 25:61:61 power: cycled #1 today: x\n"]), (0, 0))
+
+    def test_newest_seeded_restart_holds_the_settle_gap(self):
+        self.wd.seed_from_events(self.lines((120, "watchdog: restart #1 sent (miner unreachable for 2 min)")))
+        self.assertAlmostEqual(self.wd.last_restart, self.T0 - 120, delta=1)
+        self.wd.seed_from_events(self.lines((240, "power: cycled #1 today: off 15 s, on (x; y)")))
+        self.assertAlmostEqual(self.wd.power_gap_until, self.T0 - 240 + self.power["settle_minutes"] * 60, delta=1)
+
+    def test_three_seeded_cycles_refuse_a_fourth_and_log_the_cap(self):
+        """The done-when: a service restarted onto a hung miner does not get three fresh cycles."""
+        self.wd.seed_from_events(self.lines(
+            (20000, "watchdog: restart attempt failed: e (miner unreachable for 2 min)"),
+            (19400, "watchdog: restart attempt failed: e (miner unreachable for 2 min)"),
+            (19000, "power: cycled #1 today: off 15 s, on (x; y)"),
+            (10000, "power: cycled #2 today: off 15 s, on (x; y)"),
+            (5000, "power: cycled #3 today: off 15 s, on (x; y)"),
+        ))
+        self.wrote.clear()
+        self.restart.fail = True
+        for _ in range(60):                 # 30 min of the miner off the network, restarts timing out
+            self.clock.tick(self.INTERVAL)
+            self.wd.observe(False, None)
+            self.wd.check()
+        self.assertNotIn("off", self.plug.calls)
+        self.assertTrue(any("3 cycles in 24 h is the cap; not cycling" in m for m in self.wrote), self.wrote)

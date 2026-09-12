@@ -34,8 +34,14 @@ episode and nothing moves. With it true: off, `off_seconds`, on, then
 `settle_minutes` in which nothing is judged; a second cycle needs the whole
 ladder again. An episode ends at the first successful sample.
 """
+import datetime
+import re
 import time
 from collections import deque
+
+# The watchdog's own lines in the event log, read back at start so the daily caps survive a service restart.
+# A failed attempt counts: check() takes the restart slot before the PUT goes out. A hand cycle (`dashboard:`) never did.
+SEED_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (watchdog: restart (?:#\d+ sent|attempt failed)|power: cycled #\d+ today)")
 
 
 class Watchdog:
@@ -87,6 +93,39 @@ class Watchdog:
         while self._cycle_times and self._cycle_times[0] < cutoff:
             self._cycle_times.popleft()
         return len(self._cycle_times)
+
+    def seed_from_events(self, lines):
+        """Load the rolling caps from the event log's own lines (the log's tail, oldest first).
+
+        Without this a service restart handed the watchdog a fresh day: on
+        2026-09-12 a restart onto a hung miner ran a fourth cycle the cap
+        would have blocked. Only the last 24 h count. The newest seeded
+        restart or cycle also holds its settle gap. Returns (restarts, cycles).
+        """
+        cutoff = self._clock() - 86400
+        restarts, cycles = [], []
+        for line in lines:
+            m = SEED_RE.match(line or "")
+            if not m:
+                continue
+            try:
+                t = datetime.datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S").timestamp()
+            except (ValueError, OverflowError, OSError):
+                continue
+            if t < cutoff:
+                continue
+            (cycles if m.group(2).startswith("power:") else restarts).append(t)
+        self._restart_times.extend(sorted(restarts))
+        self._cycle_times.extend(sorted(cycles))
+        if restarts:
+            self.last_restart = max(self.last_restart or 0, max(restarts))
+        if cycles:
+            self.power_gap_until = max(self.power_gap_until or 0, max(cycles) + float(self.power.get("settle_minutes", 0)) * 60)
+        if restarts or cycles:
+            plural = lambda n, w: "%d %s%s" % (n, w, "" if n == 1 else "s")
+            self._events.write("service: watchdog picked up %s and %s from the last 24 h of the event log; the daily caps carry on"
+                               % (plural(len(restarts), "restart"), plural(len(cycles), "cycle")))
+        return len(restarts), len(cycles)
 
     def external_restart(self):
         """Someone else (the dashboard's button) restarted the miner: start the settle gap.

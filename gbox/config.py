@@ -23,7 +23,7 @@ DEFAULT_WATCHDOG = {
     "stall_minutes": 5,          # accepted-share counter frozen this long -> restart
     "unreachable_minutes": 2,    # HTTP failing this long -> restart
     "min_gap_minutes": 10,       # settle time after a restart before judging again
-    "max_restarts_per_day": 6,
+    "max_restarts_per_day": 12,  # at least twice power.max_cycles_per_day plus a few: a cycle needs two failed attempts
 }
 
 # The optional smart-plug block. Absent: no plug, nothing changes. Present: the
@@ -85,6 +85,9 @@ class Config:
                 raise ValueError("power.after_minutes must be at least watchdog.unreachable_minutes")
             if not 0 <= int(p["max_cycles_per_day"]) <= 10:
                 raise ValueError("power.max_cycles_per_day must be 0 to 10")
+            if int(self.watchdog["max_restarts_per_day"]) < 2 * int(p["max_cycles_per_day"]):
+                raise ValueError("watchdog.max_restarts_per_day must be at least twice power.max_cycles_per_day: "
+                                 "a cycle needs two failed soft restarts, and every attempt uses a restart slot")
         return self
 
     def to_dict(self, include_secret=True):

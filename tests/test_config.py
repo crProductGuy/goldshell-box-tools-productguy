@@ -67,5 +67,23 @@ class PowerConfigTest(unittest.TestCase):
         self.assertIs(cfg.validate(), cfg)
 
 
+class CapsFitTogetherTest(unittest.TestCase):
+    """A power cycle needs two failed soft restarts, and each attempt uses a restart slot, so the restart cap
+    must leave room for the cycle cap or the ladder silently stops one rung short."""
+
+    def test_restart_cap_below_twice_the_cycle_cap_is_rejected(self):
+        cfg = config.Config(host="m", watchdog={"max_restarts_per_day": 6}, power={"host": "p", "max_cycles_per_day": 8})
+        with self.assertRaises(ValueError) as cm:
+            cfg.validate()
+        self.assertIn("max_restarts_per_day", str(cm.exception))
+
+    def test_defaults_leave_room_for_the_default_cycle_cap(self):
+        cfg = config.Config(host="m", power={"host": "p"}).validate()
+        self.assertGreaterEqual(cfg.watchdog["max_restarts_per_day"], 2 * cfg.power["max_cycles_per_day"] + 2)
+
+    def test_eight_cycles_with_twenty_restarts_passes(self):
+        config.Config(host="m", watchdog={"max_restarts_per_day": 20}, power={"host": "p", "max_cycles_per_day": 8}).validate()
+
+
 if __name__ == "__main__":
     unittest.main()
