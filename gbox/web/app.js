@@ -330,6 +330,7 @@ const $ = id => document.getElementById(id);
 const fmt = (v, d) => (v === null || v === undefined || isNaN(v)) ? "—" : v.toLocaleString(undefined, { minimumFractionDigits: d || 0, maximumFractionDigits: d || 0 });
 let baseline = null, lastAccepted = null, lastAcceptedChange = Date.now(), lastHistory = null, fanPct = null, unauthorizedStreak = 0, lastFanRead = 0;
 let service = null, tokenHandedTo = null;   // service: /api/health payload when this page is served by gbox
+let lastModel = null;                       // the miner's model string from /mcb/status, for the "% of rated" axes
 const SAMPLE_MIN = 1; // minutes per history sample (verified 2026-09-05 against the miner buffer)
 const store = {
   get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
@@ -377,7 +378,20 @@ async function probeService() {
       (service.has_token || service.can_login ? "" : " · waiting for login") + powerLine(service);
     if (service.last_error) $("svcsub").textContent += " · " + service.last_error;
   }
+  renderPower();
   return service;
+}
+// The Power tile and the watts section's caption; the section itself only shows with a plug configured.
+function renderPower() {
+  const pt = powerTile(service);
+  $("watts").textContent = pt.value; $("plugname").textContent = pt.sub;
+  const p = (service && service.power) || {}, on = !!(service && p.configured);
+  $("power").hidden = !on;
+  if (!on) return;
+  const rated = service.rated;
+  $("powernote").textContent = "Read every poll from the plug the service watches: " + (p.alias || "(no name set on the plug)") + ", a TP-Link Kasa " + (p.model || "?") +
+    (p.meter ? "" : " (no meter: nothing to draw)") + ". Empty where the plug did not answer." +
+    (rated && rated.rated_watts ? " Right axis: percent of the " + rated.name + "'s rated " + Math.round(rated.rated_watts) + " W (Goldshell's figure, ±5%)." : "");
 }
 async function handOffToken() {
   const t = getToken();
@@ -387,14 +401,38 @@ async function handOffToken() {
     if (r.ok) { tokenHandedTo = t; service.has_token = true; }
   } catch (e) { /* not served: nothing to hand off to */ }
 }
-let eventMarks = [];   // {t, label} for the fan chart, from the service event log
+let eventMarks = [], eventsText = "";   // {t, label} for the fan chart, and the raw log for the interventions table
 async function refreshEvents() {
   if (!service) return;
   try {
     const text = await (await fetch("api/events", { cache: "no-store" })).text();
     $("events").textContent = text.trim() || "(no events yet)";
     eventMarks = eventMarkers(text);
+    eventsText = text;
+    renderInterventions();
   } catch (e) {}
+}
+// The interventions table: the event log filtered to what changed the miner, joined to the samples for the outcome.
+function renderInterventions() {
+  const sec = $("interventions");
+  if (!service) { sec.hidden = true; return; }
+  sec.hidden = false;
+  const iv = interventions(eventsText, envRows || []), c = interventionCounts(iv);
+  $("ivsub").textContent = c.restarts + " soft restart" + (c.restarts === 1 ? "" : "s") + ", " + c.cycles + " power cycle" + (c.cycles === 1 ? "" : "s") +
+    ", " + c.actions + " of yours, in the log the service keeps";
+  const body = $("ivtab").tBodies[0]; body.innerHTML = "";
+  if (!iv.length) {
+    const tr = document.createElement("tr"), td = document.createElement("td");
+    td.colSpan = 4; td.className = "empty"; td.textContent = "Nothing yet: no restart, cycle or dashboard action in the log."; tr.appendChild(td); body.appendChild(tr);
+    return;
+  }
+  iv.forEach(i => {
+    const tr = document.createElement("tr"); tr.className = i.kind;
+    [[new Date(i.t).toLocaleString(), "when"], [i.who, "who"], [i.what, ""], [i.result, ""]].forEach(([text, cls]) => {
+      const td = document.createElement("td"); td.textContent = text; if (cls) td.className = cls; tr.appendChild(td);
+    });
+    body.appendChild(tr);
+  });
 }
 async function reportEvent(message, restart) {
   // Served: one line in the service event log (and a marker on the fan chart). Standalone: nothing to report to.
@@ -455,6 +493,7 @@ function render(d) {
   const planText = setting.manual ? setting.manualPowerplan : "preset " + setting.select;
   $("clock").textContent = fmt(info.clock) + " MHz"; $("plan").textContent = "plan " + planText;
   const up = info.elapsed || 0, upText = Math.floor(up / 3600) + " h " + Math.floor(up % 3600 / 60) + " min";
+  lastModel = status.model || null;
   $("title").textContent = status.model || "Goldshell Box"; document.title = (status.model || "Goldshell Box") + " status";
   $("meta").textContent = "fw " + status.firmware + " · up " + upText;
   $("updated").textContent = "updated " + new Date().toLocaleTimeString();
@@ -487,6 +526,17 @@ function renderChips(boards, minutes) {
 }
 
 function niceMax(v) { const p = Math.pow(10, Math.floor(Math.log10(Math.max(v, 1)))); return Math.ceil(v / p * 2) / 2 * p; }
+// Right-hand axis in percent of a rated figure: ticks at 0/25/50/75/100 that fall inside the panel, and a title.
+function rightAxis(xR, y, top, max, rated, title) {
+  let s = "";
+  [0, 25, 50, 75, 100].forEach(p => {
+    const v = p / 100 * rated;
+    if (v > max + 1e-9) return;
+    s += "<line class=\"raxis\" x1=\"" + xR + "\" x2=\"" + (xR + 4) + "\" y1=\"" + y(v).toFixed(1) + "\" y2=\"" + y(v).toFixed(1) + "\"/>" +
+      "<text class=\"rlbl\" x=\"" + (xR + 7) + "\" y=\"" + (y(v) + 4).toFixed(1) + "\">" + p + "%</text>";
+  });
+  return s + "<text class=\"rlbl\" x=\"" + (xR + 46) + "\" y=\"" + (top - 10) + "\" text-anchor=\"end\">" + title + "</text>";
+}
 function renderChart(hist) {
   const box = $("chart"), { unit, div, data } = chartData(hist);
   if (data.length === 0) { box.innerHTML = "<p class=\"note\">no history yet</p>"; return; }
@@ -494,15 +544,16 @@ function renderChart(hist) {
     box.innerHTML = "<p class=\"note\">one sample so far, " + Math.round(data[0]) + " " + unit + ": a boot wipes the miner's own buffer, and the graph starts at the second sample, a minute from now.</p>";
     return;
   }
-  const W = Math.max(box.clientWidth, 320), H = 232, L = 44, R = 12, T = 26, B = 34;
-  const yMax = niceMax(Math.max.apply(null, data) * 1.05), step = yMax / 4;
-  const x = i => L + (W - L - R) * i / Math.max(data.length - 1, 1), y = v => T + (H - T - B) * (1 - v / yMax);
+  const rated = ratedFor(lastModel), ratedV = rated ? rated.rated_mhs / div : null;
+  const W = Math.max(box.clientWidth, 320), H = 232, L = 44, R = 12, T = 26, B = 34, RW = ratedV ? 44 : 0, xR = W - R - RW;
+  const yMax = niceMax(Math.max(Math.max.apply(null, data) * 1.05, ratedV ? ratedV * 1.1 : 0)), step = yMax / 4;
+  const x = i => L + (xR - L) * i / Math.max(data.length - 1, 1), y = v => T + (H - T - B) * (1 - v / yMax);
   const path = data.map((v, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(v).toFixed(1)).join(" ");
   let s = "<svg width=\"" + W + "\" height=\"" + H + "\" viewBox=\"0 0 " + W + " " + H + "\" role=\"img\" aria-label=\"hashrate history\">";
-  for (let g = 0; g <= yMax + 1e-9; g += step) s += "<line class=\"grid\" x1=\"" + L + "\" x2=\"" + (W - R) + "\" y1=\"" + y(g) + "\" y2=\"" + y(g) + "\"/><text x=\"" + (L - 6) + "\" y=\"" + (y(g) + 4) + "\" text-anchor=\"end\">" + fmt(g, step < 10 ? 1 : 0) + "</text>";
+  for (let g = 0; g <= yMax + 1e-9; g += step) s += "<line class=\"grid\" x1=\"" + L + "\" x2=\"" + xR + "\" y1=\"" + y(g) + "\" y2=\"" + y(g) + "\"/><text x=\"" + (L - 6) + "\" y=\"" + (y(g) + 4) + "\" text-anchor=\"end\">" + fmt(g, step < 10 ? 1 : 0) + "</text>";
   s += "<path class=\"area\" d=\"" + path + " L" + x(data.length - 1).toFixed(1) + " " + y(0) + " L" + x(0) + " " + y(0) + " Z\"/><path class=\"line\" d=\"" + path + "\"/>";
   const y0 = H - B, minutesBack = i => (data.length - 1 - i) * SAMPLE_MIN, xAtMin = m => x(data.length - 1 - m / SAMPLE_MIN);
-  s += "<line class=\"tick\" x1=\"" + L + "\" x2=\"" + (W - R) + "\" y1=\"" + y0 + "\" y2=\"" + y0 + "\"/>";
+  s += "<line class=\"tick\" x1=\"" + L + "\" x2=\"" + xR + "\" y1=\"" + y0 + "\" y2=\"" + y0 + "\"/>";
   const span = minutesBack(0), labelEvery = W < 700 ? 120 : 60;
   for (let m = 0; m <= span; m += 5) {
     const major = m % 60 === 0, mid = m % 15 === 0, len = major ? 9 : mid ? 6 : 3, xx = xAtMin(m);
@@ -511,15 +562,17 @@ function renderChart(hist) {
     else if (m % labelEvery === 0 && xx > L + 24) s += "<text x=\"" + xx + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"middle\">-" + (m / 60) + " h</text>";
   }
   s += "<text x=\"" + (L - 6) + "\" y=\"" + (T - 12) + "\" text-anchor=\"end\">" + unit + "</text>";
+  if (ratedV) s += rightAxis(xR, y, T, yMax, ratedV, "% of rated");
   s += "<line class=\"cross\" id=\"cx\" y1=\"" + T + "\" y2=\"" + (H - B) + "\" style=\"display:none\"/><circle class=\"dot\" id=\"cdot\" r=\"4\" style=\"display:none\"/></svg><div class=\"tip\" id=\"tip\"></div>";
   box.innerHTML = s;
   const svg = box.querySelector("svg"), tip = $("tip"), cx = $("cx"), dot = $("cdot");
   svg.onmousemove = e => {
-    const r = svg.getBoundingClientRect(), px = (e.clientX - r.left) * W / r.width, i = Math.round((px - L) / (W - L - R) * (data.length - 1));
+    const r = svg.getBoundingClientRect(), px = (e.clientX - r.left) * W / r.width, i = Math.round((px - L) / (xR - L) * (data.length - 1));
     if (i < 0 || i >= data.length) return;
     cx.setAttribute("x1", x(i)); cx.setAttribute("x2", x(i)); cx.style.display = "";
     dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(data[i])); dot.style.display = "";
-    tip.style.display = "block"; tip.textContent = fmt(data[i], div === 1 ? 0 : 1) + " " + unit + " · " + minutesBack(i) + " min ago";
+    const pct = ratedV ? " · " + fmt(100 * data[i] / ratedV) + "% of rated" : "";
+    tip.style.display = "block"; tip.textContent = fmt(data[i], div === 1 ? 0 : 1) + " " + unit + pct + " · " + minutesBack(i) + " min ago";
     tip.style.left = Math.min(x(i) * r.width / W + 12, r.width - 150) + "px"; tip.style.top = (y(data[i]) * r.height / H - 30) + "px";
   };
   svg.onmouseleave = () => { tip.style.display = "none"; cx.style.display = "none"; dot.style.display = "none"; };
@@ -544,41 +597,38 @@ async function refreshEnv() {
   try {
     const r = await fetch("api/log.csv", { cache: "no-store" });
     if (!r.ok) throw new Error("no samples yet");
-    const txt = await r.text();
-    const lines = txt.trim().split(/\r?\n/); const head = lines[0].split(",");
-    const ix = k => head.indexOf(k);
-    const it = ix("time"), ih = ix("http"), if0 = ix("fan0"), if1 = ix("fan1"), ic = ix("tstemp0"), ib = ix("tstemp2");
-    envRows = lines.slice(1).map(l => l.split(",")).filter(r => r[ih] === "ok" && r.length > ib)
-      .map(r => ({ t: new Date(r[it].replace(" ", "T")).getTime(), fan0: +r[if0], fan1: +r[if1], chip: +r[ic], board: +r[ib] }))
-      .filter(r => !isNaN(r.t) && !isNaN(r.fan0));
-    renderEnv();
+    envRows = envRowsFrom(await r.text());
+    renderEnv(); renderWatts(); renderInterventions();
   } catch (e) { $("envchart").innerHTML = "<p class=\"note\">No logger samples yet (" + e.message + ").</p>"; }
 }
-function renderEnv() {
-  const box = $("envchart"); if (!envRows || !lastHistory) return;
-  const spanMin = Math.max(lastHistory.filter(v => v > 0).length * SAMPLE_MIN, 60), now = Date.now();
-  const rows = envRows.filter(r => now - r.t <= spanMin * 60000);
-  if (rows.length < 2) { box.innerHTML = "<p class=\"note\">no logger samples in this window yet</p>"; return; }
-  const W = Math.max(box.clientWidth, 320), L = 44, R = 12, PH = 130, GAP = 34, T = 24, B = 34, H = T + PH + GAP + PH + B;
-  const xOf = r => L + (W - L - R) * (1 - (now - r.t) / (spanMin * 60000));
-  const fanMax = niceMax(Math.max.apply(null, rows.map(r => Math.max(r.fan0, r.fan1))) * 1.05) || 5000;
-  const panels = [
-    { top: T, label: "RPM", min: 0, max: fanMax, step: fanMax / 5, series: [["fan0", "", "fan0"], ["fan1", "s2", "fan1"]] },
-    { top: T + PH + GAP, label: "°C", min: 20, max: 100, step: 20, series: [["chip", "", "chip"], ["board", "s2", "board"]] } ];
-  let s = "<svg width=\"" + W + "\" height=\"" + H + "\" viewBox=\"0 0 " + W + " " + H + "\" role=\"img\" aria-label=\"fan speed and temperature history\">";
-  panels.forEach(p => {
-    const y = v => p.top + PH * (1 - (Math.min(Math.max(v, p.min), p.max) - p.min) / (p.max - p.min));
-    for (let g = p.min; g <= p.max + 1e-9; g += p.step) s += "<line class=\"grid\" x1=\"" + L + "\" x2=\"" + (W - R) + "\" y1=\"" + y(g) + "\" y2=\"" + y(g) + "\"/><text x=\"" + (L - 6) + "\" y=\"" + (y(g) + 4) + "\" text-anchor=\"end\">" + fmt(g) + "</text>";
-    s += "<text x=\"" + (L - 6) + "\" y=\"" + (p.top - 10) + "\" text-anchor=\"end\">" + p.label + "</text>";
+// The window both log charts share: as far back as the miner's own hashrate buffer reaches, at least an hour.
+function logSpanMin() { return Math.max(lastHistory.filter(v => v > 0).length * SAMPLE_MIN, 60); }
+// Shared scaffold for the log charts: stacked panels on one time axis, series that break at a gap or a missing value,
+// event markers, an optional right-hand "% of rated" axis per panel, and one hover tooltip. Each panel:
+// { label, min, max, step, series: [[rowKey, cssClass, name]...], rated: { value, title } | null }.
+function drawPanels(box, panels, rows, spanMin, now, tipText, aria) {
+  const W = Math.max(box.clientWidth, 320), L = 44, R = 12, PH = 130, GAP = 34, T = 24, B = 34, n = panels.length;
+  const H = T + n * PH + (n - 1) * GAP + B, RW = panels.some(p => p.rated) ? 44 : 0, xR = W - R - RW, y0 = T + n * PH + (n - 1) * GAP;
+  const xOf = t => L + (xR - L) * (1 - (now - t) / (spanMin * 60000));
+  const has = v => v !== null && v !== undefined && !isNaN(v);
+  let s = "<svg width=\"" + W + "\" height=\"" + H + "\" viewBox=\"0 0 " + W + " " + H + "\" role=\"img\" aria-label=\"" + aria + "\">";
+  panels.forEach((p, i) => {
+    const top = T + i * (PH + GAP), y = v => top + PH * (1 - (Math.min(Math.max(v, p.min), p.max) - p.min) / (p.max - p.min));
+    for (let g = p.min; g <= p.max + 1e-9; g += p.step) s += "<line class=\"grid\" x1=\"" + L + "\" x2=\"" + xR + "\" y1=\"" + y(g) + "\" y2=\"" + y(g) + "\"/><text x=\"" + (L - 6) + "\" y=\"" + (y(g) + 4) + "\" text-anchor=\"end\">" + fmt(g) + "</text>";
+    s += "<text x=\"" + (L - 6) + "\" y=\"" + (top - 10) + "\" text-anchor=\"end\">" + p.label + "</text>";
     p.series.forEach(([key, cls, name], idx) => {
-      let d = "", prev = null;
-      rows.forEach(r => { d += (prev && r.t - prev < 180000 ? "L" : "M") + xOf(r).toFixed(1) + " " + y(r[key]).toFixed(1); prev = r.t; });
-      const last = rows[rows.length - 1];
-      s += "<path class=\"line " + cls + "\" d=\"" + d + "\"/><text class=\"lbl\" x=\"" + (xOf(last) - 4) + "\" y=\"" + (y(last[key]) + (idx ? 15 : -6)) + "\" text-anchor=\"end\">" + name + " " + fmt(last[key]) + "</text>";
+      let d = "", prev = null, last = null;
+      rows.forEach(r => {
+        if (!has(r[key])) { prev = null; return; }
+        d += (prev !== null && r.t - prev < 180000 ? "L" : "M") + xOf(r.t).toFixed(1) + " " + y(r[key]).toFixed(1); prev = r.t; last = r;
+      });
+      if (!last) return;
+      s += "<path class=\"line " + cls + "\" d=\"" + d + "\"/><text class=\"lbl\" x=\"" + (xOf(last.t) - 4) + "\" y=\"" + (y(last[key]) + (idx ? 15 : -6)) + "\" text-anchor=\"end\">" + name + " " + fmt(last[key]) + "</text>";
     });
+    if (p.rated) s += rightAxis(xR, y, top, p.max, p.rated.value, p.rated.title);
   });
-  const y0 = T + PH + GAP + PH, xAtMin = m => L + (W - L - R) * (1 - m / spanMin), labelEvery = W < 700 ? 120 : 60;
-  s += "<line class=\"tick\" x1=\"" + L + "\" x2=\"" + (W - R) + "\" y1=\"" + y0 + "\" y2=\"" + y0 + "\"/>";
+  const xAtMin = m => L + (xR - L) * (1 - m / spanMin), labelEvery = W < 700 ? 120 : 60;
+  s += "<line class=\"tick\" x1=\"" + L + "\" x2=\"" + xR + "\" y1=\"" + y0 + "\" y2=\"" + y0 + "\"/>";
   for (let m = 0; m <= spanMin; m += 5) {
     const major = m % 60 === 0, mid = m % 15 === 0, len = major ? 9 : mid ? 6 : 3, xx = xAtMin(m);
     s += "<line class=\"tick" + (major ? " major" : "") + "\" x1=\"" + xx + "\" x2=\"" + xx + "\" y1=\"" + y0 + "\" y2=\"" + (y0 + len) + "\"/>";
@@ -588,24 +638,55 @@ function renderEnv() {
   // markers: what the buttons, the watchdog and the plug did, and each service start (S); hover for the event text
   const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
   eventMarks.filter(m => now - m.t <= spanMin * 60000 && m.t <= now).forEach(m => {
-    const xx = L + (W - L - R) * (1 - (now - m.t) / (spanMin * 60000));
+    const xx = xOf(m.t);
     s += "<line class=\"mark\" x1=\"" + xx.toFixed(1) + "\" x2=\"" + xx.toFixed(1) + "\" y1=\"" + (T - 4) + "\" y2=\"" + y0 + "\"><title>" + esc(new Date(m.t).toLocaleTimeString() + " " + m.label) + "</title></line>" +
       "<text class=\"marklbl\" x=\"" + (xx + 3).toFixed(1) + "\" y=\"" + (T + 4) + "\">" + markerGlyph(m.label) + "</text>";
   });
-  s += "<line class=\"cross\" id=\"ecx\" y1=\"" + T + "\" y2=\"" + y0 + "\" style=\"display:none\"/></svg><div class=\"tip\" id=\"etip\"></div>";
+  const id = box.id;
+  s += "<line class=\"cross\" id=\"" + id + "-cx\" y1=\"" + T + "\" y2=\"" + y0 + "\" style=\"display:none\"/></svg><div class=\"tip\" id=\"" + id + "-tip\"></div>";
   box.innerHTML = s;
-  const svg = box.querySelector("svg"), tip = $("etip"), cx = $("ecx");
+  const svg = box.querySelector("svg"), tip = $(id + "-tip"), cx = $(id + "-cx");
   svg.onmousemove = e => {
-    const rct = svg.getBoundingClientRect(), px = (e.clientX - rct.left) * W / rct.width, tAt = now - (1 - (px - L) / (W - L - R)) * spanMin * 60000;
+    const rct = svg.getBoundingClientRect(), px = (e.clientX - rct.left) * W / rct.width, tAt = now - (1 - (px - L) / (xR - L)) * spanMin * 60000;
     let best = rows[0]; rows.forEach(r => { if (Math.abs(r.t - tAt) < Math.abs(best.t - tAt)) best = r; });
-    const xx = xOf(best); cx.setAttribute("x1", xx); cx.setAttribute("x2", xx); cx.style.display = "";
-    tip.style.display = "block"; tip.textContent = new Date(best.t).toLocaleTimeString() + " · fans " + fmt(best.fan0) + " / " + fmt(best.fan1) + " RPM · chip " + fmt(best.chip) + " °C · board " + fmt(best.board, 1) + " °C";
+    const xx = xOf(best.t); cx.setAttribute("x1", xx); cx.setAttribute("x2", xx); cx.style.display = "";
+    tip.style.display = "block"; tip.textContent = tipText(best);
     tip.style.left = Math.min(xx * rct.width / W + 12, rct.width - 330) + "px"; tip.style.top = (e.clientY - rct.top - 30) + "px";
   };
   svg.onmouseleave = () => { tip.style.display = "none"; cx.style.display = "none"; };
 }
+function renderEnv() {
+  const box = $("envchart"); if (!envRows || !lastHistory) return;
+  const spanMin = logSpanMin(), now = Date.now();
+  const rows = envRows.filter(r => r.ok && now - r.t <= spanMin * 60000);
+  if (rows.length < 2) { box.innerHTML = "<p class=\"note\">no logger samples in this window yet</p>"; return; }
+  const rated = ratedFor(lastModel), maxRpm = rated && rated.fan_max_rpm;
+  const fanMax = niceMax(Math.max(Math.max.apply(null, rows.map(r => Math.max(r.fan0, r.fan1))) * 1.05, maxRpm ? maxRpm * 1.1 : 0)) || 5000;
+  const panels = [
+    { label: "RPM", min: 0, max: fanMax, step: fanMax / 5, series: [["fan0", "", "fan0"], ["fan1", "s2", "fan1"]], rated: maxRpm ? { value: maxRpm, title: "% of max RPM" } : null },
+    { label: "°C", min: 20, max: 100, step: 20, series: [["chip", "", "chip"], ["board", "s2", "board"]], rated: null } ];
+  drawPanels(box, panels, rows, spanMin, now, best => new Date(best.t).toLocaleTimeString() + " · fans " + fmt(best.fan0) + " / " + fmt(best.fan1) + " RPM" +
+    (maxRpm ? " (" + fmt(100 * Math.max(best.fan0, best.fan1) / maxRpm) + "% of max)" : "") + " · chip " + fmt(best.chip) + " °C · board " + fmt(best.board, 1) + " °C",
+    "fan speed and temperature history");
+  $("fanpctnote").textContent = maxRpm ? "Right axis: RPM as a share of " + fmt(maxRpm) + " RPM, the " + rated.name + "'s maximum (observed, not the duty cycle the Fans tile shows)."
+    : (lastModel ? "No maximum fan speed on record for " + lastModel + ", so no percent axis." : "");
+}
+// Power at the wall, from the watts column: failed samples stay in (the plug answers while the miner is down), a
+// missing reading breaks the line rather than drawing zero.
+function renderWatts() {
+  const box = $("wattchart"); if (!envRows || !lastHistory || !service || !service.power || !service.power.configured) return;
+  const spanMin = logSpanMin(), now = Date.now();
+  const rows = envRows.filter(r => now - r.t <= spanMin * 60000), withW = rows.filter(r => r.watts !== null);
+  if (withW.length < 2) { box.innerHTML = "<p class=\"note\">no plug readings in this window yet</p>"; return; }
+  const rated = service.rated && service.rated.rated_watts;
+  const wMax = niceMax(Math.max(Math.max.apply(null, withW.map(r => r.watts)) * 1.05, rated ? rated * 1.1 : 0)) || 300;
+  const panels = [{ label: "W", min: 0, max: wMax, step: wMax / 5, series: [["watts", "", "watts"]], rated: rated ? { value: rated, title: "% of rated" } : null }];
+  drawPanels(box, panels, rows, spanMin, now, best => new Date(best.t).toLocaleTimeString() + " · " +
+    (best.watts === null ? "no reading" : fmt(best.watts) + " W" + (rated ? " (" + fmt(100 * best.watts / rated) + "% of rated)" : "")) + (best.ok ? "" : " · miner not answering"),
+    "power at the wall");
+}
 let resizeTimer = null;
-window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (lastHistory) { renderChart(lastHistory); renderEnv(); } }, 150); });
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (lastHistory) { renderChart(lastHistory); renderEnv(); renderWatts(); } }, 150); });
 // This page sends the miner one request at a time (token-check race, see docs/firmware-api.md): the poll cycle and
 // the buttons share one `busy` flag. A poll that finds the page busy is skipped; a button waits for the poll to end.
 let busy = false;

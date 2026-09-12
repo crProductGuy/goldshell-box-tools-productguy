@@ -16,14 +16,24 @@ event log says what it would have done and nothing moves.
 The service talks to the plug directly on the LAN; no cloud, no app, no
 account. This version drives TP-Link Kasa plugs on their original local
 protocol (the one the Kasa app used before 2023; port 9999, no
-authentication). That covers HS100, HS103, HS105, HS110, KP115, KP125,
-EP10 and similar units that have not taken a recent firmware update.
+authentication). The list below is the same one the dashboard shows under
+the watts chart; both come from python-kasa's supported-device list and
+TP-Link's own listing, checked 2026-09-10.
 
-Energy readback needs a plug with a meter. Kasa models that have one:
-**HS110, KP115, KP125, KP125M, EP25, HS300** (the six-outlet strip; not
-yet supported here). **The HS100 family has no meter**, on any
-hardware version (HS100, HS103, and HS105 alike); they can still switch
-the miner, and the service shows only the relay state.
+- **Meter, original protocol, works today:** KP115, KP125, and the
+  end-of-life HS110 (the unit this was built against).
+- **Meter, but the firmware requires the TP-Link account (KLAP), not
+  driven yet:** KP125M (the Matter one), EP25.
+- **Meter per outlet, six-outlet strip, not supported here:** HS300.
+- **No meter, switch only** (fine for power-cycling; the service shows
+  the relay state and the watts chart stays empty): HS100 (end of life),
+  HS103, HS105, KP100, KP105, KP401, EP10; the outdoor EP40, EP40A and
+  EP40M; the strips HS107, KP200, KP303, KP400. The HS100 family has no
+  meter on any hardware version.
+
+TP-Link's listing: <https://www.kasasmart.com/us/products/smart-plugs>;
+the three marked "Slim with Energy Monitoring" there are the metering
+ones (KP125M, EP25, KP125).
 
 Plugs whose firmware moved to the newer encrypted protocol (KLAP: Tapo
 plugs, and Kasa units updated in 2023 to 2025) answer `gbox power
