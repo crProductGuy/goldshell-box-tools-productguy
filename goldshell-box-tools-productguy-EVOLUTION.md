@@ -980,3 +980,23 @@ hashing before the plug moves, and Mark's "uptime over interventions"
 argues for shortening it; recommended, not done, since he asked for
 caps. The event-line cap warning. Then the 0.5.0 plan, the Linux
 installer, the other plug drivers.
+
+**Addendum, 17:05 to 17:30: 0.4.2.** Mark: "0.4.1 is very good," then
+four asks. The service log reversed, newest first, "like Interventions
+... easier to see relevant things in a limited window." The ladder
+defaults cut ("I like your recommendation ... like 5 minutes") with the
+values shown on the page "to make it obvious how to configure them":
+`min_gap_minutes` 10 to 5 and `after_minutes` 15 to 5, so the plug moves
+about 7 minutes into a freeze instead of 17; the Service section now
+carries a "Ladder:" sentence built from a new `ladder` block in the
+health endpoint, ending with the config file's path and "restart the
+service after editing." The posted-event cap raised ("anything up to
+500 chars"): 500, the top of his range, since the cap only bounds abuse
+and the page is loopback-only by default. And a proposal, not code, for
+the tiles whose "since start" and "since page opened" leave a viewer
+unable to tell what the numbers mean; given in chat for his pick.
+Test-first again: two server tests, two JS tests, the config test
+re-pinned. 187 tests green. Verified in Chrome on the scratch service.
+Merged, tagged `v0.4.2`, live at 17:24:29 with the same seed line (9
+restarts, 4 cycles). One judgment call flagged in STATUS: additive
+health fields shipped as a patch version, not a minor.
