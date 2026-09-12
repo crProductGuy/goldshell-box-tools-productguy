@@ -222,6 +222,82 @@ function trialStatus(run, nowMs) {
   return "Trial running: step " + run.step + " of " + run.clocks.length + ", " + run.clock + " MHz, " + progress + ", ends at " + run.end + " MHz. " +
     "Started from the command line; Ctrl-C there stops it.";
 }
+// The Power tile: the wall reading with the plug's name and model, or what stands in for them.
+function powerTile(service) {
+  const p = (service && service.power) || {};
+  if (!p.configured) return { value: "no plug", sub: "see docs/power-cycle.md" };
+  const name = (p.alias ? p.alias + " · " : "") + (p.model || "?");
+  if (p.state == null) return { value: "unreachable", sub: name };
+  if (!p.meter || p.watts == null) return { value: p.state, sub: name + " · no meter" };
+  const rated = service.rated && service.rated.rated_watts;
+  return { value: Math.round(p.watts) + " W", sub: name + (rated ? " · of " + Math.round(rated) + " W rated" : "") };
+}
+// Rows of the service log (api/log.csv) for the charts and the interventions table. Columns by header name, so an older
+// log without a column still parses; a blank watts cell is null (the plug did not answer, or no meter), never 0.
+// Rows that failed to sample are kept with ok:false so an outage is visible; their numbers are NaN.
+function envRowsFrom(text) {
+  const lines = (text || "").trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+  const head = lines[0].split(","), ix = k => head.indexOf(k);
+  const it = ix("time"), ih = ix("http"), if0 = ix("fan0"), if1 = ix("fan1"), ic = ix("tstemp0"), ib = ix("tstemp2"), iw = ix("watts");
+  const num = s => (s === "" || s === undefined) ? NaN : +s;
+  return lines.slice(1).map(l => l.split(",")).filter(r => r.length > ib && r[it])
+    .map(r => ({ t: new Date(r[it].replace(" ", "T")).getTime(), ok: r[ih] === "ok",
+      fan0: num(r[if0]), fan1: num(r[if1]), chip: num(r[ic]), board: num(r[ib]),
+      watts: (iw < 0 || r.length <= iw || r[iw] === "") ? null : +r[iw] }))
+    .filter(r => !isNaN(r.t));
+}
+// Interventions: every event line where the software, or you, did something to the miner, newest first, each with what
+// the log shows happened next. `rows` are envRowsFrom() rows (ok and failed samples) in any order.
+const EVENT_RE = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) (\S+): (.*)$/;
+function afterText(s) {
+  if (s < 120) return s + " s";
+  const m = Math.round(s / 60);
+  return m < 60 ? m + " min" : Math.floor(m / 60) + " h " + (m % 60) + " min";
+}
+function interventions(text, rows) {
+  const sorted = (rows || []).slice().sort((a, b) => a.t - b.t);
+  const cameBack = t => {                 // the first ok row after the first failed sample within 10 min of the event
+    const down = sorted.find(r => r.t > t && r.t - t <= 600000 && !r.ok);
+    if (!down) return "no outage seen in the log";
+    const up = sorted.find(r => r.t > down.t && r.ok);
+    return up ? "miner back after " + afterText(Math.round((up.t - t) / 1000)) : "still down at the end of the log";
+  };
+  const out = [];
+  (text || "").split(/\r?\n/).forEach(line => {
+    const m = EVENT_RE.exec(line);
+    if (!m) return;
+    const t = new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime(), src = m[7], msg = m[8];
+    let who = null, kind = null, what = msg, result = "", x;
+    if (src === "watchdog") {
+      who = "watchdog";
+      if ((x = /^restart #(\d+) sent \((.*)\)$/.exec(msg))) { kind = "restart"; what = "soft restart #" + x[1] + ": " + x[2]; result = cameBack(t); }
+      else if ((x = /^restart attempt failed: (.*)$/.exec(msg))) { kind = "failed"; what = "soft restart failed: " + x[1]; }
+      else if ((x = /^(.*), but (\d+ restarts in 24 h is the cap); not restarting$/.exec(msg))) { kind = "declined"; what = "declined: " + x[2] + " (" + x[1] + ")"; }
+      else return;
+    } else if (src === "power") {
+      who = "plug";
+      if ((x = /^cycled (#\d+ today: .*)$/.exec(msg))) { kind = "cycle"; what = "power cycle " + x[1]; result = cameBack(t); }
+      else if ((x = /^would cycle now \((.*)\)$/.exec(msg))) { kind = "dryrun"; what = "would cycle (dry run): " + x[1]; }
+      else if ((x = /^cycle failed: (.*)$/.exec(msg))) { kind = "failed"; what = "power cycle failed: " + x[1]; }
+      else return;
+    } else if (src === "dashboard") {
+      who = "you";
+      if ((x = /^power: cycled by hand \((.*)\)$/.exec(msg))) { kind = "cycle"; what = "power cycle by hand (" + x[1] + ")"; result = cameBack(t); }
+      else if (/^soft restart/.test(msg)) { kind = "restart"; result = cameBack(t); }
+      else kind = "action";
+    } else if (src === "service") {
+      if (!(x = /^started (v\S+?),/.exec(msg))) return;
+      who = "service"; kind = "start"; what = "service started " + x[1];
+    } else return;
+    out.push({ t: t, who: who, kind: kind, what: what, result: result });
+  });
+  out.sort((a, b) => b.t - a.t);
+  return out;
+}
+function interventionCounts(iv) {
+  return { restarts: iv.filter(i => i.kind === "restart").length, cycles: iv.filter(i => i.kind === "cycle").length, actions: iv.filter(i => i.who === "you").length };
+}
 // Rated figures per Goldshell model, for the "% of rated" axes. Same table as gbox/models.py (a test keeps them identical);
 // keyed by the /mcb/status model string, looked up ignoring case, spaces and hyphens.
 const MODELS = {
@@ -245,7 +321,8 @@ function chartData(hist) {
 }
 if (typeof module !== "undefined") module.exports = { encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
-  markerGlyph, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf };
+  markerGlyph, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf,
+  powerTile, envRowsFrom, interventions, interventionCounts };
 
 // ---- presentation (skipped under Node, where the data layer above is unit-tested) ----
 if (typeof document !== "undefined") {

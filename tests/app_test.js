@@ -194,6 +194,74 @@ const tests = {
     const settling = Object.assign({}, run, { status: "settling", step_started: "2026-09-09 00:20:00" });
     assert.match(app.trialStatus(settling, now), /^Trial running: step 2 of 3, 575 MHz, settling/);
   },
+  "power tile: watts with the plug's name and model, or what stands in for them"() {
+    const on = { configured: true, model: "HS110(US)", alias: "workbench", meter: true, state: "on", watts: 187.4, cycle: true, cycles_today: 0 };
+    assert.deepStrictEqual(app.powerTile({ power: on, rated: { rated_watts: 200 } }), { value: "187 W", sub: "workbench · HS110(US) · of 200 W rated" });
+    assert.deepStrictEqual(app.powerTile({ power: on }), { value: "187 W", sub: "workbench · HS110(US)" });
+    assert.deepStrictEqual(app.powerTile({ power: Object.assign({}, on, { alias: "" }) }), { value: "187 W", sub: "HS110(US)" });
+    assert.deepStrictEqual(app.powerTile({ power: Object.assign({}, on, { meter: false, watts: null }) }), { value: "on", sub: "workbench · HS110(US) · no meter" });
+    assert.deepStrictEqual(app.powerTile({ power: Object.assign({}, on, { state: null, watts: null }) }), { value: "unreachable", sub: "workbench · HS110(US)" });
+    assert.deepStrictEqual(app.powerTile({ power: { configured: false } }), { value: "no plug", sub: "see docs/power-cycle.md" });
+    assert.deepStrictEqual(app.powerTile(null), { value: "no plug", sub: "see docs/power-cycle.md" });
+  },
+  "log rows from the CSV: columns by name, watts null when the column is missing or blank, never 0"() {
+    const head22 = "time,http,elapsed,mhs_av,mhs_20s,hwerr,hwerr_pct,accepted,rejected,clock,fan0,fan1,tstemp0,tstemp1,tstemp2,rebootcnt,weak_chips,nonces_good,nonces_bad,temp_target,overheat,watts";
+    const csv = head22 + "\n" +
+      "2026-09-10 16:20:16,ok,100,1,2,3,0.4,5,0,575.0,1200,1210,71,71,63.5,0,,1,2,65,0,187.2\n" +
+      "2026-09-10 16:20:46,ok,130,1,2,3,0.4,5,0,575.0,1200,1210,71,71,63.5,0,,1,2,65,0,\n" +
+      "2026-09-10 16:21:16,ERR:timeout,,,,,,,,,,,,,,,,,,,,38.7\n" +
+      "not a row\n";
+    const rows = app.envRowsFrom(csv);
+    assert.strictEqual(rows.length, 3);
+    assert.deepStrictEqual(rows[0], { t: new Date(2026, 8, 10, 16, 20, 16).getTime(), ok: true, fan0: 1200, fan1: 1210, chip: 71, board: 63.5, watts: 187.2 });
+    assert.strictEqual(rows[1].watts, null);
+    assert.strictEqual(rows[2].ok, false);
+    assert.strictEqual(rows[2].watts, 38.7);                 // the plug still answers while the miner is down
+    assert.ok(isNaN(rows[2].fan0));
+    const old = "time,http,elapsed,mhs_av,mhs_20s,hwerr,hwerr_pct,accepted,rejected,clock,fan0,fan1,tstemp0,tstemp1,tstemp2,rebootcnt,weak_chips\n" +
+      "2026-09-08 10:00:00,ok,1,2,3,4,0.4,5,0,600.0,3000,3000,70,70,63,0,\n";
+    assert.strictEqual(app.envRowsFrom(old)[0].watts, null);
+    assert.strictEqual(app.envRowsFrom(old)[0].fan0, 3000);
+    assert.deepStrictEqual(app.envRowsFrom(""), []);
+  },
+  "interventions: what the watchdog, the plug, the service and you did, newest first, with how long the miner took to come back"() {
+    const T = (h, m, s, d) => new Date(2026, 8, d || 10, h, m, s).getTime();
+    const row = (d, h, m, s, ok) => ({ t: T(h, m, s, d), ok: ok, fan0: 1200, fan1: 1200, chip: 70, board: 63, watts: ok ? 187 : 39 });
+    const rows = [row(10, 12, 10, 43, true), row(10, 12, 11, 13, false), row(10, 12, 11, 43, false), row(10, 12, 12, 13, true),
+                  row(9, 19, 2, 0, false), row(9, 19, 2, 30, false), row(9, 19, 40, 0, false), row(9, 21, 52, 0, true)];   // out of order on purpose
+    const log = [
+      "2026-09-09 19:02:07 watchdog: restart #1 sent (miner unreachable for 2 min)",
+      "2026-09-09 20:29:00 watchdog: miner unreachable for 2 min, but 6 restarts in 24 h is the cap; not restarting",
+      "2026-09-10 12:07:00 service: started v0.3.0, miner 192.0.2.5, poll 30s, watchdog on, power plug armed, listening on 127.0.0.1:8765",
+      "2026-09-10 12:11:07 dashboard: power: cycled by hand (gbox power cycle; 187 W before)",
+      "2026-09-10 12:12:42 service: started v0.3.0, miner 192.0.2.5, poll 30s, watchdog on, power plug armed, listening on 127.0.0.1:8765",
+      "2026-09-10 12:33:13 power: cycled #1 today: off 15 s, on (miner unreachable for 2 min; 187 W before)",
+      "2026-09-10 12:40:00 dashboard: clock set to 575 MHz",
+      "2026-09-10 12:41:00 power: would cycle now (miner unreachable for 2 min; 34 W before)",
+      "2026-09-10 12:42:00 watchdog: restart attempt failed: timed out (miner unreachable for 2 min)",
+      "2026-09-10 12:43:00 power: plug back",
+      "2026-09-10 12:44:00 service: session token received from the dashboard",
+      "garbage line",
+    ].join("\n") + "\n";
+    const iv = app.interventions(log, rows);
+    assert.deepStrictEqual(iv.map(i => i.who), ["watchdog", "plug", "you", "plug", "service", "you", "service", "watchdog", "watchdog"]);
+    assert.deepStrictEqual(iv.map(i => i.kind), ["failed", "dryrun", "action", "cycle", "start", "cycle", "start", "declined", "restart"]);
+    const byT = Object.fromEntries(iv.map(i => [i.t, i]));
+    assert.strictEqual(byT[T(12, 11, 7)].what, "power cycle by hand (gbox power cycle; 187 W before)");
+    assert.strictEqual(byT[T(12, 11, 7)].result, "miner back after 66 s");        // first ok row after the outage the event caused
+    assert.strictEqual(byT[T(12, 33, 13)].what, "power cycle #1 today: off 15 s, on (miner unreachable for 2 min; 187 W before)");
+    assert.strictEqual(byT[T(12, 33, 13)].result, "no outage seen in the log");       // rows do not cover it
+    assert.strictEqual(byT[T(12, 40, 0)].what, "clock set to 575 MHz");
+    assert.strictEqual(byT[T(12, 40, 0)].result, "");
+    assert.strictEqual(byT[T(12, 41, 0)].what, "would cycle (dry run): miner unreachable for 2 min; 34 W before");
+    assert.strictEqual(byT[T(12, 42, 0)].what, "soft restart failed: timed out (miner unreachable for 2 min)");
+    assert.strictEqual(byT[T(12, 7, 0)].what, "service started v0.3.0");
+    const r1 = iv[iv.length - 1];
+    assert.strictEqual(r1.what, "soft restart #1: miner unreachable for 2 min");
+    assert.strictEqual(r1.result, "miner back after 2 h 50 min");          // 19:02:07 -> the 21:52:00 ok row
+    assert.strictEqual(byT[new Date(2026, 8, 9, 20, 29, 0).getTime()].what, "declined: 6 restarts in 24 h is the cap (miner unreachable for 2 min)");
+    assert.deepStrictEqual(app.interventionCounts(iv), { restarts: 1, cycles: 2, actions: 2 });
+  },
   "rated figures come from the model table, looked up loosely; unknown models get none"() {
     assert.strictEqual(app.ratedFor("Goldshell-SCBox").rated_watts, 200);
     assert.strictEqual(app.ratedFor(" goldshell scbox ").rated_mhs, 900000);
