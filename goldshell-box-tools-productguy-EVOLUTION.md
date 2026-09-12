@@ -901,3 +901,82 @@ unit's freeze rate as his call.
 
 **Left for later.** The cap persistence, first. The 0.5.0 plan for other
 models. Event-log rotation. The glyph under the series label.
+
+## 2026-09-12 afternoon, session K: a PSU swap logged, the caps made to survive a restart, the clock under "now", the version in the header
+
+**Mark's brief.** First: "pick up goldshell project, read status.md,
+stop." Then, by hand, a manual change to log: the 360 W fanless power
+brick (about 11.8 V DC out) replaced by a Bitmain APW3++ 1600 W, on at
+14:45, 12.18 V DC to the miner under load at 575 MHz, the in-line meter
+reading 180 W, 184 VA, 0.98 PF, 1.5 A at 119.2 V. Then: "let's roll on
+next planned SW improvements," plus two page asks: the time under "now"
+in the hashrate graph ("it's kind of hard to notice the most recent
+update time in the upper right") and the software version somewhere easy
+to see, the header line being fine. Then the caps: "Make sure that the
+daily cap is high enough to accommodate these controller-going-AWOL
+events that are now more frequent. Uptime of hashrate is more important
+to me than capping interventions. I'd be OK with 8 power-control restarts
+a day if needed. Keep smacking it so it runs."
+
+**The swap, and a flag withdrawn.** The event was posted through the
+service's own event endpoint so it lands in the interventions table as
+"you"; the 200-character cap on a posted line cut the first attempt in
+the middle of the meter readings, so those went in a second line (twice
+this session; a warning or continuation lines is a small item for
+later). The plug's meter read 55 W while the miner hashed, which the
+agent flagged as the miner no longer being on the HS110. Mark: "I think
+the measurement you flagged was transient as the system was powering up."
+The log said otherwise on both counts: not a plug mismatch (197 W steady
+from 14:56:39, matching the Kill-a-Watt and Mark's app), and not the
+power-on either. Two hashboard resets at 14:55:39 and 14:56:39, ten
+minutes after power-on, with chips back to 31 C and the firmware
+reporting 50 MHz for one sample. Mark: "I wasn't touching anything at
+14:55, those resets count." They are the first resets at 575 MHz since
+the clock trials ended; the brick ran zero for days. The draw at 575 MHz
+was 181 to 183 W before them and 196 to 198 W after, a step, not a ramp;
+the brick had given 187 to 193 W the same morning. Core voltage is not
+visible through the firmware API, so the cause is a guess, recorded as
+one. Observation period: about a day, reset count against the brick's
+zero, at about 10 W more at the wall.
+
+**Design, bounded, approved in one round.** Three items in one 0.4.1:
+the caps read back from the event log at start (the gap found in session
+J), the wall-clock time under "now" on every chart (Mark: "all charts"),
+and the page's own version in the header after firmware and uptime.
+Mark declined a security pass ("no security pass"); the agent had
+already said the only new input is the service's own event log.
+
+**A finding that changed the caps.** Reading the ladder before raising
+the cycle cap: a cycle needs two failed soft restarts, and `check()`
+takes a restart slot before the PUT goes out, so every cycle costs two
+of the watchdog's own `max_restarts_per_day`. With the live values (6
+restarts, 3 cycles) the restart cap would have stopped the ladder one
+rung short of an 8-cycle day without a word in the log. So: the config
+now refuses a restart cap under twice the cycle cap, the default restart
+cap goes from 6 to 12 so the defaults do not block their own third
+cycle, and Mark's config went to 20 restarts and 8 cycles.
+
+**Built and verified.** Test-first: six watchdog tests (recent lines
+only, failed attempts count as they do live, hand cycles never, garbage
+ignored, the newest seeded restart or cycle holds its settle gap, and
+the done-when: three seeded cycles refuse a fourth and log the cap
+line), three config tests, two JS tests, one Python test that keeps the
+page's `VERSION` equal to `gbox.__version__`. 185 Python tests green (the
+JS suite runs inside them). In Chrome on a scratch service against the
+fake miner with a hand-written events log: the service wrote "watchdog
+picked up 1 restart and 3 cycles from the last 24 h of the event log;
+the daily caps carry on", health showed `cycles_today` 3, the header
+read "fw 2.2.5 · up 10 h 27 min · gbox 0.4.1", and "16:58" then "16:59"
+sat under "now" on the hashrate and the fan and temperature charts.
+Merged fast-forward, tagged `v0.4.1`, the live service restarted at
+17:00:43: it picked up 9 restarts and 4 cycles, the same numbers a grep
+of the last 24 hours of the log gives. Live headroom at that moment: 4
+cycles and 11 restarts before the caps, and the overnight lines start
+rolling off the window at 23:45.
+
+**Left for later.** Not pushed (Mark pushes). The ladder's timing was
+not touched: with `after_minutes` 15 a freeze costs about 17 minutes of
+hashing before the plug moves, and Mark's "uptime over interventions"
+argues for shortening it; recommended, not done, since he asked for
+caps. The event-line cap warning. Then the 0.5.0 plan, the Linux
+installer, the other plug drivers.
