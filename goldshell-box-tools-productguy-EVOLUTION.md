@@ -891,5 +891,13 @@ armed, and the ladder will most likely recover the unit, but a restart
 should not reset a safety cap; reading the counts back from the event
 log at start is the fix, recorded as the next item.
 
-**Left for later.** The cap persistence. The 0.5.0 plan for other
+**What happened next (watched live).** Soft restarts timed out at
+11:31:42 and 11:46:14, the plug cycled at 11:46:29, and the first good
+sample came at 11:47:30: 575 MHz, 189 W, 61 seconds after the cut. Four
+automatic recoveries in twelve hours, every one within about a minute.
+Mark: "write all this to notes if not already." Done: STATUS.md carries
+the timeline, the cap gap with its fix and a brief, and the watch on the
+unit's freeze rate as his call.
+
+**Left for later.** The cap persistence, first. The 0.5.0 plan for other
 models. Event-log rotation. The glyph under the series label.
