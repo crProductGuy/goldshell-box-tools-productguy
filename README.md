@@ -7,7 +7,10 @@ KD-BOX, HS-BOX, LT-BOX and relatives running the "cloud-box" MCB_V5 firmware):
 
 - a status dashboard that shows what the stock web UI hides: real chip
   temperature, per-chip health, the board reset counter, fan duty, hashrate,
-  fan and temperature history
+  fan and temperature history, power at the wall from a metering smart
+  plug, right-hand axes in percent of the model's rated figures, and a
+  table of every intervention the software (or you) made, with how long
+  the miner took to come back
 - protected buttons for the settings whose Save button on the stock UI is a
   trap: manual clock in 25 MHz steps, fan target, firmware preset, and a
   soft restart. Each shows what changes and the exact request before
@@ -17,7 +20,8 @@ KD-BOX, HS-BOX, LT-BOX and relatives running the "cloud-box" MCB_V5 firmware):
   controller that a soft restart cannot reach (dry run until you arm it)
 - a clock-trials table, on the dashboard and as `gbox trials`, that compares
   every clock and fan target the miner has run: worst-chip bad share, board
-  resets, HW error rate, shares per hour, hashrate, temperature, fan speed.
+  resets, HW error rate, shares per hour, hashrate, watts and GH/s per watt
+  (with a metering plug), temperature, fan speed.
   `gbox trials run 550 575 600 --hours 4` steps through a list unattended
   and backs off to a safe clock at the first board reset
 - a command line: `gbox status | chips | plan | fantarget | restart | trials | power | serve`
@@ -63,7 +67,8 @@ A frozen controller drops off the network and cannot take the watchdog's
 soft restart; only a power cycle clears it. If the miner is plugged into a
 TP-Link Kasa smart plug on its original local protocol, the service can do
 the cycle itself, and read the plug's energy meter where the model has one
-(HS110, KP115, KP125, EP25; the HS100/103/105 have none):
+(KP115, KP125 and the end-of-life HS110 on the original protocol; the
+HS100/103/105 have none; the full list is in the guide):
 
 ```
 python -m gbox power discover                 # which plugs answer on the LAN, with their meters

@@ -67,3 +67,7 @@ svg .marklbl { fill:var(--warn); font-size:9px; font-weight:600 } svg .mark:hove
 #trialtab td.critical { color:var(--critical); font-weight:600 } #trialtab td.serious { color:var(--serious); font-weight:600 }
 #trialtab tr.live td { font-weight:600 } #trialtab tr.live td.critical, #trialtab tr.live td.serious { font-weight:700 }
 #trialtab td.empty { text-align:left; color:var(--muted) }
+/* interventions table and the right-hand percent axes */
+#ivtab td, #ivtab th { text-align:left; white-space:normal } #ivtab td.when { white-space:nowrap; color:var(--ink2) } #ivtab td.who { font-weight:600 }
+#ivtab tr.cycle td.who { color:var(--critical) } #ivtab tr.restart td.who, #ivtab tr.failed td.who, #ivtab tr.declined td.who { color:var(--serious) }
+svg .raxis { stroke:var(--muted) } svg text.rlbl { fill:var(--muted) }

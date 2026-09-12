@@ -30,8 +30,11 @@ Efficiency per watt barely moves between a healthy factory clock and 575
 MHz. What moves is the absolute spend, 18 percent less, and on a unit with a
 marginal chip, whether it hashes at all. A trial like this is also the way
 to find the clock that balances electricity cost against earnings,
-whichever Box model you have. A watt meter next to the miner during the
-trial adds the one column the log cannot see.
+whichever Box model you have. Since 0.4.0 the log carries the wall reading
+itself when a metering smart plug is on the cord (`power-cycle.md`), and
+the trials table shows watts and GH/s per watt per run; runs logged
+before the plug show "?" there, and the table above is the record for
+them.
 
 ## Before you start
 

@@ -47,6 +47,7 @@
     <div class="tile"><div class="k">Fans</div><div class="v" id="fans">&mdash;</div><div class="s" id="fansub">RPM &middot; fan0 / fan1</div></div>
     <div class="tile"><div class="k">Shares</div><div class="v" id="accepted">&mdash;</div><div class="s" id="rejected">rejected &mdash;</div></div>
     <div class="tile"><div class="k">Clock</div><div class="v" id="clock">&mdash;</div><div class="s" id="plan">plan &mdash;</div></div>
+    <div class="tile" id="t_power"><div class="k">Power</div><div class="v" id="watts">&mdash;</div><div class="s" id="plugname">plug &mdash;</div></div>
   </div>
 
   <section>
@@ -58,7 +59,14 @@
     <h2>Fans and temperature<span id="envsub">from the gbox service log, same time scale as above</span></h2>
     <div class="legend"><span><i></i>fan0</span><span><i class="s2"></i>fan1</span><span style="margin-left:auto"><i></i>chip temperature</span><span><i class="s2"></i>board sensor (what the fan controller and the stock UI use)</span></div>
     <div class="chart" id="envchart"></div>
-    <p class="note">Chip temperature is the one to watch: it is what the silicon sees. The board sensor reads lower and is shown because the fan controller steers on it. Markers: ▼ a dashboard button, W the watchdog, P the plug, S a service start (a gap after an S means the service was down, not the miner); hover one for the event text.</p>
+    <p class="note">Chip temperature is the one to watch: it is what the silicon sees. The board sensor reads lower and is shown because the fan controller steers on it. Markers: ▼ a dashboard button, W the watchdog, P the plug, S a service start (a gap after an S means the service was down, not the miner); hover one for the event text. <span id="fanpctnote"></span></p>
+  </section>
+
+  <section id="power" hidden>
+    <h2>Power at the wall<span>from the gbox service log, same time scale as above</span></h2>
+    <div class="chart" id="wattchart"></div>
+    <p class="note" id="powernote"></p>
+    <p class="note">The reading comes from a TP-Link Kasa smart plug on its original local protocol; no cloud account, nothing leaves the LAN. Kasa plugs this tool can read a meter from: <b>KP115, KP125</b> and the end-of-life <b>HS110</b>. Metering plugs whose newer firmware needs the TP-Link account (KLAP), not driven yet: KP125M, EP25; the HS300 strip meters per outlet and is not supported. Plugs that only switch, still fine for power-cycling but with no meter: HS100 (end of life), HS103, HS105, KP100, KP105, KP401, EP10, the outdoor EP40, EP40A and EP40M, and the strips HS107, KP200, KP303, KP400. TP-Link's Kasa plug listing: <a href="https://www.kasasmart.com/us/products/smart-plugs" rel="noopener">kasasmart.com/us/products/smart-plugs</a> (the three marked "Slim with Energy Monitoring" are the metering ones). How to set one up: <code>docs/power-cycle.md</code>.</p>
   </section>
 
   <div class="two">
@@ -99,6 +107,12 @@
     <div class="row" style="margin-bottom:6px"><label class="note"><input type="checkbox" id="trialsegs"> show each continuous run instead of one row per clock</label><span class="note" id="trialsnote"></span></div>
     <div class="scroll"><table id="trialtab"><thead><tr></tr></thead><tbody></tbody></table></div>
     <p class="note">Hold each clock for hours, not minutes, then compare rows. <b>Bad share</b> is the worst chip's bad nonces as a share of its nonces in that run; compare shares, not counts, because a slower clock attempts fewer. ≥ means the chip dropped off the weak list part-way, which is an improvement. <b>Board resets</b> over zero end a trial. <b>Accepted/hr</b> is what the pool pays on but follows its share difficulty as much as the miner: use <b>hashrate</b> for throughput. <b>HW error</b> with ~ is the firmware's running average, from samples logged before the nonce totals were kept. A row ends when the clock or fan target changes, the miner restarts, or the log has a gap over five minutes; runs under 20 minutes are hidden. Method: <code>docs/clock-tuning.md</code>.</p>
+  </section>
+
+  <section id="interventions" hidden>
+    <h2>Interventions<span id="ivsub"></span></h2>
+    <div class="scroll"><table id="ivtab"><thead><tr><th>when</th><th>who</th><th>what</th><th>and then</th></tr></thead><tbody></tbody></table></div>
+    <p class="note">Everything that changed the miner, from the service event log: soft restarts and power cycles by the <b>watchdog</b> and the <b>plug</b>, your own clock, fan and restart actions (<b>you</b>), and each <b>service</b> start. "Miner back after" is measured from the event to the first good sample after the outage it caused. The raw log is in the Service section below.</p>
   </section>
 
   <section id="svc" hidden>
