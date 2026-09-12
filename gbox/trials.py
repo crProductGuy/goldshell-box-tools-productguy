@@ -61,6 +61,7 @@ def read_rows(path):
                 row[k] = _num(r.get(k), int)
             row["hwerr_pct"] = _num(r.get("hwerr_pct"), float)
             row["temp_target"] = _num(r.get("temp_target"), int)
+            row["watts"] = _num(r.get("watts"), float)       # empty before the plug, without a meter, or when it did not answer
             row["chips"] = {int(c): (int(g), int(b)) for c, g, b in _CHIP_RE.findall(r.get("weak_chips") or "")}
             out.append(row)
     return out
@@ -78,7 +79,8 @@ def segments(rows, gap_s=GAP_S):
     seg = None
     for row in rows:
         if seg is None or _breaks(seg["last"], row, gap_s):
-            seg = {"first": row, "last": row, "n": 0, "mhs": 0.0, "temp": 0.0, "fan": 0.0, "overheat": 0, "chips": {}}
+            seg = {"first": row, "last": row, "n": 0, "mhs": 0.0, "temp": 0.0, "fan": 0.0, "overheat": 0, "chips": {},
+                   "watts": 0.0, "watts_n": 0}
             segs.append(seg)
         seg["last"] = row
         seg["n"] += 1
@@ -86,6 +88,9 @@ def segments(rows, gap_s=GAP_S):
         seg["temp"] += row["tstemp0"]
         seg["fan"] += (row["fan0"] + row["fan1"]) / 2.0
         seg["overheat"] += 1 if row["overheat"] else 0
+        if row["watts"] is not None:                 # its own count: watts can be missing mid-segment
+            seg["watts"] += row["watts"]
+            seg["watts_n"] += 1
         for chip, gb in row["chips"].items():
             c = seg["chips"].setdefault(chip, {"first": gb, "first_t": row["t"]})
             c["last"], c["last_t"] = gb, row["t"]
@@ -96,6 +101,11 @@ def segments(rows, gap_s=GAP_S):
 
 def _hours(a, b):
     return (b - a).total_seconds() / 3600.0
+
+
+def _gh_per_w(mhs, watts):
+    """Hashrate per watt in GH/s per W, or None without a positive wall reading. Always GH/s so rows compare."""
+    return (mhs / 1000.0) / watts if watts else None
 
 
 def summarize(seg, min_minutes=MIN_MINUTES):
@@ -118,6 +128,8 @@ def summarize(seg, min_minutes=MIN_MINUTES):
     else:
         d_nonces, hw_pct, hw_approx = None, last["hwerr_pct"], True
     d_accepted = last["accepted"] - first["accepted"]
+    watts = seg["watts"] / seg["watts_n"] if seg["watts_n"] else None
+    mhs = seg["mhs"] / n
     return {
         "clock": int(round(first["clock"])), "fan_target": first["temp_target"],
         "start": first["t"].strftime("%Y-%m-%d %H:%M:%S"), "end": last["t"].strftime("%Y-%m-%d %H:%M:%S"),
@@ -129,7 +141,8 @@ def summarize(seg, min_minutes=MIN_MINUTES):
         "resets": max(0, last["rebootcnt"] - first["rebootcnt"]),
         "hw_pct": hw_pct, "hw_approx": hw_approx,
         "accepted_per_hour": d_accepted / hours if hours > 0 else 0.0,
-        "mhs": seg["mhs"] / n, "chip_temp": seg["temp"] / n, "fan_rpm": seg["fan"] / n, "overheat": seg["overheat"],
+        "mhs": mhs, "chip_temp": seg["temp"] / n, "fan_rpm": seg["fan"] / n, "overheat": seg["overheat"],
+        "watts": watts, "watts_n": seg["watts_n"], "gh_per_w": _gh_per_w(mhs, watts),
         # raw deltas for pooling
         "d_accepted": d_accepted, "d_hw": d_hw, "d_nonces": d_nonces,
         "d_bad": worst["bad"] if worst else 0, "bad_hours": worst["hours"] if worst else 0.0,
@@ -156,6 +169,9 @@ def rollup(summaries):
         else:
             d_nonces = sum(s["d_nonces"] for s in segs)
             hw_pct = 100.0 * sum(s["d_hw"] for s in segs) / d_nonces if d_nonces > 0 else 0.0
+        watts_n = sum(s["watts_n"] for s in segs)
+        watts = sum(s["watts"] * s["watts_n"] for s in segs if s["watts"] is not None) / watts_n if watts_n else None
+        mhs = sum(s["mhs"] * s["samples"] for s in segs) / n
         out.append({
             "clock": clock, "fan_target": target, "segments": len(segs),
             "start": min(s["start"] for s in segs), "end": max(s["end"] for s in segs),
@@ -168,10 +184,11 @@ def rollup(summaries):
             "resets": sum(s["resets"] for s in segs),
             "hw_pct": hw_pct, "hw_approx": approx,
             "accepted_per_hour": sum(s["d_accepted"] for s in segs) / hours if hours > 0 else 0.0,
-            "mhs": sum(s["mhs"] * s["samples"] for s in segs) / n,
+            "mhs": mhs,
             "chip_temp": sum(s["chip_temp"] * s["samples"] for s in segs) / n,
             "fan_rpm": sum(s["fan_rpm"] * s["samples"] for s in segs) / n,
             "overheat": sum(s["overheat"] for s in segs),
+            "watts": watts, "watts_n": watts_n, "gh_per_w": _gh_per_w(mhs, watts),
         })
     out.sort(key=lambda r: r["end"], reverse=True)
     return out
@@ -208,16 +225,17 @@ def _hash(mhs):
 def format_table(t, segments=False):
     """The rollup (or every non-short segment) as aligned text, newest first."""
     rows = [s for s in t["segments"] if not s["short"]] if segments else t["rollup"]
-    head = "%-5s %-4s %-16s %7s %4s  %-14s %6s %6s %7s %7s %10s %5s %5s" % (
-        "clock", "fan", "from", "min", "segs", "worst chip bad", "bad/h", "resets", "HW%", "acc/h", "hashrate", "temp", "rpm")
+    head = "%-5s %-4s %-16s %7s %4s  %-14s %6s %6s %7s %7s %10s %5s %6s %5s %5s" % (
+        "clock", "fan", "from", "min", "segs", "worst chip bad", "bad/h", "resets", "HW%", "acc/h", "hashrate", "watts", "GH/s/W", "temp", "rpm")
     lines = [head]
     for r in rows:
         chip = "none" if r["worst_chip"] is None else "chip %d %s" % (r["worst_chip"], _pct_range(r))
-        lines.append("%-5d %-4s %-16s %7.0f %4s  %-14s %6.1f %6d %7s %7.0f %10s %5.1f %5.0f" % (
+        lines.append("%-5d %-4s %-16s %7.0f %4s  %-14s %6.1f %6d %7s %7.0f %10s %5s %6s %5.1f %5.0f" % (
             r["clock"], "?" if r["fan_target"] is None else r["fan_target"], r["start"][:16], r["minutes"],
             r.get("segments", ""), chip, r["bad_per_hour"], r["resets"],
             ("~%.2f" if r["hw_approx"] else "%.2f") % r["hw_pct"], r["accepted_per_hour"],
-            _hash(r["mhs"]), r["chip_temp"], r["fan_rpm"]))
+            _hash(r["mhs"]), "?" if r["watts"] is None else "%.0f" % r["watts"],
+            "?" if r["gh_per_w"] is None else "%.2f" % r["gh_per_w"], r["chip_temp"], r["fan_rpm"]))
     return "\n".join(lines)
 
 

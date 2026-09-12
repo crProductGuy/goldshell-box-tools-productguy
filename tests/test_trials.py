@@ -18,18 +18,23 @@ T0 = datetime(2026, 9, 8, 10, 0, 0)
 
 
 def row(t, clock=600.0, elapsed=0, accepted=0, hwerr=0, hwerr_pct=0.4, rebootcnt=0, weak="",
-        mhs=750000.0, temp=70.0, fan=3000, good=None, target=65, overheat=0):
+        mhs=750000.0, temp=70.0, fan=3000, good=None, target=65, overheat=0, watts=None):
     return {
         "time": t.strftime("%Y-%m-%d %H:%M:%S"), "http": "ok", "elapsed": elapsed, "mhs_av": mhs,
         "mhs_20s": mhs, "hwerr": hwerr, "hwerr_pct": hwerr_pct, "accepted": accepted, "rejected": 0,
         "clock": clock, "fan0": fan, "fan1": fan, "tstemp0": temp, "tstemp1": temp, "tstemp2": 63.0,
         "rebootcnt": rebootcnt, "weak_chips": weak,
         "nonces_good": good, "nonces_bad": hwerr, "temp_target": target, "overheat": overheat,
+        "watts": watts,
     }
 
 
 def fixture_rows():
-    """Five segments, in order: A, B (after a restart), C (after a gap), D (fan target change), E (short)."""
+    """Five segments, in order: A, B (after a restart), C (after a gap), D (fan target change), E (short).
+
+    Watts: A has none (logged before the plug), B has 200 W on every row, C has 183 W on every row,
+    D has 190 W on its first 10 rows only (the plug stopped answering), E has none.
+    """
     rows = []
     # A: 600 MHz, 10:00-10:30, 31 rows. accepted +10/min, hwerr +1/min, chip 8 +8 good +2 bad per min.
     for i in range(31):
@@ -41,12 +46,12 @@ def fixture_rows():
     for i in range(25):
         weak = "8:%d/%d" % (100 + 8 * i, 10 + i) if i < 10 else ""
         rows.append(row(T0 + timedelta(minutes=31 + i), elapsed=4 + 60 * i, accepted=10 * i, hwerr=i,
-                        rebootcnt=0 if i < 12 else 2, weak=weak, good=1000 + 100 * i, mhs=760000.0))
+                        rebootcnt=0 if i < 12 else 2, weak=weak, good=1000 + 100 * i, mhs=760000.0, watts=200.0))
     # gap 10:55 -> 11:06 (11 min, service was down)
     # C: 575 MHz, 11:06-11:40, 35 rows, no weak chips. One row with blank numbers in the middle.
     for i in range(35):
         r = row(T0 + timedelta(minutes=66 + i), clock=575.0, elapsed=2200 + 60 * i, accepted=300 + 9 * i,
-                hwerr=30, rebootcnt=2, good=5000 + 90 * i, mhs=735000.0, temp=68.0, fan=2000)
+                hwerr=30, rebootcnt=2, good=5000 + 90 * i, mhs=735000.0, temp=68.0, fan=2000, watts=183.0)
         if i == 17:
             for k in ("elapsed", "mhs_av", "mhs_20s", "hwerr", "accepted", "clock", "rebootcnt", "nonces_good"):
                 r[k] = ""
@@ -55,7 +60,7 @@ def fixture_rows():
     for i in range(25):
         rows.append(row(T0 + timedelta(minutes=101 + i), clock=575.0, elapsed=4300 + 60 * i, accepted=615 + 9 * i,
                         hwerr=30 + i // 4, rebootcnt=2, good=8150 + 90 * i, mhs=735000.0, temp=74.0, fan=1500,
-                        target=70, overheat=1 if i == 20 else 0))
+                        target=70, overheat=1 if i == 20 else 0, watts=190.0 if i < 10 else None))
     # E: 550 MHz, 12:06-12:15, 10 rows: shorter than 20 min.
     for i in range(10):
         rows.append(row(T0 + timedelta(minutes=126 + i), clock=550.0, elapsed=5800 + 60 * i, accepted=840 + 9 * i,
@@ -142,6 +147,29 @@ class SegmentsTest(unittest.TestCase):
         self.assertEqual(self.segs[3]["overheat"], 1)
         self.assertAlmostEqual(self.segs[2]["accepted_per_hour"], 9 * 60.0)
 
+    def test_watts_mean_over_the_rows_that_have_it_and_gh_per_watt(self):
+        a, b, c, d, e = self.segs
+        self.assertIsNone(a["watts"]); self.assertEqual(a["watts_n"], 0); self.assertIsNone(a["gh_per_w"])
+        self.assertAlmostEqual(b["watts"], 200.0); self.assertEqual(b["watts_n"], 25)
+        self.assertAlmostEqual(b["gh_per_w"], 760.0 / 200.0)
+        self.assertAlmostEqual(c["watts"], 183.0); self.assertEqual(c["watts_n"], 34)
+        self.assertAlmostEqual(c["gh_per_w"], 735.0 / 183.0)
+        self.assertAlmostEqual(d["watts"], 190.0); self.assertEqual(d["watts_n"], 10)   # plug answered 10 of 25 rows
+        self.assertAlmostEqual(d["gh_per_w"], 735.0 / 190.0)
+        self.assertIsNone(e["watts"]); self.assertIsNone(e["gh_per_w"])
+
+    def test_rollup_watts_weighted_by_metered_samples_and_pooled_hashrate_over_them(self):
+        """600/65 pools A (no watts) and B (200 W): watts come from B alone, GH/s per W uses the pooled hashrate of both.
+
+        That is a choice: the meter reads the same wall load whether or not every row caught it.
+        """
+        roll = trials.rollup(self.segs)
+        r600 = roll[2]
+        self.assertAlmostEqual(r600["watts"], 200.0); self.assertEqual(r600["watts_n"], 25)
+        self.assertAlmostEqual(r600["gh_per_w"], ((31 * 750000 + 25 * 760000) / 56 / 1000.0) / 200.0)
+        r575_65 = roll[1]
+        self.assertAlmostEqual(r575_65["watts"], 183.0); self.assertAlmostEqual(r575_65["gh_per_w"], 735.0 / 183.0)
+
     def test_rollup_pools_segments_by_clock_and_target(self):
         roll = trials.rollup(self.segs)
         self.assertEqual([(r["clock"], r["fan_target"], r["segments"]) for r in roll],
@@ -165,6 +193,8 @@ class SegmentsTest(unittest.TestCase):
         self.assertEqual(len(t["rollup"]), 3)
         self.assertEqual([s["clock"] for s in t["segments"]], [550, 575, 575, 600, 600])   # newest first
         self.assertEqual(t["min_minutes"], 20)
+        for r in t["rollup"] + t["segments"]:
+            self.assertTrue({"watts", "watts_n", "gh_per_w"} <= set(r))
 
     def test_missing_log_gives_empty_table(self):
         t = trials.table(Path(self.tmp.name) / "nope.csv")
@@ -188,9 +218,13 @@ class OldLogTest(unittest.TestCase):
             self.assertAlmostEqual(s["hw_pct"], 0.38)          # hwerr_pct of the last row
             self.assertAlmostEqual(s["bad_pct"], 20.0)
             self.assertEqual(s["overheat"], 0)
+            self.assertIsNone(s["watts"]); self.assertEqual(s["watts_n"], 0); self.assertIsNone(s["gh_per_w"])
             roll = trials.rollup(segs)
             self.assertTrue(roll[0]["hw_approx"])
             self.assertIsNone(roll[0]["fan_target"])
+            self.assertIsNone(roll[0]["watts"]); self.assertIsNone(roll[0]["gh_per_w"])
+            line = trials.format_table(trials.table(path)).splitlines()[1].split()
+            self.assertEqual(line[-4:-2], ["?", "?"])            # watts and GH/s/W unknown before the plug
 
 
 class FormatTest(unittest.TestCase):
@@ -201,9 +235,12 @@ class FormatTest(unittest.TestCase):
             text = trials.format_table(trials.table(path))
             lines = text.splitlines()
             self.assertEqual(len(lines), 1 + 3)                 # header + 3 rollup rows
+            self.assertIn("watts", lines[0]); self.assertIn("GH/s/W", lines[0])
             self.assertIn("600", lines[3])
             self.assertIn("11.1-20.0%", lines[3].replace(" ", ""))
             self.assertIn("none", lines[2])                     # 575/65 had no weak chip
+            self.assertEqual(lines[2].split()[-4:-2], ["183", "4.02"])   # 735 GH/s at 183 W
+            self.assertEqual(lines[3].split()[-4:-2], ["200", "3.77"])   # pooled 754 GH/s at 200 W
             text = trials.format_table(trials.table(path), segments=True)
             self.assertEqual(len(text.splitlines()), 1 + 4)     # short E hidden
             text = trials.format_table(trials.table(path, min_minutes=5), segments=True)

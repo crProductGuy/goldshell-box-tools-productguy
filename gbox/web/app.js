@@ -178,7 +178,7 @@ function powerLine(service) {
     p.cycles_today + (p.cycles_today === 1 ? " cycle" : " cycles") + " today";
 }
 // ---- clock trials table (rows come from /api/trials; rollup rows carry bad_pct_min/max and segments, segment rows carry bad_pct) ----
-const TRIAL_COLUMNS = ["clock", "fan target", "from", "held", "worst chip, bad share", "bad/hour", "board resets", "HW error", "accepted/hr", "hashrate", "chip temp · fans"];
+const TRIAL_COLUMNS = ["clock", "fan target", "from", "held", "worst chip, bad share", "bad/hour", "board resets", "HW error", "accepted/hr", "hashrate", "watts", "GH/s per W", "chip temp · fans"];
 function trialDuration(minutes) {
   const m = Math.round(minutes);
   if (m < 60) return m + " min";
@@ -206,6 +206,8 @@ function trialCells(r) {
     { text: (r.hw_approx ? "~" : "") + r.hw_pct.toFixed(2) + "%", cls: "" },
     { text: String(Math.round(r.accepted_per_hour)), cls: "" },
     { text: Math.round(r.mhs / div) + " " + unit, cls: "" },
+    { text: r.watts === null || r.watts === undefined ? "?" : Math.round(r.watts) + " W", cls: "" },       // "?": no meter reading in that run
+    { text: r.gh_per_w === null || r.gh_per_w === undefined ? "?" : r.gh_per_w.toFixed(2), cls: "" },
     { text: r.chip_temp.toFixed(1) + " °C · " + Math.round(r.fan_rpm) + " RPM" + (r.overheat ? " · " + r.overheat + " overheat" : ""), cls: r.overheat ? "serious" : "" },
   ];
 }
