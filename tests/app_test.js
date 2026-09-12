@@ -11,6 +11,25 @@ const setting = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "mcb
 const frozen = JSON.stringify(setting);
 
 const tests = {
+  "newestFirst: the service log reversed, newest line on top, blank lines dropped"() {
+    assert.strictEqual(app.newestFirst("2026-09-12 10:00:00 a\n2026-09-12 11:00:00 b\n2026-09-12 12:00:00 c\n"),
+      "2026-09-12 12:00:00 c\n2026-09-12 11:00:00 b\n2026-09-12 10:00:00 a");
+    assert.strictEqual(app.newestFirst(""), "");
+  },
+  "ladderLine: the watchdog's timings and caps in one sentence, and where to change them"() {
+    const lad = { stall_minutes: 5, unreachable_minutes: 2, min_gap_minutes: 5, max_restarts_per_day: 20,
+      after_minutes: 5, settle_minutes: 20, max_cycles_per_day: 8, config_path: "C:\\u\\.gbox\\config.json" };
+    assert.strictEqual(app.ladderLine({ watchdog: { enabled: true }, power: { configured: true }, ladder: lad }),
+      "Ladder: soft restart after 2 min unreachable or 5 min of frozen shares, a second one 5 min later; " +
+      "power cycle after two failed restarts and 5 min down, then 20 min to settle; caps 20 restarts and 8 cycles a day. " +
+      "Set in C:\\u\\.gbox\\config.json (watchdog and power blocks); restart the service after editing.");
+    assert.strictEqual(app.ladderLine({ watchdog: { enabled: true }, power: { configured: false }, ladder: Object.assign({}, lad, { after_minutes: null, max_cycles_per_day: null }) }),
+      "Ladder: soft restart after 2 min unreachable or 5 min of frozen shares, a second one 5 min later; " +
+      "no plug, so no power cycle (docs/power-cycle.md); cap 20 restarts a day. " +
+      "Set in C:\\u\\.gbox\\config.json (watchdog block); restart the service after editing.");
+    assert.strictEqual(app.ladderLine({ watchdog: { enabled: false }, ladder: lad }), "Watchdog off for this run (--no-watchdog, or \"enabled\": false in C:\\u\\.gbox\\config.json).");
+    assert.strictEqual(app.ladderLine({ watchdog: { enabled: true } }), "");
+  },
   "clockLabel: the wall-clock time under 'now', 24-hour, minutes only"() {
     assert.strictEqual(app.clockLabel(new Date(2026, 8, 12, 15, 7, 9).getTime()), "15:07");
     assert.strictEqual(app.clockLabel(new Date(2026, 8, 12, 0, 0, 0).getTime()), "00:00");

@@ -320,10 +320,23 @@ function chartData(hist) {
   return { unit: unit, div: div, data: first < 0 ? [] : vals.slice(first) };
 }
 // The page's own version, shown in the header: opened as a file there is no service to ask. tests/test_app_js.py keeps it equal to gbox.__version__.
-const VERSION = "0.4.1";
+const VERSION = "0.4.2";
 // The wall-clock time under a chart's "now" label: 24-hour, minutes only, so the last refresh reads at a glance.
 function clockLabel(t) { const d = new Date(t); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
-if (typeof module !== "undefined") module.exports = { VERSION, clockLabel, encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
+// The service log as the page shows it: newest line on top, like the interventions table, so a short window shows what matters.
+function newestFirst(text) { return (text || "").split(/\r?\n/).filter(l => l.trim()).reverse().join("\n"); }
+// What the watchdog will do to a hung miner, from /api/health's `ladder` block, and where those numbers live.
+function ladderLine(h) {
+  const lad = h && h.ladder, w = (h && h.watchdog) || {};
+  if (!lad) return "";
+  if (!w.enabled) return "Watchdog off for this run (--no-watchdog, or \"enabled\": false in " + lad.config_path + ").";
+  const plug = !!(h.power && h.power.configured);
+  let s = "Ladder: soft restart after " + lad.unreachable_minutes + " min unreachable or " + lad.stall_minutes + " min of frozen shares, a second one " + lad.min_gap_minutes + " min later; ";
+  s += plug ? "power cycle after two failed restarts and " + lad.after_minutes + " min down, then " + lad.settle_minutes + " min to settle; caps " + lad.max_restarts_per_day + " restarts and " + lad.max_cycles_per_day + " cycles a day. "
+    : "no plug, so no power cycle (docs/power-cycle.md); cap " + lad.max_restarts_per_day + " restarts a day. ";
+  return s + "Set in " + lad.config_path + " (watchdog" + (plug ? " and power blocks" : " block") + "); restart the service after editing.";
+}
+if (typeof module !== "undefined") module.exports = { VERSION, clockLabel, newestFirst, ladderLine, encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
   markerGlyph, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf,
   powerTile, envRowsFrom, interventions, interventionCounts };
@@ -381,6 +394,7 @@ async function probeService() {
       (service.latest_time ? " · last " + service.latest_time : "") + " · watchdog " + (w.enabled ? "on, " + w.restarts_today + " restarts today" : "off") +
       (service.has_token || service.can_login ? "" : " · waiting for login") + powerLine(service);
     if (service.last_error) $("svcsub").textContent += " · " + service.last_error;
+    $("ladder").textContent = ladderLine(service);
   }
   renderPower();
   return service;
@@ -410,7 +424,7 @@ async function refreshEvents() {
   if (!service) return;
   try {
     const text = await (await fetch("api/events", { cache: "no-store" })).text();
-    $("events").textContent = text.trim() || "(no events yet)";
+    $("events").textContent = newestFirst(text) || "(no events yet)";
     eventMarks = eventMarkers(text);
     eventsText = text;
     renderInterventions();

@@ -156,6 +156,28 @@ class ServerTest(unittest.TestCase):
         self.assertIn("dashboard: clock set to 625 MHz", lines)
         self.assertIn(b"dashboard: clock set", self.get("/api/events")[2])
 
+    def test_dashboard_event_keeps_500_characters(self):
+        """A hand-written note with meter readings ran past the old 200-character cap twice on 2026-09-12."""
+        msg = "x" * 499 + "END" + "y" * 100
+        self.assertEqual(self.post("/api/event", json.dumps({"message": msg}).encode()), 204)
+        text = self.events.tail()[0].split("dashboard: ", 1)[1].rstrip("\n")
+        self.assertEqual(len(text), 500)
+        self.assertTrue(text.endswith("E"))
+
+    def test_health_carries_the_ladder_timings_and_where_they_are_set(self):
+        h = json.loads(self.get("/api/health")[2])
+        lad = h["ladder"]
+        self.assertEqual(lad["unreachable_minutes"], 2)
+        self.assertEqual(lad["stall_minutes"], 5)
+        self.assertEqual(lad["min_gap_minutes"], config.DEFAULT_WATCHDOG["min_gap_minutes"])
+        self.assertEqual(lad["max_restarts_per_day"], config.DEFAULT_WATCHDOG["max_restarts_per_day"])
+        self.assertIsNone(lad["after_minutes"])            # no plug configured on this state
+        self.assertIsNone(lad["max_cycles_per_day"])
+        self.assertEqual(lad["config_path"], str(self.data / "config.json"))
+        self.state.cfg = config.Config(host=self.fm.address, port=0, power={"host": "p", "after_minutes": 7, "max_cycles_per_day": 4})
+        lad = json.loads(self.get("/api/health")[2])["ladder"]
+        self.assertEqual((lad["after_minutes"], lad["settle_minutes"], lad["max_cycles_per_day"]), (7, 20, 4))
+
     def test_dashboard_event_is_sanitized(self):
         msg = "a" * 500 + "\nservice: forged line\x07"
         self.assertEqual(self.post("/api/event", json.dumps({"message": msg}).encode()), 204)
@@ -163,7 +185,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertNotIn("forged", lines[0].split("dashboard: ", 1)[1][:1])
         self.assertNotIn("\x07", lines[0])
-        self.assertLess(len(lines[0]), 260)
+        self.assertLess(len(lines[0]), 560)      # 500 + the stamp and prefix
         self.assertEqual(lines[0].count("\n"), 1)
 
     def test_dashboard_event_validates(self):

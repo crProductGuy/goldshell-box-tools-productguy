@@ -19,7 +19,8 @@ class PowerConfigTest(unittest.TestCase):
         self.assertEqual(cfg.power["host"], "p")
         self.assertEqual(cfg.power["device_id"], "abc")
         self.assertIs(cfg.power["cycle"], False)
-        self.assertEqual(cfg.power["after_minutes"], 15)
+        self.assertEqual(cfg.power["after_minutes"], 5)     # 2026-09-12: 15 cost 17 min of hashing per freeze
+        self.assertEqual(config.DEFAULT_WATCHDOG["min_gap_minutes"], 5)
         self.assertEqual(cfg.power["off_seconds"], 15)
         self.assertEqual(cfg.power["settle_minutes"], 20)
         self.assertEqual(cfg.power["max_cycles_per_day"], 3)

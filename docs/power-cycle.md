@@ -102,9 +102,13 @@ Only on the frozen-controller signature, all five at once:
 2. **Two soft restarts in this episode failed** to get through (the
    request timed out or was refused). A restart the controller accepted
    means it is alive and gets its settle time.
-3. The episode is at least **`after_minutes`** old (default 15). With the
-   default watchdog timings the second failed restart lands at about 17
-   minutes, so this is where the ladder reaches the plug.
+3. The episode is at least **`after_minutes`** old (default 5). With the
+   default watchdog timings (`unreachable_minutes` 2, `min_gap_minutes`
+   5) the second failed restart lands at about 7 minutes, so this is
+   where the ladder reaches the plug. Until 2026-09-12 the defaults were
+   15 and 10, which cost about 17 minutes of hashing per freeze; the
+   dashboard's Service section shows the values in force and the file
+   they live in.
 4. Fewer than **`max_cycles_per_day`** cycles in the rolling day (default
    3). Each cycle costs two slots of the watchdog's own
    `max_restarts_per_day` (every attempt takes a slot, failed or not), so
@@ -156,7 +160,7 @@ clock it was on. Then set `"cycle": true` in the `power` block of
   "host": "192.0.2.34",
   "device_id": "(recorded by gbox power init)",
   "cycle": false,
-  "after_minutes": 15,
+  "after_minutes": 5,
   "off_seconds": 15,
   "settle_minutes": 20,
   "max_cycles_per_day": 3,
