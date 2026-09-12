@@ -225,7 +225,7 @@ function trialStatus(run, nowMs) {
 function chartData(hist) {
   const [unit, div] = hashUnit(Math.max.apply(null, hist)), vals = hist.map(v => v / div);
   const first = vals.findIndex(v => v > 0);
-  return { unit: unit, data: first < 0 ? [] : vals.slice(first) };
+  return { unit: unit, div: div, data: first < 0 ? [] : vals.slice(first) };
 }
 if (typeof module !== "undefined") module.exports = { encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
@@ -395,7 +395,7 @@ function renderChips(boards, minutes) {
 
 function niceMax(v) { const p = Math.pow(10, Math.floor(Math.log10(Math.max(v, 1)))); return Math.ceil(v / p * 2) / 2 * p; }
 function renderChart(hist) {
-  const box = $("chart"), { unit, data } = chartData(hist);
+  const box = $("chart"), { unit, div, data } = chartData(hist);
   if (data.length === 0) { box.innerHTML = "<p class=\"note\">no history yet</p>"; return; }
   if (data.length === 1) {
     box.innerHTML = "<p class=\"note\">one sample so far, " + Math.round(data[0]) + " " + unit + ": a boot wipes the miner's own buffer, and the graph starts at the second sample, a minute from now.</p>";

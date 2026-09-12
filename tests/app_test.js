@@ -190,10 +190,10 @@ const tests = {
     assert.match(app.trialStatus(settling, now), /^Trial running: step 2 of 3, 575 MHz, settling/);
   },
   "hashrate chart data: the buffer's leading zeros are dropped and a lone sample is reported as one point, not a line"() {
-    assert.deepStrictEqual(app.chartData([]), { unit: "MH/s", data: [] });
-    assert.deepStrictEqual(app.chartData([0, 0, 0]), { unit: "MH/s", data: [] });
-    assert.deepStrictEqual(app.chartData([0, 0, 812000]), { unit: "GH/s", data: [812] });          // just booted: one sample
-    assert.deepStrictEqual(app.chartData([0, 735000, 0, 812000]), { unit: "GH/s", data: [735, 0, 812] });
+    assert.deepStrictEqual(app.chartData([]), { unit: "MH/s", div: 1, data: [] });
+    assert.deepStrictEqual(app.chartData([0, 0, 0]), { unit: "MH/s", div: 1, data: [] });
+    assert.deepStrictEqual(app.chartData([0, 0, 812000]), { unit: "GH/s", div: 1000, data: [812] });          // just booted: one sample
+    assert.deepStrictEqual(app.chartData([0, 735000, 0, 812000]), { unit: "GH/s", div: 1000, data: [735, 0, 812] });
   },
 };
 
