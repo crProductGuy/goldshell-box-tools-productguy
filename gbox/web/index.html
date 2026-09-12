@@ -39,10 +39,10 @@
 
 <main>
   <div class="tiles">
-    <div class="tile"><div class="k">Hashrate, 20 s</div><div class="v" id="mhs20">&mdash;</div><div class="s" id="unit20">&mdash;</div></div>
-    <div class="tile"><div class="k">Hashrate, average since start</div><div class="v" id="mhsav">&mdash;</div><div class="s" id="unitav">&mdash;</div></div>
-    <div class="tile" id="t_hw"><div class="k">HW error rate</div><div class="v" id="hwpct">&mdash;</div><div class="s" id="hwrecent">recent &mdash;</div></div>
-    <div class="tile" id="t_rb"><div class="k">Board resets</div><div class="v" id="rebootcnt">&mdash;</div><div class="s" id="rbdelta">since page opened &mdash;</div></div>
+    <div class="tile"><div class="k">Hashrate now</div><div class="v" id="mhs20">&mdash;</div><div class="s" id="unit20">&mdash;</div></div>
+    <div class="tile"><div class="k" id="k_av">Hashrate since boot</div><div class="v" id="mhsav">&mdash;</div><div class="s" id="unitav">&mdash;</div></div>
+    <div class="tile" id="t_hw"><div class="k">HW error rate</div><div class="v" id="hwpct">&mdash;</div><div class="s" id="hwrecent">&mdash;</div></div>
+    <div class="tile" id="t_rb"><div class="k">Board resets</div><div class="v" id="rebootcnt">&mdash;</div><div class="s" id="rbdelta">&mdash;</div></div>
     <div class="tile" id="t_temp"><div class="k">Chip temperature</div><div class="v" id="chiptemp">&mdash;</div><div class="s" id="boardtemp">board sensor &mdash;</div></div>
     <div class="tile"><div class="k">Fans</div><div class="v" id="fans">&mdash;</div><div class="s" id="fansub">RPM &middot; fan0 / fan1</div></div>
     <div class="tile"><div class="k">Shares</div><div class="v" id="accepted">&mdash;</div><div class="s" id="rejected">rejected &mdash;</div></div>
@@ -71,7 +71,7 @@
 
   <div class="two">
     <section>
-      <h2>Chips<span>good and bad nonces since the miner started; bad/min is measured since this page opened</span></h2>
+      <h2>Chips<span id="chipsub">good and bad nonces since the miner booted; bad/min since this page opened</span></h2>
       <table id="chips"><thead><tr><th>chip</th><th>good</th><th>bad</th><th>bad %</th><th>bad/min</th><th class="bar">good, relative</th></tr></thead><tbody></tbody></table>
       <p class="note">A chip is flagged <b>weak</b> below 70 percent of the best chip's good nonces or above 40 bad nonces, and <b>failing</b> below 30 percent or above 30 percent bad. A failing chip at the factory clock can reset the whole board; lowering the clock with <code>gbox plan</code> usually stops it.</p>
     </section>
