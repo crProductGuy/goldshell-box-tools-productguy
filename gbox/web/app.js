@@ -222,6 +222,20 @@ function trialStatus(run, nowMs) {
   return "Trial running: step " + run.step + " of " + run.clocks.length + ", " + run.clock + " MHz, " + progress + ", ends at " + run.end + " MHz. " +
     "Started from the command line; Ctrl-C there stops it.";
 }
+// Rated figures per Goldshell model, for the "% of rated" axes. Same table as gbox/models.py (a test keeps them identical);
+// keyed by the /mcb/status model string, looked up ignoring case, spaces and hyphens.
+const MODELS = {
+  "Goldshell-SCBox": { name: "SC-BOX", rated_mhs: 900000.0, rated_watts: 200.0, fans: 2, fan_max_rpm: 4900.0, boards: 1,
+    source: "Goldshell spec via retailer listings (900 GH/s, 200 W); fan max observed on one unit", verified_string: true },
+  "Goldshell-SCBox II": { name: "SC-BOX II", rated_mhs: 1900000.0, rated_watts: 400.0, fans: 2, fan_max_rpm: null, boards: 1,
+    source: "retailer listings (kryptex, d-central, miningnow); model string not read from a unit", verified_string: false },
+  "Goldshell-SCLITE": { name: "SC Lite", rated_mhs: 4400000.0, rated_watts: 950.0, fans: null, fan_max_rpm: 2200.0, boards: null,
+    source: "goldshell.company/sclite spec table; model string from Maveth/goldshell-config (fw 2.2.0)", verified_string: false },
+};
+const modelKey = m => String(m || "").toLowerCase().replace(/[ \-_]/g, "");
+const MODELS_BY_KEY = Object.fromEntries(Object.entries(MODELS).map(([k, v]) => [modelKey(k), v]));
+function ratedFor(model) { return MODELS_BY_KEY[modelKey(model)] || null; }
+function pctOf(value, rated) { return (value === null || value === undefined || !rated || rated <= 0) ? null : 100 * value / rated; }
 // The miner's hashrate buffer as the chart draws it: leading zeros (slots a boot wiped) dropped, values in the display unit.
 // A lone sample comes back as one point; the caller says so instead of drawing a path that has no length.
 function chartData(hist) {
@@ -231,7 +245,7 @@ function chartData(hist) {
 }
 if (typeof module !== "undefined") module.exports = { encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
-  markerGlyph, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData };
+  markerGlyph, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf };
 
 // ---- presentation (skipped under Node, where the data layer above is unit-tested) ----
 if (typeof document !== "undefined") {
