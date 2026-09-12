@@ -22,7 +22,7 @@ from . import __version__, models, trials
 WEB_DIR = Path(__file__).resolve().parent / "web"
 STATIC = {"/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/style.css": "style.css"}
 MAX_BODY = 8192
-MAX_EVENT = 200            # characters of a dashboard-reported event line
+MAX_EVENT = 500            # characters of a dashboard-reported event line (200 cut hand-written notes; 2026-09-12)
 
 
 def clean_event_text(text):
@@ -89,7 +89,18 @@ class ServiceState:
                 "last_reason": w.last_reason if w else None,
             },
             "power": self.power_health(),
+            "ladder": self.ladder(),
         }
+
+    def ladder(self):
+        """The watchdog's timings and caps as configured, and the file they live in, so the page can say
+        what will happen to a hung miner and where to change it. Power fields are None without a plug."""
+        w, p = self.cfg.watchdog, self.cfg.power or {}
+        return {"stall_minutes": w["stall_minutes"], "unreachable_minutes": w["unreachable_minutes"],
+                "min_gap_minutes": w["min_gap_minutes"], "max_restarts_per_day": w["max_restarts_per_day"],
+                "after_minutes": p.get("after_minutes"), "settle_minutes": p.get("settle_minutes"),
+                "max_cycles_per_day": p.get("max_cycles_per_day"),
+                "config_path": str(self.data_dir / "config.json")}
 
     def power_health(self):
         """The plug as the poller last saw it; nothing here queries the plug."""

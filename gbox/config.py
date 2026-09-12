@@ -22,7 +22,7 @@ DEFAULT_WATCHDOG = {
     "enabled": True,
     "stall_minutes": 5,          # accepted-share counter frozen this long -> restart
     "unreachable_minutes": 2,    # HTTP failing this long -> restart
-    "min_gap_minutes": 10,       # settle time after a restart before judging again
+    "min_gap_minutes": 5,        # settle time after a restart before judging again (10 until 2026-09-12; a soft restart takes 60-90 s)
     "max_restarts_per_day": 12,  # at least twice power.max_cycles_per_day plus a few: a cycle needs two failed attempts
 }
 
@@ -34,7 +34,7 @@ DEFAULT_POWER = {
     "host": "",                  # plug address; `gbox power discover` finds it
     "device_id": "",             # recorded by `gbox power init`; no cycle unless the plug matches
     "cycle": False,              # true arms the watchdog; false logs "would cycle" only
-    "after_minutes": 15,         # unreachable this long, with two failed soft restarts, before a cycle
+    "after_minutes": 5,          # unreachable this long, with two failed soft restarts, before a cycle (15 until 2026-09-12: 17 min of lost hashing per freeze)
     "off_seconds": 15,           # relay open this long
     "settle_minutes": 20,        # nothing judged this long after a cycle
     "max_cycles_per_day": 3,

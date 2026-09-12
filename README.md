@@ -79,8 +79,9 @@ python -m gbox power cycle                    # a deliberate cycle, after typing
 
 In dry run the event log says "would cycle" and nothing moves. The watchdog
 cycles only when the miner is unreachable, two soft restarts have failed,
-fifteen minutes have passed, the plug is the recorded device with its relay
-on, and the daily cap has room. Arm it with `"cycle": true` in the config
+five minutes have passed, the plug is the recorded device with its relay
+on, and the daily cap has room. The dashboard's Service section spells out
+the timings and caps in force and names the config file they live in. Arm it with `"cycle": true` in the config
 block once you have watched it judge a real freeze. The guide is
 `docs/power-cycle.md`; it also says which plugs and PDUs fit larger miners.
 
