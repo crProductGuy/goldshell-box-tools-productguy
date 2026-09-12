@@ -11,6 +11,32 @@ const setting = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "mcb
 const frozen = JSON.stringify(setting);
 
 const tests = {
+  "lastHour: counts over the last 60 min of the service log, summing increments so a boot's counter reset never goes negative"() {
+    const t0 = new Date(2026, 8, 12, 15, 0, 0).getTime(), m = 60000;
+    const row = (min, ok, hwerr, acc, rb) => ({ t: t0 + min * m, ok: ok, hwerr: hwerr, accepted: acc, rebootcnt: rb });
+    const rows = [row(-90, true, 100, 1000, 5), row(-70, true, 110, 1100, 5),   // before the hour: the last one is the base
+                  row(-50, true, 120, 1200, 5), row(-40, true, 125, 1300, 6),
+                  row(-30, false, NaN, NaN, NaN),                               // a failed sample is skipped
+                  row(-20, true, 2, 50, 0),                                     // the miner rebooted: counters start over
+                  row(-10, true, 4, 150, 0)];
+    assert.deepStrictEqual(app.lastHour(rows, t0), { resets: 1, bad: 19, accepted: 350, samples: 4 });
+    assert.deepStrictEqual(app.lastHour(rows.slice(2), t0), { resets: 1, bad: 9, accepted: 250, samples: 4 });  // no base row: from the first inside
+    assert.strictEqual(app.lastHour([], t0), null);
+    assert.strictEqual(app.lastHour([row(-30, true, 1, 1, 1)], t0), null);          // one row is no interval
+    assert.strictEqual(app.lastHour([row(-90, true, 1, 1, 1)], t0), null);          // nothing inside the hour
+  },
+  "recentHashrate: the mean of the last N positive samples of the miner's buffer, or null"() {
+    assert.strictEqual(app.recentHashrate([0, 0, 700000, 800000], 60), 750000);
+    assert.strictEqual(app.recentHashrate([600000, 700000, 800000], 2), 750000);
+    assert.strictEqual(app.recentHashrate([0, 0], 60), null);
+    assert.strictEqual(app.recentHashrate(null, 60), null);
+  },
+  "envRowsFrom carries the counters the tiles need for the last hour"() {
+    const csv = "time,http,elapsed,mhs_av,mhs_20s,hwerr,hwerr_pct,accepted,rejected,clock,fan0,fan1,tstemp0,tstemp1,tstemp2,rebootcnt\n" +
+      "2026-09-12 15:00:00,ok,100,1,1,7,0.1,5000,3,575,1200,1200,70,70,62,2\n";
+    const r = app.envRowsFrom(csv)[0];
+    assert.deepStrictEqual([r.hwerr, r.accepted, r.rebootcnt], [7, 5000, 2]);
+  },
   "newestFirst: the service log reversed, newest line on top, blank lines dropped"() {
     assert.strictEqual(app.newestFirst("2026-09-12 10:00:00 a\n2026-09-12 11:00:00 b\n2026-09-12 12:00:00 c\n"),
       "2026-09-12 12:00:00 c\n2026-09-12 11:00:00 b\n2026-09-12 10:00:00 a");
@@ -239,7 +265,7 @@ const tests = {
       "not a row\n";
     const rows = app.envRowsFrom(csv);
     assert.strictEqual(rows.length, 3);
-    assert.deepStrictEqual(rows[0], { t: new Date(2026, 8, 10, 16, 20, 16).getTime(), ok: true, fan0: 1200, fan1: 1210, chip: 71, board: 63.5, watts: 187.2 });
+    assert.deepStrictEqual(rows[0], { t: new Date(2026, 8, 10, 16, 20, 16).getTime(), ok: true, fan0: 1200, fan1: 1210, chip: 71, board: 63.5, hwerr: 3, accepted: 5, rebootcnt: 0, watts: 187.2 });
     assert.strictEqual(rows[1].watts, null);
     assert.strictEqual(rows[2].ok, false);
     assert.strictEqual(rows[2].watts, 38.7);                 // the plug still answers while the miner is down

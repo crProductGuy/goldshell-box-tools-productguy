@@ -240,12 +240,35 @@ function envRowsFrom(text) {
   if (lines.length < 2) return [];
   const head = lines[0].split(","), ix = k => head.indexOf(k);
   const it = ix("time"), ih = ix("http"), if0 = ix("fan0"), if1 = ix("fan1"), ic = ix("tstemp0"), ib = ix("tstemp2"), iw = ix("watts");
+  const ie = ix("hwerr"), ia = ix("accepted"), ir = ix("rebootcnt");
   const num = s => (s === "" || s === undefined) ? NaN : +s;
   return lines.slice(1).map(l => l.split(",")).filter(r => r.length > ib && r[it])
     .map(r => ({ t: new Date(r[it].replace(" ", "T")).getTime(), ok: r[ih] === "ok",
       fan0: num(r[if0]), fan1: num(r[if1]), chip: num(r[ic]), board: num(r[ib]),
+      hwerr: num(r[ie]), accepted: num(r[ia]), rebootcnt: num(r[ir]),
       watts: (iw < 0 || r.length <= iw || r[iw] === "") ? null : +r[iw] }))
     .filter(r => !isNaN(r.t));
+}
+// The last hour from the service log, for the tiles: board resets, bad nonces and accepted shares as sums of the
+// row-to-row increments (a boot restarts every counter at zero, so a plain difference would go negative). The last ok
+// row before the hour is the base when there is one. null when the log has no interval inside the hour to measure.
+function lastHour(rows, now, minutes) {
+  const span = (minutes || 60) * 60000;
+  const ok = (rows || []).filter(r => r.ok && !isNaN(r.rebootcnt)).sort((a, b) => a.t - b.t);
+  const inside = ok.filter(r => r.t >= now - span && r.t <= now), before = ok.filter(r => r.t < now - span);
+  const seq = (before.length ? [before[before.length - 1]] : []).concat(inside);
+  if (!inside.length || seq.length < 2) return null;
+  const inc = (a, b) => (isNaN(a) || isNaN(b)) ? 0 : (b >= a ? b - a : b);
+  let resets = 0, bad = 0, accepted = 0;
+  for (let i = 1; i < seq.length; i++) {
+    resets += inc(seq[i - 1].rebootcnt, seq[i].rebootcnt); bad += inc(seq[i - 1].hwerr, seq[i].hwerr); accepted += inc(seq[i - 1].accepted, seq[i].accepted);
+  }
+  return { resets: resets, bad: bad, accepted: accepted, samples: inside.length };
+}
+// The mean of the last `minutes` positive samples of the miner's own per-minute buffer (MHS), or null. Works as a file too.
+function recentHashrate(hist, minutes) {
+  const v = (hist || []).filter(x => x > 0).slice(-minutes);
+  return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
 }
 // Interventions: every event line where the software, or you, did something to the miner, newest first, each with what
 // the log shows happened next. `rows` are envRowsFrom() rows (ok and failed samples) in any order.
@@ -320,7 +343,7 @@ function chartData(hist) {
   return { unit: unit, div: div, data: first < 0 ? [] : vals.slice(first) };
 }
 // The page's own version, shown in the header: opened as a file there is no service to ask. tests/test_app_js.py keeps it equal to gbox.__version__.
-const VERSION = "0.4.2";
+const VERSION = "0.4.3";
 // The wall-clock time under a chart's "now" label: 24-hour, minutes only, so the last refresh reads at a glance.
 function clockLabel(t) { const d = new Date(t); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
 // The service log as the page shows it: newest line on top, like the interventions table, so a short window shows what matters.
@@ -339,7 +362,7 @@ function ladderLine(h) {
 if (typeof module !== "undefined") module.exports = { VERSION, clockLabel, newestFirst, ladderLine, encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
   markerGlyph, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf,
-  powerTile, envRowsFrom, interventions, interventionCounts };
+  powerTile, envRowsFrom, lastHour, recentHashrate, interventions, interventionCounts };
 
 // ---- presentation (skipped under Node, where the data layer above is unit-tested) ----
 if (typeof document !== "undefined") {
@@ -494,15 +517,24 @@ function render(d) {
   else if (info.chipTemp >= 85) setBadge("warn", "HOT · chips " + fmt(info.chipTemp) + " °C");
   else setBadge("ok", "hashing");
 
-  const [u20, d20] = hashUnit(info.mhs20), [uav, dav] = hashUnit(info.mhsAv);
-  $("mhs20").textContent = fmt(info.mhs20 / d20, d20 === 1 ? 0 : 1); $("unit20").textContent = u20;
-  $("mhsav").textContent = fmt(info.mhsAv / dav, dav === 1 ? 0 : 1); $("unitav").textContent = uav;
+  // Every window is named with a clock time the viewer can see: the boot (from uptime), the last hour (from the
+  // service log when served, else the miner's own buffer), or, as a file with no log, the moment this page opened.
+  const booted = info.elapsed ? clockLabel(now - info.elapsed * 1000) : null, sinceBoot = "since boot" + (booted ? " " + booted : "");
+  const opened = clockLabel(baseline.t), hour = envRows ? lastHour(envRows, now) : null;
+  const [u20, d20] = hashUnit(info.mhs20), [uav, dav] = hashUnit(info.mhsAv), rh = recentHashrate(d.history, 60);
+  $("mhs20").textContent = fmt(info.mhs20 / d20, d20 === 1 ? 0 : 1); $("unit20").textContent = u20 + " · 20 s reading";
+  $("k_av").textContent = "Hashrate " + sinceBoot;
+  $("mhsav").textContent = fmt(info.mhsAv / dav, dav === 1 ? 0 : 1);
+  $("unitav").textContent = uav + (rh !== null ? " · last hour " + fmt(rh / dav, dav === 1 ? 0 : 1) : "");
   $("hwpct").textContent = fmt(info.hwPct, 1) + " %";
-  const recentBad = info.hwErrors - baseline.hwErrors, recentAcc = info.accepted - baseline.accepted;
-  $("hwrecent").textContent = recentAcc > 0 ? "recent " + fmt(100 * recentBad / (recentBad + recentAcc), 1) + " % (since page opened)" : "recent — (need more samples)";
+  const recentBad = info.hwErrors - baseline.hwErrors, recentAcc = info.accepted - baseline.accepted, pct = (b, a) => fmt(100 * b / (b + a), 1) + " %";
+  $("hwrecent").textContent = sinceBoot + " · " + (hour && hour.bad + hour.accepted > 0 ? "last hour " + pct(hour.bad, hour.accepted)
+    : recentAcc > 0 ? pct(recentBad, recentAcc) + " since " + opened + " (page opened)" : "since " + opened + " (page opened): no samples yet");
   $("t_hw").className = "tile" + (info.hwPct >= 15 ? " critical" : info.hwPct >= 8 ? " serious" : "");
   $("rebootcnt").textContent = fmt(info.rebootcnt);
-  $("rbdelta").textContent = "since page opened +" + fmt(rbd); $("t_rb").className = "tile" + (rbd > 0 ? " critical" : "");
+  $("rbdelta").textContent = sinceBoot + " · " + (hour ? fmt(hour.resets) + " in the last hour" : "+" + fmt(rbd) + " since " + opened + " (page opened)");
+  $("t_rb").className = "tile" + ((hour ? hour.resets > 0 : rbd > 0) ? " critical" : "");
+  $("chipsub").textContent = "good and bad nonces " + sinceBoot + "; bad/min since " + opened + " (page opened)";
   $("chiptemp").textContent = fmt(info.chipTemp) + " °C"; $("boardtemp").textContent = "board sensor (what the stock UI shows) " + fmt(info.boardTemp, 1) + " °C";
   $("t_temp").className = "tile" + (info.chipTemp >= 85 ? " critical" : info.chipTemp >= 78 ? " serious" : "");
   $("fans").textContent = (fanPct === null ? "" : fmt(fanPct) + " % · ") + fmt(info.fan0) + " / " + fmt(info.fan1);
@@ -513,7 +545,7 @@ function render(d) {
   const up = info.elapsed || 0, upText = Math.floor(up / 3600) + " h " + Math.floor(up % 3600 / 60) + " min";
   lastModel = status.model || null;
   $("title").textContent = status.model || "Goldshell Box"; document.title = (status.model || "Goldshell Box") + " status";
-  $("meta").textContent = "fw " + status.firmware + " · up " + upText + " · gbox " + VERSION;
+  $("meta").textContent = "fw " + status.firmware + " · up " + upText + (booted ? " since " + booted : "") + " · gbox " + VERSION;
   $("updated").textContent = "updated " + new Date().toLocaleTimeString();
 
   const dl = $("info"); dl.innerHTML = "";
