@@ -30,6 +30,8 @@ class RatedTest(unittest.TestCase):
         self.assertIsNone(models.rated_for("Goldshell-KDBox"))
         self.assertIsNone(models.rated_for(""))
         self.assertIsNone(models.rated_for(None))
+        self.assertIsNone(models.rated_for(123))            # a hostile or odd firmware answer must not crash the health endpoint
+        self.assertIsNone(models.rated_for({"model": "x"}))
 
     def test_pct_of(self):
         self.assertAlmostEqual(models.pct_of(737000.0, 900000.0), 81.888, places=2)
