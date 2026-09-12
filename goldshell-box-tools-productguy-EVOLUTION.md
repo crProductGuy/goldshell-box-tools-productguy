@@ -1000,3 +1000,27 @@ re-pinned. 187 tests green. Verified in Chrome on the scratch service.
 Merged, tagged `v0.4.2`, live at 17:24:29 with the same seed line (9
 restarts, 4 cycles). One judgment call flagged in STATUS: additive
 health fields shipped as a patch version, not a minor.
+
+**Addendum, 17:30 to 18:10: 0.4.3, the tiles; the checker fixed upstream.**
+Mark picked two hashrate tiles over one and said build it. The rule that
+came out of the proposal: every number names its window with a clock
+time the viewer can see. The header shows "up 10 h 27 min since 07:33";
+the average tile is "Hashrate since boot 07:33" with the last hour's
+mean from the miner's own buffer under it (so it works as a file too);
+HW error rate and board resets read "since boot 07:33 · N in the last
+hour" from the service log, the hour being sums of row-to-row increments
+so a boot's counter reset never shows as a negative; opened as a file
+with no log they say "since 18:00 (page opened)" instead of the old
+"since page opened" with no time. Three JS tests, one existing row-shape
+test extended. 187 Python and 33 JS tests green; Chrome on the scratch
+service. Merged, tagged `v0.4.3`, live at 18:06.
+
+The three style-checker failures in this log were false positives, and
+Mark asked for the checker fixed rather than the text: `is_quoted` only
+looked at the match's own line, so a quotation wrapped across lines (a
+log quoting what someone typed) flagged its words. The fix in
+agent-style-guide (`a31792b`, pushed) also checks the enclosing
+paragraph for a quotation spanning lines, capped at 800 characters; two
+tests. The one remaining hit, the entry that lists the banned words
+while describing the rule, now quotes each word so the checker reads a
+mention as a mention. This file: 0 fail, 35 warn.
