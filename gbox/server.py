@@ -17,7 +17,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import __version__, trials
+from . import __version__, models, trials
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 STATIC = {"/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/style.css": "style.css"}
@@ -74,10 +74,12 @@ class ServiceState:
 
     def health(self):
         p, w = self.poller, self.watchdog
+        model = ((p.miner_status if p else None) or {}).get("model")
         return {
             "ok": True, "version": __version__, "host": self.cfg.host,
             "has_token": self.miner.has_token, "can_login": self.miner.can_login,
             "poll_interval": self.cfg.poll_interval,
+            "model": model, "rated": models.rated_for(model),
             "samples": p.samples if p else 0, "errors": p.errors if p else 0,
             "last_error": p.last_error if p else None,
             "latest_time": (p.latest or {}).get("time") if p else None,
@@ -98,6 +100,7 @@ class ServiceState:
         return {
             "configured": cfg is not None,
             "model": info.get("model"),
+            "alias": info.get("alias"),
             "meter": bool(info.get("meter")),
             "state": {True: "on", False: "off"}.get(state),
             "watts": p.plug_watts if p else None,

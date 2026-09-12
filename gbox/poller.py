@@ -103,6 +103,7 @@ class Poller(threading.Thread):
         self.plug_state = None      # True on, False off, None unknown or no plug
         self.plug_watts = None
         self._plug_down = False
+        self.miner_status = None    # /mcb/status (model, firmware, hardware), read once after the first good sample
 
     def read_plug(self):
         """Relay and watts from the plug into plug_state and plug_watts; one event line per transition."""
@@ -135,6 +136,11 @@ class Poller(threading.Thread):
             row = sample(self.miner)
             self.samples += 1
             self.last_error = None
+            if self.miner_status is None:            # one extra request, once, after the sample (never concurrent)
+                try:
+                    self.miner_status = self.miner.status()
+                except Exception:
+                    pass
         except api.NoCredentials:
             row = {"http": "ERR:NoCredentials:waiting for a token from the dashboard"}
             self.errors += 1

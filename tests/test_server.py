@@ -207,14 +207,25 @@ class ServerTest(unittest.TestCase):
         self.state.poller = Poller(api.Miner(self.fm.address, password="password"), self.data / "log.csv", 30,
                                    plug=plug, events=self.events)
         self.state.poller.poll_once()
-        p = json.loads(self.get("/api/health")[2])["power"]
+        h = json.loads(self.get("/api/health")[2])
+        p = h["power"]
         self.assertTrue(p["configured"])
         self.assertEqual(p["model"], "HS110(US)")
+        self.assertEqual(p["alias"], "fake plug")             # the plug's human-given name, for the Power tile
         self.assertEqual(p["state"], "on")
         self.assertEqual(p["watts"], 188.0)
         self.assertIs(p["cycle"], False)
         self.assertEqual(p["cycles_today"], 0)
         self.assertIsNone(p["last_reason"])
+        self.assertEqual(h["model"], "Goldshell-SCBox")      # the miner's model, read once on the first good poll
+        self.assertEqual(h["rated"]["rated_watts"], 200.0)
+        self.assertEqual(h["rated"]["name"], "SC-BOX")
+
+    def test_health_model_is_unknown_before_the_first_good_poll(self):
+        h = json.loads(self.get("/api/health")[2])
+        self.assertIsNone(h["model"])
+        self.assertIsNone(h["rated"])
+        self.assertIsNone(h["power"]["alias"])
 
 
 if __name__ == "__main__":

@@ -194,6 +194,17 @@ const tests = {
     const settling = Object.assign({}, run, { status: "settling", step_started: "2026-09-09 00:20:00" });
     assert.match(app.trialStatus(settling, now), /^Trial running: step 2 of 3, 575 MHz, settling/);
   },
+  "rated figures come from the model table, looked up loosely; unknown models get none"() {
+    assert.strictEqual(app.ratedFor("Goldshell-SCBox").rated_watts, 200);
+    assert.strictEqual(app.ratedFor(" goldshell scbox ").rated_mhs, 900000);
+    assert.strictEqual(app.ratedFor("Goldshell-SCBoxII").name, "SC-BOX II");
+    assert.strictEqual(app.ratedFor("Goldshell-KDBox"), null);
+    assert.strictEqual(app.ratedFor(null), null);
+    assert.strictEqual(app.pctOf(187, 200), 93.5);
+    assert.strictEqual(app.pctOf(null, 200), null);
+    assert.strictEqual(app.pctOf(187, null), null);
+    assert.strictEqual(app.pctOf(187, 0), null);
+  },
   "hashrate chart data: the buffer's leading zeros are dropped and a lone sample is reported as one point, not a line"() {
     assert.deepStrictEqual(app.chartData([]), { unit: "MH/s", div: 1, data: [] });
     assert.deepStrictEqual(app.chartData([0, 0, 0]), { unit: "MH/s", div: 1, data: [] });
