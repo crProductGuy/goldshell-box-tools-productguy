@@ -88,7 +88,11 @@ class Watchdog:
         self.last_power_reason = None
         self.hold = None                    # None, or {since, until (None: no expiry), reason, source, ok_streak}
 
-    def observe(self, ok, accepted, t=None):
+    def observe(self, ok, accepted, t=None, hashing=None):
+        """One sample. `hashing` says whether the miner reported a hashrate; a hold releases only on
+        HOLD_OK_SAMPLES hashing samples in a row. On 2026-09-13 a controller came back from a power-on
+        without its hashboard, answered HTTP with a zero hashrate, and two answers released the hold.
+        None (older callers) means "same as ok"."""
         t = self._clock() if t is None else t
         self._rows.append((t, bool(ok), accepted))
         if ok:
@@ -98,7 +102,8 @@ class Watchdog:
         elif self.episode_start is None:
             self.episode_start = t
         if self.hold is not None:
-            self.hold["ok_streak"] = self.hold["ok_streak"] + 1 if ok else 0
+            back = bool(ok) if hashing is None else bool(ok and hashing)
+            self.hold["ok_streak"] = self.hold["ok_streak"] + 1 if back else 0
             if self.hold["ok_streak"] >= HOLD_OK_SAMPLES:
                 self.hold_release("back")
 
@@ -124,7 +129,7 @@ class Watchdog:
             return
         minutes = round((self._clock() - self.hold["since"]) / 60)
         if how == "back":
-            self._events.write("hold: released, miner back after %d min" % minutes)
+            self._events.write("hold: released, miner hashing again after %d min" % minutes)
         elif how == "expired":
             self._events.write("hold: expired after %d min with the miner still unreachable; watchdog resumed" % minutes)
         else:

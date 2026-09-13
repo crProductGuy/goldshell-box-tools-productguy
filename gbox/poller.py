@@ -156,7 +156,10 @@ class Poller(threading.Thread):
         self._append(row)
         self.latest = row
         if self.watchdog is not None and not row["http"].startswith("ERR:NoCredentials"):
-            self.watchdog.observe(row["http"] == "ok", row.get("accepted"), self._clock())
+            ok = row["http"] == "ok"
+            # hashing: the board reported a 20 s hashrate. A controller back from a power-on without its
+            # hashboard answers with 0.0 (2026-09-13 15:46), and a hold must not release on that.
+            self.watchdog.observe(ok, row.get("accepted"), self._clock(), hashing=ok and (row.get("mhs_20s") or 0) > 0)
             self.watchdog.check()
         if self.scheduler is not None:
             try:

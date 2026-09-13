@@ -263,7 +263,7 @@ def _service_hold(cfg, minutes, reason):
     """Ask the running service for a hold (docs/power-hold-proposal.md). Returns one line for the terminal."""
     status, body = _service_post(cfg, "/api/hold", {"minutes": minutes, "reason": reason})
     if status == 200:
-        return "the service holds the watchdog (%s) until the miner answers twice in a row" % (
+        return "the service holds the watchdog (%s) until the miner hashes twice in a row" % (
             "no expiry" if minutes is None else "%d min" % minutes)
     if status is None:
         return "(service not reachable: no hold, and nothing was logged)"
@@ -431,7 +431,7 @@ def cmd_hold(args, cfg, data_dir):
     if status != 200:
         _die(body.get("error") if isinstance(body, dict) else "HTTP %s" % status)
     h = body["hold"]
-    _out("held %s%s: the watchdog judges nothing until the miner answers twice in a row%s." % (
+    _out("held %s%s: the watchdog judges nothing until the miner hashes twice in a row%s." % (
         ("until " + h["until"]) if h["until"] else "with no expiry", (" (%s)" % h["reason"]) if h["reason"] else "",
         " or the hold expires" if h["until"] else ", or you run `gbox hold release`"))
 
@@ -586,7 +586,7 @@ def build_parser():
     sp.set_defaults(fn=cmd_power)
 
     sp = sub.add_parser("hold", help="tell the running service the miner will be unreachable on purpose",
-                        description="A hold stands the watchdog down until the miner answers twice in a row, the hold "
+                        description="A hold stands the watchdog down until the miner hashes twice in a row, the hold "
                                     "expires, or you release it. Use it before pulling the cord, swapping a power supply, "
                                     "or moving the unit. Needs `gbox serve` running.")
     sp.add_argument("minutes", nargs="?", help="how long, 1 to 1440 (default 60); or 'release' to end a hold")
