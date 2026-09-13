@@ -55,6 +55,11 @@ const tests = {
       "Set in C:\\u\\.gbox\\config.json (watchdog block); restart the service after editing.");
     assert.strictEqual(app.ladderLine({ watchdog: { enabled: false }, ladder: lad }), "Watchdog off for this run (--no-watchdog, or \"enabled\": false in C:\\u\\.gbox\\config.json).");
     assert.strictEqual(app.ladderLine({ watchdog: { enabled: true } }), "");
+    const sched = Object.assign({}, lad, { schedule: { off: "23:00", on: "06:00" } });
+    assert.ok(app.ladderLine({ watchdog: { enabled: true }, power: { configured: true }, ladder: sched })
+      .endsWith("restart the service after editing. Schedule: off 23:00, on 06:00, every day (power.schedule in the same file)."));
+    assert.ok(app.ladderLine({ watchdog: { enabled: true }, power: { configured: true }, ladder: Object.assign({}, sched, { schedule: { off: "23:00", on: "06:00", days: ["mon", "fri"] } }) })
+      .endsWith("Schedule: off 23:00, on 06:00, mon, fri (power.schedule in the same file)."));
   },
   "clockLabel: the wall-clock time under 'now', 24-hour, minutes only"() {
     assert.strictEqual(app.clockLabel(new Date(2026, 8, 12, 15, 7, 9).getTime()), "15:07");

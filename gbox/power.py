@@ -14,9 +14,11 @@ caller gets an answer at once; `state()` says `busy` meanwhile.
 
 Design of record: docs/power-hold-proposal.md.
 """
+import datetime
 import threading
 import time
 
+from . import config
 from .plug import PlugError
 
 
@@ -158,3 +160,51 @@ def _detail(who, before):
     if who.endswith(")"):
         return who[:-1] + "; " + before + ")"
     return who + " (" + before + ")"
+
+
+class Scheduler:
+    """Off and on at set local times on the allowed days, edges only.
+
+    The poller calls `tick()` after each sample. A set time that falls
+    between the previous tick and this one fires the matching control
+    call. Nothing fires on the first tick, so a service that starts inside
+    an off window leaves the miner as it found it, and an owner's On inside
+    the window holds until the next off time.
+    """
+
+    def __init__(self, schedule, control, events, clock=time.time):
+        self.off = config.parse_hhmm(schedule["off"])
+        self.on = config.parse_hhmm(schedule["on"])
+        self.days = list(schedule.get("days") or config.DAYS)
+        self.control = control
+        self.events = events
+        self._clock = clock
+        self._last = None
+
+    def describe(self):
+        days = "every day" if set(self.days) == set(config.DAYS) else ", ".join(self.days)
+        return "off %02d:%02d, on %02d:%02d, %s" % (self.off + self.on + (days,))
+
+    def tick(self):
+        """Fire what fell due since the last tick. Returns "off", "on" or None."""
+        now = self._clock()
+        last, self._last = self._last, now
+        if last is None:
+            return None
+        fired = None
+        for name, hm in (("off", self.off), ("on", self.on)):
+            if self._crossed(hm, last, now):
+                fired = name
+                try:
+                    getattr(self.control, name)("schedule")
+                except Exception as e:
+                    self.events.write("power: schedule could not switch %s: %s" % (name, e))
+        return fired
+
+    def _crossed(self, hm, last, now):
+        base = datetime.datetime.fromtimestamp(last).replace(hour=hm[0], minute=hm[1], second=0, microsecond=0)
+        for k in range(3):                  # the day of the last tick and the two after it
+            cand = base + datetime.timedelta(days=k)
+            if last < cand.timestamp() <= now and config.DAYS[cand.weekday()] in self.days:
+                return True
+        return False

@@ -116,5 +116,97 @@ class PowerControlTest(unittest.TestCase):
         self.assertIsNone(self.pc.state()["relay"])
 
 
+class ControlRecorder:
+    def __init__(self):
+        self.calls = []
+        self.fail = False
+
+    def off(self, source):
+        self.calls.append(("off", source))
+        if self.fail:
+            raise PowerRefused("plug did not answer")
+
+    def on(self, source):
+        self.calls.append(("on", source))
+
+
+class SchedulerTest(unittest.TestCase):
+    """Off and on at set times, edges only, on the allowed days. 2026-09-12 is a Saturday."""
+
+    def setUp(self):
+        import datetime
+        from gbox.power import Scheduler
+        self.Scheduler = Scheduler
+        self.at = lambda y, mo, d, h, m, s=0: datetime.datetime(y, mo, d, h, m, s).timestamp()
+        self.clock = FakeClock(self.at(2026, 9, 12, 22, 58))
+        self.control = ControlRecorder()
+        self.lines = []
+        self.events = EventLog()
+        self.events.write = lambda m: self.lines.append(m) or m
+
+    def make(self, **schedule):
+        schedule.setdefault("off", "23:00")
+        schedule.setdefault("on", "06:00")
+        return self.Scheduler(schedule, self.control, self.events, clock=self.clock)
+
+    def test_first_tick_only_records_the_time(self):
+        s = self.make()
+        self.assertIsNone(s.tick())
+        self.assertEqual(self.control.calls, [])
+
+    def test_off_fires_once_at_its_edge(self):
+        s = self.make()
+        s.tick()
+        self.clock.t = self.at(2026, 9, 12, 22, 59, 30)
+        self.assertIsNone(s.tick())
+        self.clock.t = self.at(2026, 9, 12, 23, 0, 10)
+        self.assertEqual(s.tick(), "off")
+        self.clock.t = self.at(2026, 9, 12, 23, 0, 40)
+        self.assertIsNone(s.tick())
+        self.assertEqual(self.control.calls, [("off", "schedule")])
+
+    def test_on_fires_across_midnight(self):
+        s = self.make()
+        s.tick()
+        self.clock.t = self.at(2026, 9, 12, 23, 0, 10)
+        s.tick()
+        self.clock.t = self.at(2026, 9, 13, 5, 59, 50)
+        self.assertIsNone(s.tick())
+        self.clock.t = self.at(2026, 9, 13, 6, 0, 5)
+        self.assertEqual(s.tick(), "on")
+        self.assertEqual(self.control.calls[-1], ("on", "schedule"))
+
+    def test_days_are_respected(self):
+        s = self.make(days=["mon"])
+        s.tick()
+        self.clock.t = self.at(2026, 9, 12, 23, 0, 10)
+        self.assertIsNone(s.tick())
+        s = self.make(days=["sat"])
+        self.clock.t = self.at(2026, 9, 12, 22, 59)
+        s.tick()
+        self.clock.t = self.at(2026, 9, 12, 23, 0, 10)
+        self.assertEqual(s.tick(), "off")
+
+    def test_starting_inside_a_window_fires_nothing(self):
+        self.clock.t = self.at(2026, 9, 12, 23, 30)
+        s = self.make()
+        s.tick()
+        self.clock.t = self.at(2026, 9, 12, 23, 30, 30)
+        self.assertIsNone(s.tick())
+        self.assertEqual(self.control.calls, [])
+
+    def test_a_refusal_is_logged_not_raised(self):
+        self.control.fail = True
+        s = self.make()
+        s.tick()
+        self.clock.t = self.at(2026, 9, 12, 23, 0, 10)
+        self.assertEqual(s.tick(), "off")
+        self.assertIn("power: schedule could not switch off: plug did not answer", self.lines[-1])
+
+    def test_describe(self):
+        self.assertEqual(self.make().describe(), "off 23:00, on 06:00, every day")
+        self.assertEqual(self.make(days=["mon", "fri"]).describe(), "off 23:00, on 06:00, mon, fri")
+
+
 if __name__ == "__main__":
     unittest.main()

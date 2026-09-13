@@ -28,6 +28,7 @@ import threading
 from . import __version__, api, config, plug as plugmod, trials
 from .events import EventLog
 from .poller import COLUMNS, Poller, migrate_columns
+from .power import PowerControl, Scheduler
 from .server import ServiceState, make_server
 from .watchdog import Watchdog
 
@@ -488,9 +489,14 @@ def cmd_serve(args, cfg, data_dir):
         wd = Watchdog(miner.restart, events, cfg.poll_interval, stall_minutes=w["stall_minutes"],
                       unreachable_minutes=w["unreachable_minutes"], min_gap_minutes=w["min_gap_minutes"],
                       max_restarts_per_day=w["max_restarts_per_day"], plug=plug, power=cfg.power)
-        wd.seed_from_events(events.tail(4000))     # the caps survive this restart
-    poller = Poller(miner, data_dir / "log.csv", cfg.poll_interval, watchdog=wd, events=events, plug=plug)
-    state.poller, state.watchdog = poller, wd
+        wd.seed_from_events(events.tail(4000))     # the caps and a running hold survive this restart
+    control = PowerControl(plug, cfg.power, wd, events) if plug is not None else None
+    scheduler = None
+    if control is not None and cfg.power.get("schedule"):
+        scheduler = Scheduler(cfg.power["schedule"], control, events)
+        events.write("service: schedule %s" % scheduler.describe())
+    poller = Poller(miner, data_dir / "log.csv", cfg.poll_interval, watchdog=wd, events=events, plug=plug, scheduler=scheduler)
+    state.poller, state.watchdog, state.power_control = poller, wd, control
 
     url = "http://%s:%d/" % ("127.0.0.1" if cfg.bind in ("0.0.0.0", "") else cfg.bind, cfg.port)
     events.write("service: started v%s, miner %s, poll %ds, watchdog %s, power plug %s, listening on %s:%d" % (
