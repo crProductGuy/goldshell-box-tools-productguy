@@ -43,6 +43,21 @@ from collections import deque
 # A failed attempt counts: check() takes the restart slot before the PUT goes out. A hand cycle (`dashboard:`) never did.
 SEED_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (watchdog: restart (?:#\d+ sent|attempt failed)|power: cycled #\d+ today)")
 
+# A hold: the owner said the miner will be unreachable on purpose. Nothing is judged until it is back
+# (HOLD_OK_SAMPLES good samples in a row), the hold expires, or it is released. Its lines are read back
+# at start like the caps, so a service restart mid-outage does not wake the ladder.
+HOLD_OK_SAMPLES = 2
+HOLD_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) hold: (?:started by (you|the schedule)"
+                     r"(?: until (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})|, no expiry)(?: \((.*)\))?|(released|expired))")
+STAMP = "%Y-%m-%d %H:%M:%S"
+
+
+def _parse_stamp(text):
+    try:
+        return datetime.datetime.strptime(text, STAMP).timestamp()
+    except (ValueError, OverflowError, OSError):
+        return None
+
 
 class Watchdog:
     def __init__(self, restart, events, interval, stall_minutes=5, unreachable_minutes=2,
@@ -71,6 +86,7 @@ class Watchdog:
         self.power_gap_until = None
         self._power_logged = False          # one "would cycle" / refusal / cap line per episode
         self.last_power_reason = None
+        self.hold = None                    # None, or {since, until (None: no expiry), reason, source, ok_streak}
 
     def observe(self, ok, accepted, t=None):
         t = self._clock() if t is None else t
@@ -81,6 +97,72 @@ class Watchdog:
             self._power_logged = False
         elif self.episode_start is None:
             self.episode_start = t
+        if self.hold is not None:
+            self.hold["ok_streak"] = self.hold["ok_streak"] + 1 if ok else 0
+            if self.hold["ok_streak"] >= HOLD_OK_SAMPLES:
+                self.hold_release("back")
+
+    # ------------------------------------------------------------ holds
+
+    def _stamp(self, t):
+        return datetime.datetime.fromtimestamp(t).strftime(STAMP)
+
+    def hold_start(self, minutes=None, reason="", source="page"):
+        """Stand down until the miner is back, `minutes` pass (None: never), or a release. Replaces a running hold."""
+        now = self._clock()
+        until = None if minutes is None else now + float(minutes) * 60
+        self.hold = {"since": now, "until": until, "reason": reason or "", "source": source, "ok_streak": 0}
+        who = "the schedule" if source == "schedule" else "you"
+        when = ("until " + self._stamp(until)) if until is not None else ", no expiry"
+        self._events.write("hold: started by %s%s%s%s" % (who, "" if until is None else " ", when,
+                                                          (" (%s)" % reason) if reason else ""))
+        return self.hold
+
+    def hold_release(self, how):
+        """End the hold: `how` is "you" (asked), "back" (the miner answered), or "expired". Clears the sample window."""
+        if self.hold is None:
+            return
+        minutes = round((self._clock() - self.hold["since"]) / 60)
+        if how == "back":
+            self._events.write("hold: released, miner back after %d min" % minutes)
+        elif how == "expired":
+            self._events.write("hold: expired after %d min with the miner still unreachable; watchdog resumed" % minutes)
+        else:
+            self._events.write("hold: released by you")
+        self.hold = None
+        self._rows.clear()
+
+    def hold_info(self):
+        """The running hold for /api/health, JSON-safe, or None."""
+        h = self.hold
+        if h is None:
+            return None
+        left = None if h["until"] is None else max(0, round((h["until"] - self._clock()) / 60))
+        return {"since": self._stamp(h["since"]), "until": None if h["until"] is None else self._stamp(h["until"]),
+                "reason": h["reason"], "source": h["source"], "minutes_left": left, "ok_streak": h["ok_streak"]}
+
+    def _seed_hold(self, lines):
+        """Restore the newest hold from the log's own lines unless a later line ended it or it has expired."""
+        latest = None
+        for line in lines:
+            m = HOLD_RE.match(line or "")
+            if not m:
+                continue
+            if m.group(5):
+                latest = None
+                continue
+            t = _parse_stamp(m.group(1))
+            until = _parse_stamp(m.group(3)) if m.group(3) else None
+            if t is None or (m.group(3) and until is None):
+                continue
+            latest = {"since": t, "until": until, "reason": m.group(4) or "",
+                      "source": "schedule" if m.group(2) == "the schedule" else "page", "ok_streak": 0}
+        if latest is None or (latest["until"] is not None and latest["until"] <= self._clock()):
+            return False
+        self.hold = latest
+        self._events.write("service: hold picked up from the event log (%s): nothing judged until the miner is back"
+                           % ("until " + self._stamp(latest["until"]) if latest["until"] is not None else "no expiry"))
+        return True
 
     def restarts_today(self):
         cutoff = self._clock() - 86400
@@ -125,6 +207,7 @@ class Watchdog:
             plural = lambda n, w: "%d %s%s" % (n, w, "" if n == 1 else "s")
             self._events.write("service: watchdog picked up %s and %s from the last 24 h of the event log; the daily caps carry on"
                                % (plural(len(restarts), "restart"), plural(len(cycles), "cycle")))
+        self._seed_hold(lines)
         return len(restarts), len(cycles)
 
     def external_restart(self):
@@ -158,6 +241,10 @@ class Watchdog:
 
     def check(self):
         """Judge the samples seen so far; send a restart if one is due. Returns the reason or None."""
+        if self.hold is not None:
+            if self.hold["until"] is not None and self._clock() >= self.hold["until"]:
+                self.hold_release("expired")
+            return None
         reason = self.diagnose()
         self.last_reason = reason
         if not reason:
