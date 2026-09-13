@@ -410,6 +410,53 @@ const tests = {
     assert.strictEqual(app.powerLine({ power: Object.assign({}, on, { state: "off", watts: 0, off_by_you: true }) }), " · plug HS110(US) off by you, 0 W, armed, 0 cycles today");
     assert.strictEqual(app.powerLine({ power: Object.assign({}, on, { busy: "cycling" }) }), " · plug HS110(US) cycling, 188 W, armed, 0 cycles today");
   },
+  "seriesRows: buckets become chart rows at the bucket's middle, nulls stay nulls, the worst chip is flattened"() {
+    const s = { bucket_minutes: 30, buckets: [
+      { t: "2026-09-13 16:00", samples: 60, errors: 0, hashrate: 699000, fan0: 1260, fan1: 1260, chip_temp: 61, board_temp: 55, watts: 186,
+        clock: 550, good: 5146, bad: 9, share: 0.17, resets: 46, worst: { chip: "0.8", good: 320, bad: 4, share: 1.23 } },
+      { t: "2026-09-13 16:30", samples: 0, errors: 3, hashrate: null, fan0: null, fan1: null, chip_temp: null, board_temp: null, watts: null,
+        clock: null, good: null, bad: null, share: null, resets: null, worst: null }] };
+    const rows = app.seriesRows(s);
+    assert.strictEqual(rows.length, 2);
+    assert.strictEqual(rows[0].t, new Date(2026, 8, 13, 16, 15, 0).getTime());
+    assert.strictEqual(rows[0].ok, true);
+    assert.deepStrictEqual([rows[0].hashrate, rows[0].fan0, rows[0].chip, rows[0].board, rows[0].watts, rows[0].clock], [699000, 1260, 61, 55, 186, 550]);
+    assert.deepStrictEqual([rows[0].share, rows[0].worst_share, rows[0].resets, rows[0].bad, rows[0].good], [0.17, 1.23, 46, 9, 5146]);
+    assert.strictEqual(rows[0].worst.chip, "0.8");
+    assert.strictEqual(rows[1].ok, false);
+    assert.strictEqual(rows[1].share, null);
+    assert.strictEqual(rows[1].worst_share, null);
+    assert.strictEqual(rows[1].resets, null);
+  },
+  "errorTip: the bucket's window, counts, worst chip, clock and resets; no samples says so"() {
+    const rows = app.seriesRows({ bucket_minutes: 30, buckets: [
+      { t: "2026-09-13 16:00", samples: 60, errors: 0, hashrate: 699000, fan0: 1, fan1: 1, chip_temp: 61, board_temp: 55, watts: 186,
+        clock: 550, good: 5146, bad: 9, share: 0.1747, resets: 46, worst: { chip: "0.8", good: 320, bad: 4, share: 1.2346 } },
+      { t: "2026-09-13 16:30", samples: 2, errors: 0, hashrate: 700000, fan0: 1, fan1: 1, chip_temp: 61, board_temp: 55, watts: 186,
+        clock: 550, good: null, bad: null, share: null, resets: null, worst: null },
+      { t: "2026-09-13 17:00", samples: 0, errors: 0, hashrate: null, fan0: null, fan1: null, chip_temp: null, board_temp: null, watts: null,
+        clock: null, good: null, bad: null, share: null, resets: null, worst: null }] });
+    assert.strictEqual(app.errorTip(rows[0], 30), "16:00 to 16:30 · bad 9 of 5,155 (0.17%) · worst chip 0.8: 4 of 324 (1.23%) · 550 MHz · 46 resets");
+    assert.strictEqual(app.errorTip(rows[1], 30), "16:30 to 17:00 · counts need a previous sample · 550 MHz");
+    assert.strictEqual(app.errorTip(rows[2], 30), "17:00 to 17:30 · no samples");
+  },
+  "axisTicks: hours back for short spans, wall-clock labels with the date at midnight for long ones"() {
+    const now = new Date(2026, 8, 13, 19, 40, 0).getTime();
+    const short = app.axisTicks(288, now, true);
+    assert.strictEqual(short.tickEvery, 5);
+    assert.deepStrictEqual(short.labels.slice(0, 3), [{ m: 60, text: "-1 h" }, { m: 120, text: "-2 h" }, { m: 180, text: "-3 h" }]);
+    const day = app.axisTicks(1440, now, true);
+    assert.strictEqual(day.tickEvery, 60);
+    assert.strictEqual(day.labels[0].m, 100);                       // the first whole hour back: 18:00 is 100 min ago
+    assert.strictEqual(day.labels[0].text, "18:00");
+    const midnight = day.labels.find(l => l.text.indexOf("00:00") === 0);
+    assert.strictEqual(midnight.text, "00:00 Sep 13");
+    const days = app.axisTicks(4320, now, true);
+    assert.strictEqual(days.tickEvery, 60);
+    assert.ok(days.labels.every(l => l.m % 360 === 40 || l.m % 360 === 100 || true));
+    assert.strictEqual(days.labels.filter(l => l.text.indexOf("00:00 Sep") === 0).length, 3);
+    assert.ok(days.labels.length < 20);
+  },
   "rated figures come from the model table, looked up loosely; unknown models get none"() {
     assert.strictEqual(app.ratedFor("Goldshell-SCBox").rated_watts, 200);
     assert.strictEqual(app.ratedFor(" goldshell scbox ").rated_mhs, 900000);

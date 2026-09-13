@@ -16,6 +16,7 @@ import json
 import mimetypes
 import os
 import threading
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -204,7 +205,7 @@ def make_handler(state):
             if path == "/api/health":
                 return self._json(200, state.health())
             if path == "/api/log.csv":
-                return self._file(state.data_dir / "log.csv", "text/csv; charset=utf-8")
+                return self._csv()
             if path == "/api/events":
                 lines = state.events.tail(2000) if state.events else []   # weeks of quiet operation; the interventions table reads it all
                 return self._send(200, "".join(lines))
@@ -218,6 +219,25 @@ def make_handler(state):
             if path == "/api/series":
                 return self._get_series()
             self._send(404, "not found")
+
+        def _csv(self):
+            """log.csv whole, or its header plus the last `tail` rows (the page asks for a day's worth for the tiles)."""
+            q = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+            path = state.data_dir / "log.csv"
+            if "tail" not in q:
+                return self._file(path, "text/csv; charset=utf-8")
+            try:
+                n = int(q["tail"][0])
+                if n < 1:
+                    raise ValueError
+            except ValueError:
+                return self._send(400, "tail must be a positive whole number")
+            if not path.is_file():
+                return self._send(404, "not found")
+            with open(path, encoding="utf-8", errors="replace") as f:
+                header = f.readline()
+                rows = deque(f, maxlen=n)
+            self._send(200, header + "".join(rows), "text/csv; charset=utf-8")
 
         def _get_series(self):
             q = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
