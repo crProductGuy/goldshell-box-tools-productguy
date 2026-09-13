@@ -34,6 +34,11 @@ svg .tick { stroke:var(--muted) } svg .tick.major { stroke:var(--ink2); stroke-w
 svg .mark { stroke:var(--warn); stroke-width:1; stroke-dasharray:2 3 }
 svg .s3 { stroke:var(--muted); stroke-width:1.5 } svg .bar { fill:var(--critical); opacity:.75 } svg .barlbl { fill:var(--critical); font-weight:600 }
 svg .axis { fill:var(--ink); font-size:12px; font-weight:700 } svg .sep { stroke:var(--line); stroke-width:1 } svg .panelhl { fill:var(--series); opacity:.06 }
+svg .band { fill:var(--critbg); opacity:.7 } svg .marklbl.words { font-size:10px }
+.facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin:0 0 10px }
+.fact { border:1px solid var(--line); border-radius:8px; padding:8px 12px; background:var(--bg) }
+.fact .k { color:var(--ink2); font-size:12px } .fact .v { font-size:18px; font-weight:600; font-variant-numeric:tabular-nums; margin-top:2px } .fact .s { color:var(--muted); font-size:12px; margin-top:2px }
+.fact.critical .v { color:var(--critical) } .fact.serious .v { color:var(--serious) }
 .tip { position:absolute; pointer-events:none; background:var(--ink); color:var(--bg); padding:4px 8px; border-radius:6px; font-size:12px; white-space:nowrap; display:none; font-variant-numeric:tabular-nums }
 table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums } th,td { text-align:right; padding:5px 8px; border-bottom:1px solid var(--line) }
 th:first-child,td:first-child { text-align:left } th { color:var(--ink2); font-weight:500; font-size:12px }

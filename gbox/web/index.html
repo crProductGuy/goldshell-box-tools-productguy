@@ -71,6 +71,7 @@
 
   <section id="errors" hidden>
     <h2>Errors over three days<span id="errsub">bad share of all chips and of the worst chip per half hour, the clock, and board resets, from the service log</span></h2>
+    <div class="facts" id="errfacts"></div>
     <div class="chart" id="errchart"></div>
     <p class="note">Bad share is bad nonces over all nonces in each half hour, summed from the log's counters across boots, so it means the same thing at every clock. Resets are the board's reinitializations in that half hour: a burst with a flat share is the chain going silent, not bad nonces. The worst chip is named board.chip; before 0.6.0 the log only named chips the firmware flagged, so older half hours may show none. Hover for the counts.</p>
   </section>

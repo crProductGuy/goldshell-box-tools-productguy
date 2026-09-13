@@ -428,6 +428,39 @@ function clockTip(row, bucketMin) {
   if (!row.ok) return win + " · no samples";
   return win + (row.clock == null ? "" : " · " + nfmt(row.clock) + " MHz") + (row.share == null ? "" : " · bad " + nfmt(row.share, 2) + "%") + (row.resets == null ? "" : " · " + nfmt(row.resets) + " reset" + (row.resets === 1 ? "" : "s"));
 }
+// The three facts above the errors chart: the worst half hour, resets over the window, the bad share over the last day.
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+function errorFacts(rows, bucketMin, now) {
+  const ok = (rows || []).filter(r => r.ok);
+  let worst = null;
+  ok.forEach(r => { if (r.share != null && (!worst || r.share > worst.share)) worst = r; });
+  const resets = ok.reduce((a, r) => a + (r.resets || 0), 0), resetWindows = ok.filter(r => r.resets > 0).length;
+  const day = ok.filter(r => now - r.t <= 24 * 3600000 && r.bad != null);
+  const good = day.reduce((a, r) => a + r.good, 0), bad = day.reduce((a, r) => a + r.bad, 0);
+  return {
+    worst: worst ? { t: worst.t, label: DAYS[new Date(worst.t).getDay()] + " " + clockLabel(worst.t - bucketMin * 30000), share: worst.share,
+      chip: worst.worst ? worst.worst.chip : null, chipShare: worst.worst ? worst.worst.share : null, resets: worst.resets || 0 } : null,
+    resets: resets, resetWindows: resetWindows, share24: good + bad > 0 ? 100 * bad / (good + bad) : null, day: day.length,
+  };
+}
+// A worded marker for an event line, or "" for a line not worth a marker on the three-day chart.
+function markerWords(label) {
+  let m;
+  if (/^power: cycled #\d+/.test(label)) return "plug cycle";
+  if (/^power: cycled by/.test(label) || /^dashboard: power: cycled by hand/.test(label)) return "cycle";
+  if (/^(power|dashboard: power): switched off/.test(label)) return "off";
+  if (/^(power|dashboard: power): switched on/.test(label)) return "on";
+  if ((m = /^dashboard: clock set to (\d+) MHz/.exec(label))) return "clock " + m[1];
+  if ((m = /^dashboard: fan target set to (\d+)/.exec(label))) return "fan " + m[1];
+  if ((m = /^dashboard: switched to preset (\d+)/.exec(label))) return "preset " + m[1];
+  if (/^dashboard: soft restart/.test(label)) return "restart";
+  if (/^watchdog: restart #/.test(label)) return "watchdog restart";
+  if (/^watchdog: restart attempt failed/.test(label)) return "restart failed";
+  if ((m = /^service: started v(\S+?),/.exec(label))) return "start " + m[1];
+  if (/^hold: started/.test(label)) return "hold";
+  if (/^dashboard: /.test(label)) return "note";
+  return "";
+}
 // Tick and label plan for a time axis of `spanMin` minutes ending at `now`: hours-back labels for a few hours, wall-clock
 // labels (with the date at midnight) for a day or more.
 function axisTicks(spanMin, now, wide) {
@@ -474,7 +507,7 @@ function holdLine(h) {
 }
 if (typeof module !== "undefined") module.exports = { VERSION, clockLabel, newestFirst, ladderLine, encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
-  powerActionRequest, holdRequest, holdReleaseRequest, holdLine, seriesRows, errorTip, resetsTip, clockTip, axisTicks, parseStamp,
+  powerActionRequest, holdRequest, holdReleaseRequest, holdLine, seriesRows, errorTip, resetsTip, clockTip, axisTicks, parseStamp, errorFacts, markerWords,
   markerGlyph, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf,
   powerTile, envRowsFrom, lastHour, recentHashrate, interventions, interventionCounts };
 
@@ -802,9 +835,24 @@ function renderErrors() {
   const shareMax = niceMax(Math.max(mx("share"), mx("worst_share"), 0.5) * 1.05), clockMax = niceMax(mx("clock") * 1.1) || 800, resetMax = niceMax(Math.max(mx("resets"), 4) * 1.1);
   const panels = [
     { label: "% bad", min: 0, max: shareMax, step: shareMax / 4, series: [["share", "", "all chips"], ["worst_share", "s2", "worst chip"]], rated: null, tip: best => errorTip(best, bm) },
-    { label: "MHz", min: 0, max: clockMax, step: clockMax / 4, series: [["clock", "s3", "clock", { step: true }]], rated: null, tip: best => clockTip(best, bm) },
+    { label: "MHz", min: 0, max: clockMax, step: clockMax / 4, series: [["clock", "s3", "clock", { step: true, fill: true }]], rated: null, tip: best => clockTip(best, bm) },
     { label: "resets", min: 0, max: resetMax, step: resetMax / 4, series: [], bars: "resets", rated: null, tip: best => resetsTip(best, bm) } ];
-  drawPanels(box, panels, rows, spanMin, now, best => errorTip(best, bm), "errors over three days", servedOpts(box, spanMin, bm));
+  const opts = Object.assign(servedOpts(box, spanMin, bm), { words: true, band: r => r.ok && ((r.share != null && r.share > 1) || (r.resets != null && r.resets > 0)) });
+  drawPanels(box, panels, rows, spanMin, now, best => errorTip(best, bm), "errors over three days", opts);
+  renderErrorFacts(errorFacts(rows, bm, now));
+}
+// The three facts above the errors chart. The worst half hour is red when its share is over 1% or it had resets.
+function renderErrorFacts(f) {
+  const box = $("errfacts"); box.innerHTML = "";
+  const fact = (k, v, sub, cls) => { const d = document.createElement("div"); d.className = "fact" + (cls ? " " + cls : "");
+    d.innerHTML = "<div class=\"k\"></div><div class=\"v\"></div><div class=\"s\"></div>";
+    d.children[0].textContent = k; d.children[1].textContent = v; d.children[2].textContent = sub; box.appendChild(d); };
+  if (f.worst) {
+    const w = f.worst, bad = w.share > 1 || w.resets > 0;
+    fact("Worst half hour", w.label + " · " + fmt(w.share, 2) + "% bad", (w.chip ? "chip " + w.chip + " at " + fmt(w.chipShare, 1) + "%, " : "") + fmt(w.resets) + " reset" + (w.resets === 1 ? "" : "s"), bad ? "critical" : "");
+  } else fact("Worst half hour", "—", "no counted samples yet", "");
+  fact("Board resets, 3 days", fmt(f.resets), f.resetWindows ? "in " + f.resetWindows + " half hour" + (f.resetWindows === 1 ? "" : "s") : "none", f.resets > 0 ? "serious" : "");
+  fact("Bad share, last 24 h", f.share24 == null ? "—" : fmt(f.share24, 2) + "%", f.share24 == null ? "no counted samples" : "all chips, " + f.day + " half hours", "");
 }
 // The hashrate chart when served: 24 hours of 5-minute means from the log, with the rated axis.
 function renderHashrateSeries() {
@@ -826,11 +874,16 @@ function logSpanMin() { return Math.max(lastHistory.filter(v => v > 0).length * 
 // { label, min, max, step, series: [[rowKey, cssClass, name]...], rated: { value, title } | null }.
 function drawPanels(box, panels, rows, spanMin, now, tipText, aria, opts) {
   const o = opts || {}, gapMs = o.gapMs || 180000, tk = o.ticks || null;
-  const W = Math.max(box.clientWidth, 320), L = 44, R = 12, PH = 130, GAP = 34, T = 24, B = 48, n = panels.length;
+  const W = Math.max(box.clientWidth, 320), L = 44, R = 12, PH = 130, GAP = 34, T = o.words ? 92 : 24, B = 48, n = panels.length;
   const H = T + n * PH + (n - 1) * GAP + B, RW = panels.some(p => p.rated) ? 44 : 0, xR = W - R - RW, y0 = T + n * PH + (n - 1) * GAP;
   const xOf = t => L + (xR - L) * (1 - (now - t) / (spanMin * 60000));
   const has = v => v !== null && v !== undefined && !isNaN(v);
   let s = "<svg width=\"" + W + "\" height=\"" + H + "\" viewBox=\"0 0 " + W + " " + H + "\" role=\"img\" aria-label=\"" + aria + "\">";
+  if (o.band) {
+    // alarm bands: one faint band down every panel for each bucket the caller flags, so an incident is found by scanning one strip
+    const bw = Math.max(3, (xR - L) * (o.bucketMin || 5) / spanMin);
+    rows.forEach(r => { if (o.band(r)) s += "<rect class=\"band\" x=\"" + (xOf(r.t) - bw / 2).toFixed(1) + "\" y=\"" + (T - 14) + "\" width=\"" + bw.toFixed(1) + "\" height=\"" + (y0 - T + 14) + "\"/>"; });
+  }
   panels.forEach((p, i) => {
     const top = T + i * (PH + GAP), y = v => top + PH * (1 - (Math.min(Math.max(v, p.min), p.max) - p.min) / (p.max - p.min));
     for (let g = p.min; g <= p.max + 1e-9; g += p.step) s += "<line class=\"grid\" x1=\"" + L + "\" x2=\"" + xR + "\" y1=\"" + y(g) + "\" y2=\"" + y(g) + "\"/><text x=\"" + (L - 6) + "\" y=\"" + (y(g) + 4) + "\" text-anchor=\"end\">" + fmt(g, p.step < 1 ? 1 : 0) + "</text>";
@@ -838,15 +891,17 @@ function drawPanels(box, panels, rows, spanMin, now, tipText, aria, opts) {
     if (i > 0) s += "<line class=\"sep\" x1=\"" + (L - 40) + "\" x2=\"" + (W - R) + "\" y1=\"" + (top - GAP / 2) + "\" y2=\"" + (top - GAP / 2) + "\"/>";
     s += "<text class=\"axis\" x=\"" + (L - 6) + "\" y=\"" + (top - 10) + "\" text-anchor=\"end\">" + p.label + "</text>";
     (p.series || []).forEach(([key, cls, name, style], idx) => {
-      let d = "", prev = null, last = null, yPrev = null;
+      let d = "", prev = null, last = null, yPrev = null, first = null;
       rows.forEach(r => {
         if (!has(r[key])) { prev = null; return; }
         const X = xOf(r.t).toFixed(1), Y = y(r[key]).toFixed(1);
         if (prev !== null && r.t - prev < gapMs) d += (style && style.step ? "L" + X + " " + yPrev : "") + "L" + X + " " + Y;
         else d += "M" + X + " " + Y;
-        prev = r.t; yPrev = Y; last = r;
+        prev = r.t; yPrev = Y; last = r; if (!first) first = r;
       });
       if (!last) return;
+      if (style && style.fill)   // the clock as a block: the area under the step, so clock periods read at a glance
+        s += "<path class=\"area\" d=\"" + d + "L" + xOf(last.t).toFixed(1) + " " + y(p.min).toFixed(1) + "L" + xOf(first.t).toFixed(1) + " " + y(p.min).toFixed(1) + "Z\"/>";
       s += "<path class=\"line " + cls + "\" d=\"" + d + "\"/><text class=\"lbl\" x=\"" + (xOf(last.t) - 4) + "\" y=\"" + (y(last[key]) + (idx ? 15 : -6)) + "\" text-anchor=\"end\">" + name + " " + fmt(last[key], p.step < 1 ? 2 : 0) + "</text>";
     });
     if (p.bars) {
@@ -871,10 +926,15 @@ function drawPanels(box, panels, rows, spanMin, now, tipText, aria, opts) {
   if (tk) tk.labels.forEach(l => { const xx = xAtMin(l.m); if (xx > L + 30 && xx < xR - 40) s += "<text x=\"" + xx.toFixed(1) + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"middle\">" + l.text + "</text>"; });
   // markers: what the buttons, the watchdog and the plug did, and each service start (S); hover for the event text
   const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  let lastMarkX = -999;
   eventMarks.filter(m => now - m.t <= spanMin * 60000 && m.t <= now).forEach(m => {
-    const xx = xOf(m.t);
-    s += "<line class=\"mark\" x1=\"" + xx.toFixed(1) + "\" x2=\"" + xx.toFixed(1) + "\" y1=\"" + (T - 4) + "\" y2=\"" + y0 + "\"><title>" + esc(new Date(m.t).toLocaleTimeString() + " " + m.label) + "</title></line>" +
-      "<text class=\"marklbl\" x=\"" + (xx + 3).toFixed(1) + "\" y=\"" + (T + 4) + "\">" + markerGlyph(m.label) + "</text>";
+    const xx = xOf(m.t), words = o.words ? markerWords(m.label) : null;
+    if (o.words && !words) return;                      // on the worded chart, lines not worth a marker get none
+    s += "<line class=\"mark\" x1=\"" + xx.toFixed(1) + "\" x2=\"" + xx.toFixed(1) + "\" y1=\"" + (T - 4) + "\" y2=\"" + y0 + "\"><title>" + esc(new Date(m.t).toLocaleTimeString() + " " + m.label) + "</title></line>";
+    if (o.words) {                                      // words, rotated, on the side away from a close neighbour
+      const side = xx - lastMarkX < 14 ? 11 : -3; lastMarkX = xx;
+      s += "<text class=\"marklbl words\" x=\"" + (xx + side).toFixed(1) + "\" y=\"" + (T - 6) + "\" text-anchor=\"end\" transform=\"rotate(-90 " + (xx + side).toFixed(1) + " " + (T - 6) + ")\">" + esc(words) + "</text>";
+    } else s += "<text class=\"marklbl\" x=\"" + (xx + 3).toFixed(1) + "\" y=\"" + (T + 4) + "\">" + markerGlyph(m.label) + "</text>";
   });
   const id = box.id;
   s += "<line class=\"cross\" id=\"" + id + "-cx\" y1=\"" + T + "\" y2=\"" + y0 + "\" style=\"display:none\"/></svg><div class=\"tip\" id=\"" + id + "-tip\"></div>";
