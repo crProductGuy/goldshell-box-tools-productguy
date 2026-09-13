@@ -1096,3 +1096,19 @@ take that duty over while nobody is watching. Deploy is a `--ff-only`
 merge, the tag, and one restart. Then the live done-when with Mark's
 hands: Hold 20 min and Release, Off then On on the real miner, the log
 lines and a reset tally that does not drop.
+
+**Addendum, 2026-09-13 afternoon: deployed.** Mark, after a morning of
+data: a freeze at 06:46 and the plug's cycle at 07:00, after which chip 8
+threw about 1,040 bad nonces and the board reset 34 times in the first 35
+minutes at 575 MHz, then ran normally for seven hours. His reading was
+"Chip 8 is failing slowly"; the log's reading was one bad cold start
+against six normal ones that week and no upward trend in the steady-state
+rate, with the next cold start at 550 MHz as the test. He had already set
+550 MHz at 14:20. He asked for the record to be completed (a pool-port
+change and its correction, posted as event lines), then: "deploy 0.5.0
+now, merge and restart the service." Fast-forward merge, tag `v0.5.0`,
+worktree removed, one restart at 15:33; the start line reads 0.5.0 and
+the caps carried over. The live done-when with his hands is still open.
+Also found from the same log: the ladder's second soft restart lands about
+10 minutes after the first, not 5, because judging needs a full fresh
+window after the gap; a fix was proposed, not built.
