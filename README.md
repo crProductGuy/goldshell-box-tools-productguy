@@ -24,7 +24,7 @@ KD-BOX, HS-BOX, LT-BOX and relatives running the "cloud-box" MCB_V5 firmware):
   (with a metering plug), temperature, fan speed.
   `gbox trials run 550 575 600 --hours 4` steps through a list unattended
   and backs off to a safe clock at the first board reset
-- a command line: `gbox status | chips | plan | fantarget | restart | trials | power | serve`
+- a command line: `gbox status | chips | plan | fantarget | restart | trials | power | hold | serve`
 
 Born from a diagnosis of an SC-BOX running at 30 percent: one marginal chip was
 resetting the whole board every nine seconds at the factory clock, and the
@@ -85,6 +85,29 @@ the timings and caps in force and names the config file they live in. Arm it wit
 block once you have watched it judge a real freeze. The guide is
 `docs/power-cycle.md`; it also says which plugs and PDUs fit larger miners.
 
+### Planned outages: holds, off and on, a schedule
+
+A planned outage should not look like a freeze. Since 0.5.0 the service
+knows about **holds**: tell it the miner will be unreachable on purpose and
+the watchdog judges nothing until the miner answers twice in a row, the
+hold expires, or you release it. The dashboard's Controls section has a
+Power block for all of it when the page is served; the same things from a
+terminal:
+
+```
+python -m gbox hold 30 --reason "PSU swap"   # before you pull the cord; needs no plug at all
+python -m gbox hold release
+python -m gbox power off                     # switch the miner off on purpose, after typing OFF; stays off until `on`
+python -m gbox power on                      # switch it on; the watchdog waits for the boot
+```
+
+On the page, Off and Cycle ask for the miner password and the service
+checks it with the miner before the relay moves; On and Hold ask for
+nothing. A `schedule` block in the power config switches the miner off and
+on at set times. The reset counter and the rest of the history survive all
+of this: the service logs every poll, and the tiles and the trials table
+sum increments across boots. Details in `docs/power-cycle.md`.
+
 ## The debug page you were never shown
 
 The stock web UI has a hidden page, `http://<miner>/#/debug`, that shows
@@ -123,11 +146,15 @@ throughput number than it looks.
   | System page: factory reset | Never |
 - The service listens on 127.0.0.1 only unless you pass `--bind`. Anyone who
   can open the page can read the miner, write lines into the event log and,
-  with the miner password, press the buttons. The page sends every change
-  to the miner directly; the service only records what happened. The smart
-  plug has no button on the page and no endpoint in the service: a cycle
-  comes from the watchdog's own judgment or from `gbox power cycle` at a
-  terminal.
+  with the miner password, press the buttons. The page sends every settings
+  change to the miner directly; the service only records what happened.
+  The plug is the one thing the service moves for the page: Off and Cycle
+  carry the miner password, which the service checks with the miner before
+  the relay opens; On and Hold need none, because turning a miner on is
+  what the watchdog already does unasked, and a hold only stands the
+  software down. So with `--bind`, someone on your LAN could switch the
+  miner on or ask the watchdog to wait; they could not switch it off or
+  change its clock without the password.
 
 ## How this was built
 

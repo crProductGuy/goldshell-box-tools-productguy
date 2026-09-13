@@ -171,10 +171,75 @@ clock it was on. Then set `"cycle": true` in the `power` block of
 `gbox serve --no-power` ignores the block for one run. Removing the block
 removes the feature; nothing else changes.
 
+## Planned outages: holds, off and on, the schedule
+
+Everything above is recovery: the watchdog acting on its own. Since 0.5.0
+the same relay is also yours to use on purpose, and the watchdog knows the
+difference. Design and reasoning: `power-hold-proposal.md`.
+
+**A hold** tells the service the miner will be unreachable on purpose. While
+it runs, the watchdog judges nothing; the poller keeps logging, so the
+outage is data rather than a mystery. A hold ends when the miner answers
+two samples in a row (about a minute), when it expires, or when you release
+it, whichever comes first. So a swap that runs long keeps the hold,
+and a swap that finishes early lifts it by itself. Holds count against no
+cap. They need no plug: press Hold before you pull the cord.
+
+```
+gbox hold                      # one hour
+gbox hold 20 --reason "cable"  # 1 to 1440 minutes
+gbox hold --no-expiry          # until the miner is back or you release it
+gbox hold release
+```
+
+**Off, On, Cycle** move the plug and start a hold: Off with no expiry (the
+miner stays off, unjudged, until On), On and Cycle for the settle gap so
+the boot is not judged. The watchdog never cycles an open relay, a rule it
+already had, which is what makes an indefinite Off safe. On the page (served
+by `gbox serve`; a browser cannot speak the plug's protocol from a file)
+these are in the Controls section. Off and Cycle ask for the miner
+password, and the service proves it by logging in to the miner before the
+relay moves; if the miner is frozen the page refuses, because that is the
+watchdog's job or `gbox power cycle`'s. On asks for nothing: turning a
+miner on is what the watchdog already does unasked. From a terminal,
+`gbox power off` (typed word `OFF`) and `gbox power on` move the plug
+directly, so they work with the service down; with it up they set the hold
+and write the line.
+
+**The schedule** switches off and on at set local times:
+
+```json
+"power": {
+  ...,
+  "schedule": {"off": "23:00", "on": "06:00", "days": ["mon", "tue", "wed", "thu", "fri"]}
+}
+```
+
+`days` is optional (every day). It acts only at its edges: a service that
+starts inside an off window leaves the miner as it found it, and your On
+inside the window holds until the next off time. Restart the service after
+editing; the Service section prints the schedule in force.
+
+**What survives a power cycle.** The board reset counter, the hardware
+error counters and the share counters in the firmware start over at boot.
+The service's own record does not: it logs them every poll, the trials
+table sums increments per segment, and the tiles sum increments over the
+last hour. Only the miner's own "since boot" figures start again, and the
+page names the boot time next to them.
+
 ## Event lines, in one place
 
 | Line | Meaning |
 |---|---|
+| `hold: started by you until 2026-09-13 07:00:00 (PSU swap)` | a hold with an expiry; `by the schedule` when the schedule set it |
+| `hold: started by you, no expiry (switched off)` | a hold that ends only on the miner's return or a release |
+| `hold: released, miner back after 12 min` | two good samples in a row ended it |
+| `hold: expired after 60 min with the miner still unreachable; watchdog resumed` | the outage outlived the hold |
+| `hold: released by you` | Release on the page or `gbox hold release` |
+| `service: hold picked up from the event log (...)` | the service restarted mid-hold and kept it |
+| `power: switched off by you (page; 197 W before)` / `switched on by you (page)` | the page's buttons; `(gbox power off)` from the CLI; `by the schedule` |
+| `power: cycled by you (page): off 15 s, on (197 W before)` | the page's Cycle button |
+| `power: switch off failed: ...` / `power: schedule could not switch off: ...` | the plug did not take the command |
 | `service: power plug HS110(US) '...', meter yes, dry run: ...` | the plug answered at start |
 | `power: plug unreachable (...)` / `power: plug back` | the plug stopped and resumed answering the poller |
 | `power: would cycle now (...)` | dry run: every condition held |
@@ -187,12 +252,16 @@ removes the feature; nothing else changes.
 | `service: watchdog picked up N restarts and M cycles from the last 24 h of the event log; the daily caps carry on` | the service restarted; the caps did not reset |
 | `dashboard: power: cycled by hand (gbox power cycle; ...)` | you ran the command |
 
-## What the page never does
+## What the page does and does not do
 
-There is no power button on the dashboard, on purpose. The service has no
-endpoint that changes the miner's state, so exposing it with `--bind` is
-exactly as safe as before. A deliberate cycle is a terminal command with a
-typed word.
+Until 0.5.0 there was no power button on the dashboard, because the plug
+has no password of its own for the page to prove. Now there is one, and
+the proof is the miner's password: the service logs in to the miner with
+what you typed before it opens the relay. The service still has no endpoint
+that changes a miner setting, and never gains a clock-changing one. What
+`--bind` exposes: anyone on the LAN can read the miner, write log lines,
+switch the miner on, and ask the watchdog to hold. They cannot switch it
+off, cycle it, or change its clock without the password.
 
 ## A note on Kasa plugs and privacy
 

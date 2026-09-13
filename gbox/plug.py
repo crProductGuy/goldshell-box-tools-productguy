@@ -1,8 +1,10 @@
 """Smart plugs: the driver interface, the Kasa legacy driver, and LAN discovery.
 
 The watchdog uses a plug for the one thing a soft restart cannot do: cut
-power to a controller that has frozen. The dashboard only reads plug state
-and watts; nothing here is reachable from the page.
+power to a controller that has frozen. The dashboard reads plug state and
+watts, and since 0.5.0 can switch the relay through the service's
+password-checked power endpoint (`gbox/power.py`); nothing here is
+reachable from the page directly.
 
 Drivers implement five calls (identify, state, watts, off, on) and are
 tested against a fake. `cycle` is off, wait, on, and attempts `on` even
