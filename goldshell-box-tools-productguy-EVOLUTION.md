@@ -1033,3 +1033,66 @@ Left for the next session: watch the APW3++ reset count against the
 brick's zero; the first freeze on the 5-minute ladder is the test of the
 new timings; then the 0.5.0 plan for other models, the Linux installer,
 the other plug drivers, event-log rotation.
+
+## 2026-09-12 evening to late night, session L: the 0.5.0 plan redirected into holds and planned power, then built unattended
+
+**Mark's brief.** "load the goldshell project", then "start executing 2:
+0.5.0 plan. Any questions?" The 0.5.0 plan on file was the other-models
+work. The first framing question (cut it into one release or two) never
+got its answer, because Mark's next message redirected the whole session:
+"since manual power cycling by me or some user causes loss of the board
+reset counter, what can we do to preserve that? Is there any reason to
+want to put a 'cycle power now' button on the UI? ... The question behind
+the question is how to keep that while enabling low-operator-friction hard
+power off / on as part of normal daily operations, not just recovery from
+'hung'."
+
+**Findings that set the design.** The reset counter is not lost by a cycle:
+the service logs it every poll, the trials table sums per-segment
+increments, and the 0.4.3 hour tile sums row-to-row increments; only the
+firmware's own "since boot" figure drops to zero. The missing piece was
+different: a planned outage looks exactly like a freeze to the watchdog
+(two minutes unreachable, two failed restarts, the plug cycled about
+twelve minutes in, which would turn a deliberately-off miner back on), and
+a cycle by the wall switch was invisible to the log. The argument for a
+button was not convenience but that every power event should pass through
+the one place that records it as the owner's and tells the watchdog.
+
+**Questions and answers.** Daily operation by hand or on a schedule: "c",
+both, schedule second. Mark then raised the shutdown case himself: "a need
+for a 'shut down now' button that informs the software of an impending
+power-down ... so we don't want to have the service reacting to an
+unreachable device that's unreachable for physical reasons." That became
+the hold, with the buttons and the schedule as three ways into one state.
+How a hold ends: the agent recommended explicit release or expiry; Mark
+chose the miner's own return ("B. Less user planning and cognitive load
+... I'd rather the SW detect that the miner is up"), and floated a
+20-minute expiry. The agent argued that under auto-release the expiry only
+covers an abandoned outage, so shorter is not safer, and proposed one hour
+default with 20 min and 4 h on offer; Mark: "Looks good, build it! See you
+in the AM."
+
+**Decisions.** The password rule: Off and Cycle prove the miner's password
+by a login through the service (someone who can prove it can already set
+725 MHz), On and Hold need none. Plug Off is a hold with no expiry, safe
+because the rung already refuses to cycle an open relay. Two good samples
+release a hold, a guess to be calibrated. Version 0.5.0 takes this; the
+other-models work moves to 0.6.0. Spec: `docs/power-hold-proposal.md`.
+
+**Built, test-first, in a worktree, unattended:** the hold on the watchdog
+(seeded from the event log like the caps); `Miner.verify_password_hex`;
+`gbox/power.py` with `PowerControl` (off, on, cycle in a thread) and
+`Scheduler` (edges only); three POST routes and the health fields; the
+page's Power block, dialog path and hold banner, with the interventions
+parser reading the new lines; `gbox hold`, `gbox power off`, `gbox power
+on`; the `schedule` block validated at load and ticked by the poller.
+Every step: failing test, then code. Suites at the docs step: 260 Python
+and 39 JS green.
+
+**Left for the morning, on purpose.** The live service was not restarted
+and `main` was not touched: the watchdog was the thing recovering the
+miner overnight (five freezes that day) and new watchdog code should not
+take that duty over while nobody is watching. Deploy is a `--ff-only`
+merge, the tag, and one restart. Then the live done-when with Mark's
+hands: Hold 20 min and Release, Off then On on the real miner, the log
+lines and a reset tally that does not drop.

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "goldshell-box-tools"
-version = "0.4.3"
+version = "0.5.0"
 description = "Dashboard, logger, watchdog and CLI for Goldshell Box-series miners. Standard library only."
 readme = "README.md"
 license = { text = "MIT" }

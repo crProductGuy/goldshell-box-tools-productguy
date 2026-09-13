@@ -56,8 +56,9 @@ Rules:
 - While held, `check()` judges nothing. `observe()` still records samples
   and counts consecutive good ones.
 - On any release the watchdog's sample window is cleared, so after an
-  expiry it needs a fresh two minutes of unreachable before it acts.
-  Nothing else changes: caps, settle gaps and episodes are untouched.
+  expiry it needs a fresh full window of samples (five minutes at the
+  default poll, the existing rule for gaps) before it acts. Nothing else
+  changes: caps, settle gaps and episodes are untouched.
 - A hold with no expiry is safe because the rung already refuses to cycle
   an open relay. With the relay on, a no-expiry hold on a running miner
   ends within a minute by the two-sample rule, so it cannot silence the

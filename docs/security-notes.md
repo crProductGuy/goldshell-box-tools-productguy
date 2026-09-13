@@ -95,6 +95,20 @@ the firmware's own web UI.
 - The service never exposes the plug: no endpoint switches it, and the
   watchdog only cycles the device whose id was recorded at setup.
 
+## The power and hold endpoints (0.5.0)
+
+The service can now open the plug's relay for the page. The proof is the
+miner's password in its encrypted form, the same string the page already
+sends to the miner's own login: the service logs in with it and discards
+the token. It crosses loopback in plain HTTP by default, which is no wider
+than the login the page makes across the LAN. Off and Cycle need it; On
+and Hold do not. On is what the watchdog already does unasked. A hold only
+stops the software judging, and a hold on a running miner ends within a
+minute by the two-sample rule, so it cannot silence the watchdog on a
+healthy unit; on a dead one it delays recovery until it expires, which is
+the same power a forged `/api/event` line never had but a LAN client with
+`--bind` now does. Loopback-only by default, as before.
+
 ## Network posture
 
 - The web backend answers any origin (`Access-Control-Allow-Origin: *`).
