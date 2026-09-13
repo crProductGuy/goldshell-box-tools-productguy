@@ -451,6 +451,47 @@ const tests = {
     assert.strictEqual(app.resetsTip(rows[1], 30), "16:30 to 17:00 · no samples");
     assert.strictEqual(app.clockTip(rows[1], 30), "16:30 to 17:00 · no samples");
   },
+  "errorFacts: the worst half hour, resets over the window, and the bad share over the last day"() {
+    const T = (h, m, d) => "2026-09-" + String(d).padStart(2, "0") + " " + String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+    const b = (t, good, bad, resets, worst) => ({ t, samples: 60, errors: 0, hashrate: 7e5, fan0: 1, fan1: 1, chip_temp: 60, board_temp: 55, watts: 190, clock: 550,
+      good, bad, share: good + bad ? 100 * bad / (good + bad) : null, resets, worst });
+    const rows = app.seriesRows({ bucket_minutes: 30, buckets: [
+      b(T(7, 0, 11), 1000, 1, 0, { chip: "0.8", good: 60, bad: 1, share: 1.6 }),
+      b(T(7, 0, 13), 1400, 140, 34, { chip: "0.8", good: 500, bad: 610, share: 54.95 }),          // Sunday 07:00, the cold start
+      b(T(16, 0, 13), 5146, 9, 46, { chip: "0.8", good: 320, bad: 4, share: 1.23 }),
+      { t: T(17, 0, 13), samples: 0, errors: 0, hashrate: null, fan0: null, fan1: null, chip_temp: null, board_temp: null, watts: null, clock: null, good: null, bad: null, share: null, resets: null, worst: null }] });
+    const now = new Date(2026, 8, 13, 19, 45).getTime();
+    const f = app.errorFacts(rows, 30, now);
+    assert.strictEqual(f.worst.label, "Sun 07:00");
+    assert.strictEqual(f.worst.share.toFixed(1), "9.1");
+    assert.strictEqual(f.worst.chip, "0.8");
+    assert.strictEqual(f.worst.chipShare.toFixed(1), "55.0");
+    assert.strictEqual(f.worst.resets, 34);
+    assert.strictEqual(f.resets, 80);
+    assert.strictEqual(f.resetWindows, 2);
+    assert.strictEqual(f.share24.toFixed(3), ((100 * 149 / (6546 + 149))).toFixed(3));     // the 11th is outside the last 24 h
+    assert.strictEqual(app.errorFacts([], 30, now).worst, null);
+  },
+  "markerWords: short words for the event line under a worded marker, empty for lines not worth a marker"() {
+    const w = app.markerWords;
+    assert.strictEqual(w("power: cycled #3 today: off 15 s, on (miner unreachable for 2 min; 36 W before)"), "plug cycle");
+    assert.strictEqual(w("power: cycled by you (page): off 15 s, on (197 W before)"), "cycle");
+    assert.strictEqual(w("power: switched off by you (page; 191 W before)"), "off");
+    assert.strictEqual(w("power: switched on by the schedule"), "on");
+    assert.strictEqual(w("dashboard: clock set to 550 MHz (plan \"550 MHz 0.41 V 90 RPM 90 RPM\", was \"575 MHz 0.41 V 90 RPM 90 RPM\")"), "clock 550");
+    assert.strictEqual(w("dashboard: fan target set to 66 C (was 65)"), "fan 66");
+    assert.strictEqual(w("dashboard: switched to preset 0 (725 MHz 0.41 V 70 RPM 70 RPM); was manual"), "preset 0");
+    assert.strictEqual(w("dashboard: soft restart sent"), "restart");
+    assert.strictEqual(w("dashboard: power: cycled by hand (gbox power cycle; 187 W before)"), "cycle");
+    assert.strictEqual(w("dashboard: power: switched off by hand (gbox power off; 188 W before)"), "off");
+    assert.strictEqual(w("watchdog: restart #8 sent (accepted shares frozen for 5 min)"), "watchdog restart");
+    assert.strictEqual(w("watchdog: restart attempt failed: PUT mcb/restart: timed out (miner unreachable for 2 min)"), "restart failed");
+    assert.strictEqual(w("service: started v0.6.0, miner x, poll 30s, watchdog on, power plug armed, listening on 127.0.0.1:8765"), "start 0.6.0");
+    assert.strictEqual(w("hold: started by you until 2026-09-13 16:01:21 (first test)"), "hold");
+    assert.strictEqual(w("hold: released, miner hashing again after 1 min"), "");
+    assert.strictEqual(w("power: plug back"), "");
+    assert.strictEqual(w("dashboard: PSU swap by hand: 360 W fanless PSU replaced"), "note");
+  },
   "axisTicks: hours back for short spans, wall-clock labels with the date at midnight for long ones"() {
     const now = new Date(2026, 8, 13, 19, 40, 0).getTime();
     const short = app.axisTicks(288, now, true);
