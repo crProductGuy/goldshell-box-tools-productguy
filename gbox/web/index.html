@@ -62,17 +62,17 @@
     <p class="note">Chip temperature is the one to watch: it is what the silicon sees. The board sensor reads lower and is shown because the fan controller steers on it. Markers: ▼ a dashboard button, W the watchdog, P the plug, S a service start (a gap after an S means the service was down, not the miner); hover one for the event text. <span id="fanpctnote"></span></p>
   </section>
 
-  <section id="errors" hidden>
-    <h2>Errors over three days<span id="errsub">bad share of all chips and of the worst chip per half hour, the clock, and board resets, from the service log</span></h2>
-    <div class="chart" id="errchart"></div>
-    <p class="note">Bad share is bad nonces over all nonces in each half hour, summed from the log's counters across boots, so it means the same thing at every clock. Resets are the board's reinitializations in that half hour: a burst with a flat share is the chain going silent, not bad nonces. The worst chip is named board.chip; before 0.6.0 the log only named chips the firmware flagged, so older half hours may show none. Hover for the counts.</p>
-  </section>
-
   <section id="power" hidden>
     <h2>Power at the wall<span id="wattsub">from the gbox service log, same time scale as above</span></h2>
     <div class="chart" id="wattchart"></div>
     <p class="note" id="powernote"></p>
     <p class="note">The reading comes from a TP-Link Kasa smart plug on its original local protocol; no cloud account, nothing leaves the LAN. Kasa plugs this tool can read a meter from: <b>KP115, KP125</b> and the end-of-life <b>HS110</b>. Metering plugs whose newer firmware needs the TP-Link account (KLAP), not driven yet: KP125M, EP25; the HS300 strip meters per outlet and is not supported. Plugs that only switch, still fine for power-cycling but with no meter: HS100 (end of life), HS103, HS105, KP100, KP105, KP401, EP10, the outdoor EP40, EP40A and EP40M, and the strips HS107, KP200, KP303, KP400. TP-Link's Kasa plug listing: <a href="https://www.kasasmart.com/us/products/smart-plugs" rel="noopener">kasasmart.com/us/products/smart-plugs</a> (the three marked "Slim with Energy Monitoring" are the metering ones). How to set one up: <code>docs/power-cycle.md</code>.</p>
+  </section>
+
+  <section id="errors" hidden>
+    <h2>Errors over three days<span id="errsub">bad share of all chips and of the worst chip per half hour, the clock, and board resets, from the service log</span></h2>
+    <div class="chart" id="errchart"></div>
+    <p class="note">Bad share is bad nonces over all nonces in each half hour, summed from the log's counters across boots, so it means the same thing at every clock. Resets are the board's reinitializations in that half hour: a burst with a flat share is the chain going silent, not bad nonces. The worst chip is named board.chip; before 0.6.0 the log only named chips the firmware flagged, so older half hours may show none. Hover for the counts.</p>
   </section>
 
   <div class="two">

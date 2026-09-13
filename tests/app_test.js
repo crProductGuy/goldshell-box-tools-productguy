@@ -440,6 +440,17 @@ const tests = {
     assert.strictEqual(app.errorTip(rows[1], 30), "16:30 to 17:00 · counts need a previous sample · 550 MHz");
     assert.strictEqual(app.errorTip(rows[2], 30), "17:00 to 17:30 · no samples");
   },
+  "resetsTip and clockTip: the panel under the cursor leads the tooltip"() {
+    const rows = app.seriesRows({ bucket_minutes: 30, buckets: [
+      { t: "2026-09-13 16:00", samples: 60, errors: 0, hashrate: 699000, fan0: 1, fan1: 1, chip_temp: 61, board_temp: 55, watts: 186,
+        clock: 550, good: 5146, bad: 9, share: 0.1747, resets: 46, worst: { chip: "0.8", good: 320, bad: 4, share: 1.2346 } },
+      { t: "2026-09-13 16:30", samples: 0, errors: 0, hashrate: null, fan0: null, fan1: null, chip_temp: null, board_temp: null, watts: null,
+        clock: null, good: null, bad: null, share: null, resets: null, worst: null }] });
+    assert.strictEqual(app.resetsTip(rows[0], 30), "16:00 to 16:30 · 46 resets · bad 9 of 5,155 (0.17%) · 550 MHz");
+    assert.strictEqual(app.clockTip(rows[0], 30), "16:00 to 16:30 · 550 MHz · bad 0.17% · 46 resets");
+    assert.strictEqual(app.resetsTip(rows[1], 30), "16:30 to 17:00 · no samples");
+    assert.strictEqual(app.clockTip(rows[1], 30), "16:30 to 17:00 · no samples");
+  },
   "axisTicks: hours back for short spans, wall-clock labels with the date at midnight for long ones"() {
     const now = new Date(2026, 8, 13, 19, 40, 0).getTime();
     const short = app.axisTicks(288, now, true);

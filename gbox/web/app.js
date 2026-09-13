@@ -415,6 +415,19 @@ function errorTip(row, bucketMin) {
   return win + " · bad " + nfmt(row.bad) + " of " + nfmt(row.good + row.bad) + " (" + nfmt(row.share, 2) + "%)" + w + clock + " · " + nfmt(row.resets) + " reset" + (row.resets === 1 ? "" : "s");
 }
 function w_text(w) { return w.chip + ": " + nfmt(w.bad) + " of " + nfmt(w.good + w.bad) + " (" + nfmt(w.share, 2) + "%)"; }
+// The same bucket, led by what the panel under the cursor shows: resets first in the resets panel, the clock first in the clock panel.
+function bucketWindow(row, bucketMin) { return clockLabel(row.t - bucketMin * 30000) + " to " + clockLabel(row.t + bucketMin * 30000); }
+function resetsTip(row, bucketMin) {
+  const win = bucketWindow(row, bucketMin);
+  if (!row.ok) return win + " · no samples";
+  const bad = row.bad == null ? "" : " · bad " + nfmt(row.bad) + " of " + nfmt(row.good + row.bad) + " (" + nfmt(row.share, 2) + "%)";
+  return win + " · " + (row.resets == null ? "resets need a previous sample" : nfmt(row.resets) + " reset" + (row.resets === 1 ? "" : "s")) + bad + (row.clock == null ? "" : " · " + nfmt(row.clock) + " MHz");
+}
+function clockTip(row, bucketMin) {
+  const win = bucketWindow(row, bucketMin);
+  if (!row.ok) return win + " · no samples";
+  return win + (row.clock == null ? "" : " · " + nfmt(row.clock) + " MHz") + (row.share == null ? "" : " · bad " + nfmt(row.share, 2) + "%") + (row.resets == null ? "" : " · " + nfmt(row.resets) + " reset" + (row.resets === 1 ? "" : "s"));
+}
 // Tick and label plan for a time axis of `spanMin` minutes ending at `now`: hours-back labels for a few hours, wall-clock
 // labels (with the date at midnight) for a day or more.
 function axisTicks(spanMin, now, wide) {
@@ -461,7 +474,7 @@ function holdLine(h) {
 }
 if (typeof module !== "undefined") module.exports = { VERSION, clockLabel, newestFirst, ladderLine, encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
-  powerActionRequest, holdRequest, holdReleaseRequest, holdLine, seriesRows, errorTip, axisTicks, parseStamp,
+  powerActionRequest, holdRequest, holdReleaseRequest, holdLine, seriesRows, errorTip, resetsTip, clockTip, axisTicks, parseStamp,
   markerGlyph, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf,
   powerTile, envRowsFrom, lastHour, recentHashrate, interventions, interventionCounts };
 
@@ -698,7 +711,13 @@ function rightAxis(xR, y, top, max, rated, title) {
     s += "<line class=\"raxis\" x1=\"" + xR + "\" x2=\"" + (xR + 4) + "\" y1=\"" + y(v).toFixed(1) + "\" y2=\"" + y(v).toFixed(1) + "\"/>" +
       "<text class=\"rlbl\" x=\"" + (xR + 7) + "\" y=\"" + (y(v) + 4).toFixed(1) + "\">" + p + "%</text>";
   });
-  return s + "<text class=\"rlbl\" x=\"" + (xR + 46) + "\" y=\"" + (top - 10) + "\" text-anchor=\"end\">" + title + "</text>";
+  return s + "<text class=\"rlbl axis\" x=\"" + (xR + 46) + "\" y=\"" + (top - 10) + "\" text-anchor=\"end\">" + title + "</text>";
+}
+// Tooltip placement: to the right of the cursor, or to its left when the text would run off the chart's right edge.
+function placeTip(tip, xPx, yPx, boxWidth) {
+  const tw = tip.offsetWidth || 200;
+  tip.style.left = (xPx + 12 + tw > boxWidth ? Math.max(0, xPx - 12 - tw) : xPx + 12) + "px";
+  tip.style.top = yPx + "px";
 }
 function renderChart(hist) {
   if (service && series24) return renderHashrateSeries();
@@ -725,7 +744,7 @@ function renderChart(hist) {
     if (m === 0) s += "<text x=\"" + xx + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"end\">now</text><text x=\"" + xx + "\" y=\"" + (y0 + 34) + "\" text-anchor=\"end\">" + clockLabel(lastHistoryAt || Date.now()) + "</text>";
     else if (m % labelEvery === 0 && xx > L + 24) s += "<text x=\"" + xx + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"middle\">-" + (m / 60) + " h</text>";
   }
-  s += "<text x=\"" + (L - 6) + "\" y=\"" + (T - 12) + "\" text-anchor=\"end\">" + unit + "</text>";
+  s += "<text class=\"axis\" x=\"" + (L - 6) + "\" y=\"" + (T - 12) + "\" text-anchor=\"end\">" + unit + "</text>";
   if (ratedV) s += rightAxis(xR, y, T, yMax, ratedV, "% of rated");
   s += "<line class=\"cross\" id=\"cx\" y1=\"" + T + "\" y2=\"" + (H - B) + "\" style=\"display:none\"/><circle class=\"dot\" id=\"cdot\" r=\"4\" style=\"display:none\"/></svg><div class=\"tip\" id=\"tip\"></div>";
   box.innerHTML = s;
@@ -737,7 +756,7 @@ function renderChart(hist) {
     dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(data[i])); dot.style.display = "";
     const pct = ratedV ? " · " + fmt(100 * data[i] / ratedV) + "% of rated" : "";
     tip.style.display = "block"; tip.textContent = fmt(data[i], div === 1 ? 0 : 1) + " " + unit + pct + " · " + minutesBack(i) + " min ago";
-    tip.style.left = Math.min(x(i) * r.width / W + 12, r.width - 150) + "px"; tip.style.top = (y(data[i]) * r.height / H - 30) + "px";
+    placeTip(tip, x(i) * r.width / W, y(data[i]) * r.height / H - 30, r.width);
   };
   svg.onmouseleave = () => { tip.style.display = "none"; cx.style.display = "none"; dot.style.display = "none"; };
 }
@@ -782,9 +801,9 @@ function renderErrors() {
   const mx = k => Math.max.apply(null, rows.map(r => r[k]).filter(v => v !== null && v !== undefined).concat([0]));
   const shareMax = niceMax(Math.max(mx("share"), mx("worst_share"), 0.5) * 1.05), clockMax = niceMax(mx("clock") * 1.1) || 800, resetMax = niceMax(Math.max(mx("resets"), 4) * 1.1);
   const panels = [
-    { label: "% bad", min: 0, max: shareMax, step: shareMax / 4, series: [["share", "", "all chips"], ["worst_share", "s2", "worst chip"]], rated: null },
-    { label: "MHz", min: 0, max: clockMax, step: clockMax / 4, series: [["clock", "s3", "clock", { step: true }]], rated: null },
-    { label: "resets", min: 0, max: resetMax, step: resetMax / 4, series: [], bars: "resets", rated: null } ];
+    { label: "% bad", min: 0, max: shareMax, step: shareMax / 4, series: [["share", "", "all chips"], ["worst_share", "s2", "worst chip"]], rated: null, tip: best => errorTip(best, bm) },
+    { label: "MHz", min: 0, max: clockMax, step: clockMax / 4, series: [["clock", "s3", "clock", { step: true }]], rated: null, tip: best => clockTip(best, bm) },
+    { label: "resets", min: 0, max: resetMax, step: resetMax / 4, series: [], bars: "resets", rated: null, tip: best => resetsTip(best, bm) } ];
   drawPanels(box, panels, rows, spanMin, now, best => errorTip(best, bm), "errors over three days", servedOpts(box, spanMin, bm));
 }
 // The hashrate chart when served: 24 hours of 5-minute means from the log, with the rated axis.
@@ -815,7 +834,9 @@ function drawPanels(box, panels, rows, spanMin, now, tipText, aria, opts) {
   panels.forEach((p, i) => {
     const top = T + i * (PH + GAP), y = v => top + PH * (1 - (Math.min(Math.max(v, p.min), p.max) - p.min) / (p.max - p.min));
     for (let g = p.min; g <= p.max + 1e-9; g += p.step) s += "<line class=\"grid\" x1=\"" + L + "\" x2=\"" + xR + "\" y1=\"" + y(g) + "\" y2=\"" + y(g) + "\"/><text x=\"" + (L - 6) + "\" y=\"" + (y(g) + 4) + "\" text-anchor=\"end\">" + fmt(g, p.step < 1 ? 1 : 0) + "</text>";
-    s += "<text x=\"" + (L - 6) + "\" y=\"" + (top - 10) + "\" text-anchor=\"end\">" + p.label + "</text>";
+    s += "<rect class=\"panelhl\" id=\"" + box.id + "-hl" + i + "\" x=\"" + L + "\" y=\"" + (top - 14) + "\" width=\"" + (xR - L) + "\" height=\"" + (PH + 14) + "\" style=\"display:none\"/>";
+    if (i > 0) s += "<line class=\"sep\" x1=\"" + (L - 40) + "\" x2=\"" + (W - R) + "\" y1=\"" + (top - GAP / 2) + "\" y2=\"" + (top - GAP / 2) + "\"/>";
+    s += "<text class=\"axis\" x=\"" + (L - 6) + "\" y=\"" + (top - 10) + "\" text-anchor=\"end\">" + p.label + "</text>";
     (p.series || []).forEach(([key, cls, name, style], idx) => {
       let d = "", prev = null, last = null, yPrev = null;
       rows.forEach(r => {
@@ -858,15 +879,19 @@ function drawPanels(box, panels, rows, spanMin, now, tipText, aria, opts) {
   const id = box.id;
   s += "<line class=\"cross\" id=\"" + id + "-cx\" y1=\"" + T + "\" y2=\"" + y0 + "\" style=\"display:none\"/></svg><div class=\"tip\" id=\"" + id + "-tip\"></div>";
   box.innerHTML = s;
-  const svg = box.querySelector("svg"), tip = $(id + "-tip"), cx = $(id + "-cx");
+  const svg = box.querySelector("svg"), tip = $(id + "-tip"), cx = $(id + "-cx"), hls = panels.map((p, i) => $(id + "-hl" + i));
   svg.onmousemove = e => {
-    const rct = svg.getBoundingClientRect(), px = (e.clientX - rct.left) * W / rct.width, tAt = now - (1 - (px - L) / (xR - L)) * spanMin * 60000;
+    const rct = svg.getBoundingClientRect(), px = (e.clientX - rct.left) * W / rct.width, py = (e.clientY - rct.top) * H / rct.height;
+    const tAt = now - (1 - (px - L) / (xR - L)) * spanMin * 60000;
     let best = rows[0]; rows.forEach(r => { if (Math.abs(r.t - tAt) < Math.abs(best.t - tAt)) best = r; });
+    // the panel under the cursor leads the tooltip and is lifted; anywhere in a panel's height counts, not only its bars
+    let pi = 0; panels.forEach((p, i) => { const top = T + i * (PH + GAP); if (py >= top - GAP / 2) pi = i; });
+    hls.forEach((h, i) => { if (h) h.style.display = i === pi ? "" : "none"; });
     const xx = xOf(best.t); cx.setAttribute("x1", xx); cx.setAttribute("x2", xx); cx.style.display = "";
-    tip.style.display = "block"; tip.textContent = tipText(best);
-    tip.style.left = Math.min(xx * rct.width / W + 12, rct.width - 330) + "px"; tip.style.top = (e.clientY - rct.top - 30) + "px";
+    tip.style.display = "block"; tip.textContent = panels[pi].tip ? panels[pi].tip(best) : tipText(best);
+    placeTip(tip, xx * rct.width / W, e.clientY - rct.top - 30, rct.width);
   };
-  svg.onmouseleave = () => { tip.style.display = "none"; cx.style.display = "none"; };
+  svg.onmouseleave = () => { tip.style.display = "none"; cx.style.display = "none"; hls.forEach(h => { if (h) h.style.display = "none"; }); };
 }
 function renderEnv() {
   const box = $("envchart"); if (!envRows || !lastHistory) return;
