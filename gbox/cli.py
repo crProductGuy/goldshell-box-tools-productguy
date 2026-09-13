@@ -7,8 +7,11 @@
     gbox fantarget 65              fan controller target on the board sensor
     gbox restart                   soft restart
     gbox trials                    error and throughput per clock, from the service log
-    gbox power discover|init|status|cycle
-                                   a smart plug that can cut power to a frozen controller
+    gbox power discover|init|status|cycle|off|on
+                                   a smart plug that can cut power to a frozen controller,
+                                   and switch the miner off and on by hand
+    gbox hold [MINUTES|release]    tell the running service the miner will be unreachable on
+                                   purpose, so the watchdog stands down until it is back
     gbox serve                     dashboard + logger + watchdog in one process
 
 Commands that talk to the miner prompt for the web UI password unless the
@@ -234,10 +237,63 @@ def _service_event(cfg, text):
         return False
 
 
+def _service_post(cfg, path, body):
+    """POST JSON to the running service. Returns (status, parsed body or None); (None, None) when nothing answers."""
+    import json
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(_service_url(cfg) + path, data=json.dumps(body).encode("utf-8"), method="POST",
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            raw = r.read()
+            return r.status, (json.loads(raw) if raw else None)
+    except urllib.error.HTTPError as e:
+        raw = e.read()
+        try:
+            return e.code, (json.loads(raw) if raw else None)
+        except ValueError:
+            return e.code, None
+    except Exception:
+        return None, None
+
+
+def _service_hold(cfg, minutes, reason):
+    """Ask the running service for a hold (docs/power-hold-proposal.md). Returns one line for the terminal."""
+    status, body = _service_post(cfg, "/api/hold", {"minutes": minutes, "reason": reason})
+    if status == 200:
+        return "the service holds the watchdog (%s) until the miner answers twice in a row" % (
+            "no expiry" if minutes is None else "%d min" % minutes)
+    if status is None:
+        return "(service not reachable: no hold, and nothing was logged)"
+    return "the service refused the hold: %s" % (body.get("error") if isinstance(body, dict) else "HTTP %s" % status)
+
+
+def _confirm_word(word):
+    """Ask for a typed word on a terminal; die otherwise. Nothing is sent unless it matches."""
+    if not sys.stdin or not sys.stdin.isatty():
+        _die("no terminal to confirm on; nothing sent")
+    try:
+        typed = input("type %s to confirm: " % word).strip()
+    except EOFError:
+        typed = ""
+    if typed != word:
+        _die("not confirmed; nothing sent")
+
+
 def _configured_plug(cfg):
     if cfg.power is None:
         _die("no plug configured: `gbox power discover` to find it, then `gbox power init --plug <address>`")
     return plugmod.make(cfg.power)
+
+
+def _plug_checked(cfg):
+    """The configured plug and its identity, or die when it is not the recorded device."""
+    p = _configured_plug(cfg)
+    info = p.identify()
+    if info["device_id"] != cfg.power.get("device_id"):
+        _die("the plug at %s is not the device id recorded by `gbox power init`; nothing sent" % cfg.power["host"])
+    return p, info
 
 
 def _fmt_watts(w):
@@ -304,37 +360,79 @@ def cmd_power_status(args, cfg, data_dir):
 
 
 def cmd_power_cycle(args, cfg, data_dir):
-    p = _configured_plug(cfg)
-    off_seconds = args.off_seconds if args.off_seconds is not None else cfg.power["off_seconds"]
+    off_seconds = args.off_seconds if args.off_seconds is not None else cfg.power["off_seconds"] if cfg.power else 15
     if not 3 <= off_seconds <= 120:
         _die("--off-seconds must be 3 to 120")
-    info = p.identify()
-    if info["device_id"] != cfg.power.get("device_id"):
-        _die("the plug at %s is not the device id recorded by `gbox power init`; nothing sent" % cfg.power["host"])
+    p, info = _plug_checked(cfg)
     w = p.watts() if info["meter"] else None
     _out("about to cut power to %s '%s' for %d s. It reads %s now%s." % (
         info["model"], info["alias"], off_seconds, _fmt_watts(w),
         "" if w is None or w < cfg.power["idle_watts"] else " (that looks like a miner hashing, not a hung one)"))
-    if not sys.stdin or not sys.stdin.isatty():
-        _die("no terminal to confirm on; nothing sent")
-    try:
-        word = input("type CYCLE to confirm: ").strip()
-    except EOFError:
-        word = ""
-    if word != "CYCLE":
-        _die("not confirmed; nothing sent")
+    _confirm_word("CYCLE")
+    hold = _service_hold(cfg, cfg.power["settle_minutes"], "power cycle by hand")
     p.cycle(off_seconds)
     line = "power: cycled by hand (gbox power cycle; %s before)" % _fmt_watts(w)
     _out("cycled: off %d s, then on. The SC-BOX is back hashing in about a minute (60 to 66 s measured); allow two or three on other units." % off_seconds)
+    _out(hold)
     if _service_event(cfg, line):
         _out("event line written to the service log")
     else:
         _out("(service not reachable: nothing was logged)")
 
 
+def cmd_power_off(args, cfg, data_dir):
+    p, info = _plug_checked(cfg)
+    w = p.watts() if info["meter"] else None
+    _out("about to switch off %s '%s'. It reads %s now%s. The miner stays off until `gbox power off` is followed by `gbox power on`." % (
+        info["model"], info["alias"], _fmt_watts(w),
+        "" if w is None or w < cfg.power["idle_watts"] else " (that looks like a miner hashing, not a hung one)"))
+    _confirm_word("OFF")
+    p.off()
+    _out("switched off.", _service_hold(cfg, None, "switched off by hand"))
+    if _service_event(cfg, "power: switched off by hand (gbox power off; %s before)" % _fmt_watts(w)):
+        _out("event line written to the service log")
+
+
+def cmd_power_on(args, cfg, data_dir):
+    p, info = _plug_checked(cfg)
+    p.on()
+    _out("switched on %s '%s'. The SC-BOX is back hashing in about a minute; allow two or three on other units." % (info["model"], info["alias"]))
+    _out(_service_hold(cfg, cfg.power["settle_minutes"], "switched on by hand"))
+    if _service_event(cfg, "power: switched on by hand (gbox power on)"):
+        _out("event line written to the service log")
+
+
 def cmd_power(args, cfg, data_dir):
     return {"discover": cmd_power_discover, "init": cmd_power_init, "status": cmd_power_status,
-            "cycle": cmd_power_cycle}[args.power_cmd](args, cfg, data_dir)
+            "cycle": cmd_power_cycle, "off": cmd_power_off, "on": cmd_power_on}[args.power_cmd](args, cfg, data_dir)
+
+
+def cmd_hold(args, cfg, data_dir):
+    if args.minutes == "release":
+        status, body = _service_post(cfg, "/api/hold/release", {})
+        if status is None:
+            _die("service not running (or not at %s): nothing to release" % _service_url(cfg), 2)
+        if status != 200:
+            _die(body.get("error") if isinstance(body, dict) else "HTTP %s" % status)
+        _out("hold released: the watchdog judges again once it has a fresh window of samples")
+        return
+    minutes = None
+    if not args.no_expiry:
+        try:
+            minutes = int(args.minutes if args.minutes is not None else 60)
+        except ValueError:
+            _die("minutes must be a whole number, or 'release'")
+        if not 1 <= minutes <= 1440:
+            _die("minutes must be 1 to 1440 (use --no-expiry for an open-ended hold)")
+    status, body = _service_post(cfg, "/api/hold", {"minutes": minutes, "reason": args.reason or ""})
+    if status is None:
+        _die("service not running (or not at %s): a hold needs `gbox serve` running" % _service_url(cfg), 2)
+    if status != 200:
+        _die(body.get("error") if isinstance(body, dict) else "HTTP %s" % status)
+    h = body["hold"]
+    _out("held %s%s: the watchdog judges nothing until the miner answers twice in a row%s." % (
+        ("until " + h["until"]) if h["until"] else "with no expiry", (" (%s)" % h["reason"]) if h["reason"] else "",
+        " or the hold expires" if h["until"] else ", or you run `gbox hold release`"))
 
 
 def cmd_serve(args, cfg, data_dir):
@@ -477,7 +575,18 @@ def build_parser():
     psub.add_parser("status", help="relay, watts, dry run or armed, cycles today")
     c = psub.add_parser("cycle", help="cut power and restore it, after typing CYCLE")
     c.add_argument("--off-seconds", type=int, help="relay open this long (default: config, %d)" % config.DEFAULT_POWER["off_seconds"])
+    psub.add_parser("off", help="switch the plug off, after typing OFF; the miner stays off, unjudged, until `power on`")
+    psub.add_parser("on", help="switch the plug on; the watchdog waits the settle gap for the boot")
     sp.set_defaults(fn=cmd_power)
+
+    sp = sub.add_parser("hold", help="tell the running service the miner will be unreachable on purpose",
+                        description="A hold stands the watchdog down until the miner answers twice in a row, the hold "
+                                    "expires, or you release it. Use it before pulling the cord, swapping a power supply, "
+                                    "or moving the unit. Needs `gbox serve` running.")
+    sp.add_argument("minutes", nargs="?", help="how long, 1 to 1440 (default 60); or 'release' to end a hold")
+    sp.add_argument("--reason", help="why, for the event log")
+    sp.add_argument("--no-expiry", action="store_true", help="hold until the miner is back or you release it")
+    sp.set_defaults(fn=cmd_hold)
 
     sp = sub.add_parser("serve", help="run dashboard, logger and watchdog")
     sp.add_argument("--bind", help="listen address (default 127.0.0.1; anything else is exposed)")

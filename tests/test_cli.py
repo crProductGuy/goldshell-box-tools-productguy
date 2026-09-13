@@ -260,5 +260,117 @@ class PowerCycleEventTest(TrialsRunCommandTest):
     test_bad_clock_dies_before_sending = None
 
 
+class HoldAndPowerCommandTest(unittest.TestCase):
+    """`gbox hold`, `gbox power off` and `gbox power on` against a scratch service with a watchdog and the fake plug."""
+
+    def setUp(self):
+        import os
+        import sys
+        import threading
+        from gbox import api, config
+        from gbox.events import EventLog
+        from gbox.poller import Poller
+        from gbox.server import ServiceState, make_server
+        from gbox.watchdog import Watchdog
+        from tests.fake_miner import FakeMiner
+        from tests.fake_plug import FakePlug
+        self.fm = FakeMiner().start()
+        self.addCleanup(self.fm.stop)
+        self.fake = FakePlug().start()
+        self.addCleanup(self.fake.stop)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.data = Path(self.tmp.name)
+        cfg = config.Config(host=self.fm.address, port=0, power={"host": self.fake.address, "device_id": self.fake.device_id})
+        miner = api.Miner(self.fm.address, password="password")
+        self.events = EventLog(self.data / "events.log")
+        self.wd = Watchdog(miner.restart, self.events, 30)
+        self.poller = Poller(miner, self.data / "log.csv", 30, events=self.events, watchdog=self.wd)
+        self.srv = make_server(ServiceState(cfg, miner, self.data, poller=self.poller, watchdog=self.wd, events=self.events))
+        self.addCleanup(self.srv.server_close)
+        self.addCleanup(self.srv.shutdown)
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        cfg.port = self.srv.server_address[1]
+        config.save(cfg, self.data)
+        self.cfg = cfg
+        os.environ["GBOX_PASSWORD"] = "password"
+        self.addCleanup(os.environ.pop, "GBOX_PASSWORD", None)
+        self._stdin = sys.stdin
+        self.addCleanup(setattr, sys, "stdin", self._stdin)
+
+    def run_cli(self, *argv, stdin=None):
+        import sys
+        if stdin is not None:
+            sys.stdin = stdin
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.main(["--data", self.tmp.name] + list(argv))
+        return out.getvalue()
+
+    def run_cli_dies(self, *argv, stdin=None):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as cm:
+            self.run_cli(*argv, stdin=stdin)
+        return cm.exception.code, err.getvalue()
+
+    def events_text(self):
+        return (self.data / "events.log").read_text(encoding="utf-8")
+
+    def test_hold_and_release(self):
+        text = self.run_cli("hold", "30", "--reason", "PSU swap")
+        self.assertIn("held", text.lower())
+        self.assertEqual(self.wd.hold_info()["minutes_left"], 30)
+        self.assertEqual(self.wd.hold_info()["reason"], "PSU swap")
+        text = self.run_cli("hold", "release")
+        self.assertIn("released", text)
+        self.assertIsNone(self.wd.hold)
+        self.assertIn("hold: started by you until", self.events_text())
+        self.assertIn("hold: released by you", self.events_text())
+
+    def test_hold_defaults_to_an_hour_and_no_expiry_is_a_flag(self):
+        self.run_cli("hold")
+        self.assertEqual(self.wd.hold_info()["minutes_left"], 60)
+        self.run_cli("hold", "--no-expiry")
+        self.assertIsNone(self.wd.hold_info()["until"])
+
+    def test_hold_without_the_service_exits_2(self):
+        from gbox import config
+        self.cfg.port = 1
+        config.save(self.cfg, self.data)
+        code, err = self.run_cli_dies("hold", "20")
+        self.assertEqual(code, 2)
+        self.assertIn("service", err)
+
+    def test_hold_rejects_bad_minutes(self):
+        code, err = self.run_cli_dies("hold", "0")
+        self.assertEqual(code, 1)
+        code, err = self.run_cli_dies("hold", "soon")
+        self.assertEqual(code, 1)
+        self.assertIsNone(self.wd.hold)
+
+    def test_power_off_with_the_word_then_on(self):
+        text = self.run_cli("power", "off", stdin=FakeTTY("OFF\n"))
+        self.assertEqual(self.fake.relay, 0)
+        self.assertIn("switched off", text)
+        self.assertIsNone(self.wd.hold_info()["until"])
+        self.assertIn("power: switched off by hand (gbox power off; 188 W before)", self.events_text())
+        text = self.run_cli("power", "on")
+        self.assertEqual(self.fake.relay, 1)
+        self.assertIn("switched on", text)
+        self.assertEqual(self.wd.hold_info()["minutes_left"], 20)
+        self.assertIn("power: switched on by hand (gbox power on)", self.events_text())
+
+    def test_power_off_refuses_without_the_word(self):
+        code, err = self.run_cli_dies("power", "off", stdin=FakeTTY("yes\n"))
+        self.assertEqual(code, 1)
+        self.assertEqual(self.fake.relay, 1)
+        self.assertIsNone(self.wd.hold)
+
+    def test_power_cycle_by_hand_sets_a_settle_hold(self):
+        self.run_cli("power", "cycle", "--off-seconds", "3", stdin=FakeTTY("CYCLE\n"))
+        self.assertEqual(self.wd.hold_info()["minutes_left"], 20)
+        self.assertEqual(self.wd.hold_info()["reason"], "power cycle by hand")
+
+
 if __name__ == "__main__":
     unittest.main()
