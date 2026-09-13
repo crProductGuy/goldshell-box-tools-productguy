@@ -250,5 +250,140 @@ class ServerTest(unittest.TestCase):
         self.assertIsNone(h["power"]["alias"])
 
 
+class HoldAndPowerRoutesTest(ServerTest):
+    """The owner's planned outages: /api/hold, /api/hold/release and /api/power."""
+
+    def setUp(self):
+        super().setUp()
+        from gbox.watchdog import Watchdog
+        self.wd = Watchdog(lambda: None, self.events, 30)
+        self.state.watchdog = self.wd
+
+    def post_json(self, path, obj=None):
+        data = json.dumps(obj if obj is not None else {}).encode("utf-8")
+        req = urllib.request.Request(self.url + path, data=data, method="POST", headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.status, json.loads(r.read() or b"null")
+        except urllib.error.HTTPError as e:
+            body = e.read()
+            return e.code, (json.loads(body) if body else None)
+
+    def health(self):
+        return json.loads(self.get("/api/health")[2])
+
+    def with_plug(self, **kw):
+        from gbox.plug import KasaLegacy
+        from gbox.power import PowerControl
+        from tests.fake_plug import FakePlug
+        fake = FakePlug(watts=197.0, **kw).start()
+        self.addCleanup(fake.stop)
+        self.cfg.power = {"host": fake.address, "device_id": fake.device_id, "settle_minutes": 20, "off_seconds": 15}
+        plug = KasaLegacy(fake.address, timeout=1.0)
+        self.state.power_control = PowerControl(plug, self.cfg.power, self.wd, self.events, sleep=lambda s: None)
+        return fake
+
+    def test_hold_shows_in_health_and_release_clears_it(self):
+        code, body = self.post_json("/api/hold", {"minutes": 30, "reason": "PSU swap"})
+        self.assertEqual(code, 200)
+        self.assertEqual(body["hold"]["minutes_left"], 30)
+        self.assertEqual(body["hold"]["reason"], "PSU swap")
+        self.assertEqual(self.health()["hold"]["source"], "page")
+        code, body = self.post_json("/api/hold/release")
+        self.assertEqual((code, body), (200, {"hold": None}))
+        self.assertIsNone(self.health()["hold"])
+        text = "".join(self.events.tail())
+        self.assertIn("hold: started by you until", text)
+        self.assertIn("hold: released by you", text)
+
+    def test_hold_with_no_expiry_and_a_cleaned_reason(self):
+        code, body = self.post_json("/api/hold", {"minutes": None, "reason": "line one\nline two\x07"})
+        self.assertEqual(code, 200)
+        self.assertIsNone(body["hold"]["until"])
+        self.assertEqual(body["hold"]["reason"], "line one line two")
+
+    def test_hold_validates(self):
+        for bad in ({"minutes": 0}, {"minutes": 2000}, {"minutes": "x"}, {"minutes": 1.5}):
+            self.assertEqual(self.post_json("/api/hold", bad)[0], 400, bad)
+        self.assertIsNone(self.wd.hold)
+        self.assertEqual(self.post_json("/api/hold", {})[0], 200)      # minutes absent: the default hour
+        self.assertEqual(self.wd.hold_info()["minutes_left"], 60)
+
+    def test_hold_without_a_watchdog_is_409(self):
+        self.state.watchdog = None
+        code, body = self.post_json("/api/hold", {"minutes": 30})
+        self.assertEqual(code, 409)
+        self.assertIn("watchdog", body["error"])
+        self.assertEqual(self.post_json("/api/hold/release")[0], 409)
+
+    def test_power_without_a_plug_is_409(self):
+        code, body = self.post_json("/api/power", {"action": "on"})
+        self.assertEqual(code, 409)
+        self.assertIn("plug", body["error"])
+
+    def test_off_with_the_right_password_opens_the_relay(self):
+        fake = self.with_plug()
+        code, body = self.post_json("/api/power", {"action": "off", "password_hex": self.fm.password_hex})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(fake.relay, 0)
+        self.assertIs(body["power"]["off_by_you"], True)
+        self.assertIsNone(body["hold"]["until"])
+        h = self.health()
+        self.assertIs(h["power"]["off_by_you"], True)
+        self.assertIsNone(h["hold"]["until"])
+        self.assertIn("power: switched off by you (page; 197 W before)", "".join(self.events.tail()))
+
+    def test_off_with_the_wrong_password_is_403_and_moves_nothing(self):
+        fake = self.with_plug()
+        code, body = self.post_json("/api/power", {"action": "off", "password_hex": "00" * 16})
+        self.assertEqual(code, 403)
+        self.assertIn("password", body["error"])
+        self.assertEqual(fake.relay, 1)
+        self.assertIsNone(self.wd.hold)
+        self.assertEqual(self.post_json("/api/power", {"action": "off"})[0], 400)          # no password at all
+
+    def test_off_when_the_miner_does_not_answer_is_409_naming_the_alternatives(self):
+        fake = self.with_plug()
+        self.state.miner = api.Miner("127.0.0.1:1", timeout=1)
+        code, body = self.post_json("/api/power", {"action": "off", "password_hex": self.fm.password_hex})
+        self.assertEqual(code, 409)
+        self.assertIn("gbox power cycle", body["error"])
+        self.assertEqual(fake.relay, 1)
+
+    def test_on_needs_no_password(self):
+        fake = self.with_plug(relay=0)
+        code, body = self.post_json("/api/power", {"action": "on"})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(fake.relay, 1)
+        self.assertEqual(body["hold"]["minutes_left"], 20)
+        self.assertIs(body["power"]["off_by_you"], False)
+
+    def test_cycle_answers_at_once(self):
+        fake = self.with_plug()
+        import time
+        t0 = time.monotonic()
+        code, body = self.post_json("/api/power", {"action": "cycle", "password_hex": self.fm.password_hex, "off_seconds": 5})
+        self.assertEqual(code, 200, body)
+        self.assertLess(time.monotonic() - t0, 3.0)
+        self.assertEqual(body["power"]["busy"], "cycling")
+        self.state.power_control.join(5)
+        self.assertEqual(fake.relay, 1)
+        self.assertIn("power: cycled by you (page): off 5 s, on (197 W before)", "".join(self.events.tail()))
+
+    def test_power_validates_the_action_and_off_seconds(self):
+        self.with_plug()
+        self.assertEqual(self.post_json("/api/power", {"action": "explode"})[0], 400)
+        self.assertEqual(self.post_json("/api/power", {"action": "cycle", "password_hex": self.fm.password_hex, "off_seconds": 1})[0], 400)
+        self.assertEqual(self.post_json("/api/power", {})[0], 400)
+
+    def test_wrong_device_is_409(self):
+        fake = self.with_plug()
+        self.state.power_control.cfg["device_id"] = "other"      # the control keeps its own copy, as the watchdog does
+        code, body = self.post_json("/api/power", {"action": "on"})
+        self.assertEqual(code, 409)
+        self.assertIn("gbox power init", body["error"])
+        self.assertEqual(fake.relay, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
