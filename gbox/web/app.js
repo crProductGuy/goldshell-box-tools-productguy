@@ -454,9 +454,9 @@ function markerWords(label) {
   if ((m = /^dashboard: fan target set to (\d+)/.exec(label))) return "fan " + m[1];
   if ((m = /^dashboard: switched to preset (\d+)/.exec(label))) return "preset " + m[1];
   if (/^dashboard: soft restart/.test(label)) return "restart";
-  if (/^watchdog: restart #/.test(label)) return "watchdog restart";
-  if (/^watchdog: restart attempt failed/.test(label)) return "restart failed";
-  if ((m = /^service: started v(\S+?),/.exec(label))) return "start " + m[1];
+  // the watchdog's own restarts and service starts are many on a bad day and already read from the reset bars and
+  // the interventions table; on the worded chart they would bury the owner's own actions
+  if (/^watchdog: /.test(label) || /^service: /.test(label)) return "";
   if (/^hold: started/.test(label)) return "hold";
   if (/^dashboard: /.test(label)) return "note";
   return "";
@@ -833,9 +833,10 @@ function renderErrors() {
   if (rows.filter(r => r.ok).length < 2) { box.innerHTML = "<p class=\"note\">no logger samples in this window yet</p>"; return; }
   const mx = k => Math.max.apply(null, rows.map(r => r[k]).filter(v => v !== null && v !== undefined).concat([0]));
   const shareMax = niceMax(Math.max(mx("share"), mx("worst_share"), 0.5) * 1.05), clockMax = niceMax(mx("clock") * 1.1) || 800, resetMax = niceMax(Math.max(mx("resets"), 4) * 1.1);
+  const clocks = rows.map(r => r.clock).filter(v => v !== null && v !== undefined), clockMin = clocks.length && Math.min.apply(null, clocks) >= 400 ? 300 : 0;
   const panels = [
     { label: "% bad", min: 0, max: shareMax, step: shareMax / 4, series: [["share", "", "all chips"], ["worst_share", "s2", "worst chip"]], rated: null, tip: best => errorTip(best, bm) },
-    { label: "MHz", min: 0, max: clockMax, step: clockMax / 4, series: [["clock", "s3", "clock", { step: true, fill: true }]], rated: null, tip: best => clockTip(best, bm) },
+    { label: "MHz", min: clockMin, max: clockMax, step: (clockMax - clockMin) / 4, series: [["clock", "s3", "clock", { step: true, fill: true }]], rated: null, tip: best => clockTip(best, bm) },
     { label: "resets", min: 0, max: resetMax, step: resetMax / 4, series: [], bars: "resets", rated: null, tip: best => resetsTip(best, bm) } ];
   const opts = Object.assign(servedOpts(box, spanMin, bm), { words: true, band: r => r.ok && ((r.share != null && r.share > 1) || (r.resets != null && r.resets > 0)) });
   drawPanels(box, panels, rows, spanMin, now, best => errorTip(best, bm), "errors over three days", opts);
@@ -891,17 +892,18 @@ function drawPanels(box, panels, rows, spanMin, now, tipText, aria, opts) {
     if (i > 0) s += "<line class=\"sep\" x1=\"" + (L - 40) + "\" x2=\"" + (W - R) + "\" y1=\"" + (top - GAP / 2) + "\" y2=\"" + (top - GAP / 2) + "\"/>";
     s += "<text class=\"axis\" x=\"" + (L - 6) + "\" y=\"" + (top - 10) + "\" text-anchor=\"end\">" + p.label + "</text>";
     (p.series || []).forEach(([key, cls, name, style], idx) => {
-      let d = "", prev = null, last = null, yPrev = null, first = null;
+      let d = "", area = "", prev = null, last = null, yPrev = null, runStart = null, base = y(p.min).toFixed(1);
+      const closeRun = () => { if (runStart !== null && last) area += "L" + xOf(last.t).toFixed(1) + " " + base + "L" + runStart + " " + base + "Z"; runStart = null; };
       rows.forEach(r => {
-        if (!has(r[key])) { prev = null; return; }
+        if (!has(r[key])) { if (prev !== null) closeRun(); prev = null; return; }
         const X = xOf(r.t).toFixed(1), Y = y(r[key]).toFixed(1);
-        if (prev !== null && r.t - prev < gapMs) d += (style && style.step ? "L" + X + " " + yPrev : "") + "L" + X + " " + Y;
-        else d += "M" + X + " " + Y;
-        prev = r.t; yPrev = Y; last = r; if (!first) first = r;
+        if (prev !== null && r.t - prev < gapMs) { const seg = (style && style.step ? "L" + X + " " + yPrev : "") + "L" + X + " " + Y; d += seg; area += seg; }
+        else { closeRun(); d += "M" + X + " " + Y; area += "M" + X + " " + Y; runStart = X; }
+        prev = r.t; yPrev = Y; last = r;
       });
+      closeRun();
       if (!last) return;
-      if (style && style.fill)   // the clock as a block: the area under the step, so clock periods read at a glance
-        s += "<path class=\"area\" d=\"" + d + "L" + xOf(last.t).toFixed(1) + " " + y(p.min).toFixed(1) + "L" + xOf(first.t).toFixed(1) + " " + y(p.min).toFixed(1) + "Z\"/>";
+      if (style && style.fill) s += "<path class=\"area\" d=\"" + area + "\"/>";   // the clock as a block: each contiguous run filled to the baseline
       s += "<path class=\"line " + cls + "\" d=\"" + d + "\"/><text class=\"lbl\" x=\"" + (xOf(last.t) - 4) + "\" y=\"" + (y(last[key]) + (idx ? 15 : -6)) + "\" text-anchor=\"end\">" + name + " " + fmt(last[key], p.step < 1 ? 2 : 0) + "</text>";
     });
     if (p.bars) {
@@ -930,6 +932,7 @@ function drawPanels(box, panels, rows, spanMin, now, tipText, aria, opts) {
   eventMarks.filter(m => now - m.t <= spanMin * 60000 && m.t <= now).forEach(m => {
     const xx = xOf(m.t), words = o.words ? markerWords(m.label) : null;
     if (o.words && !words) return;                      // on the worded chart, lines not worth a marker get none
+    if (o.words && xx - lastMarkX < 6) return;          // and a second marker inside the same few pixels is dropped
     s += "<line class=\"mark\" x1=\"" + xx.toFixed(1) + "\" x2=\"" + xx.toFixed(1) + "\" y1=\"" + (T - 4) + "\" y2=\"" + y0 + "\"><title>" + esc(new Date(m.t).toLocaleTimeString() + " " + m.label) + "</title></line>";
     if (o.words) {                                      // words, rotated, on the side away from a close neighbour
       const side = xx - lastMarkX < 14 ? 11 : -3; lastMarkX = xx;
