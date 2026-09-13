@@ -185,3 +185,14 @@ the only off there is. Auto-release for a plug Off. The schedule on the
 standalone page. Whether daily hard cuts wear the controller's flash: not
 verifiable here; the recovery rung has already cut it many times without
 harm, and the log will show a controller that fails to boot.
+
+## Changed in 0.5.1 (2026-09-13)
+
+"Answers two consecutive samples" became "hashes for two consecutive
+samples". On the first real Off and On, the controller came back without
+its hashboard: HTTP answered, hashrate 0, board sensor reading -150, 9 W
+at the wall. Two answers released the hold, and the stall rule happened
+to cover the gap five minutes later with a soft restart that brought the
+board up. Now the poller passes whether the sample reported a 20 s
+hashrate, and only hashing samples count toward release. The line reads
+`hold: released, miner hashing again after N min`.

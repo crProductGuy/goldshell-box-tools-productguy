@@ -322,11 +322,11 @@ const tests = {
   "hold line: what is held, until when, by whom, and what lifts it; empty without a hold"() {
     const hold = { since: "2026-09-12 21:00:00", until: "2026-09-12 22:00:00", reason: "PSU swap", source: "page", minutes_left: 60, ok_streak: 0 };
     assert.strictEqual(app.holdLine({ hold }),
-      "Held until 22:00 (PSU swap), by you since 21:00: nothing is judged until the miner answers twice in a row, or 60 min pass.");
+      "Held until 22:00 (PSU swap), by you since 21:00: nothing is judged until the miner hashes twice in a row, or 60 min pass.");
     assert.strictEqual(app.holdLine({ hold: Object.assign({}, hold, { until: null, minutes_left: null, reason: "switched off" }) }),
-      "Held with no expiry (switched off), by you since 21:00: nothing is judged until the miner answers twice in a row, or you press Release.");
+      "Held with no expiry (switched off), by you since 21:00: nothing is judged until the miner hashes twice in a row, or you press Release.");
     assert.strictEqual(app.holdLine({ hold: Object.assign({}, hold, { source: "schedule", reason: "", ok_streak: 1 }) }),
-      "Held until 22:00, by the schedule since 21:00: nothing is judged until the miner answers twice in a row (1 so far), or 60 min pass.");
+      "Held until 22:00, by the schedule since 21:00: nothing is judged until the miner hashes twice in a row (1 so far), or 60 min pass.");
     assert.strictEqual(app.holdLine({ hold: null }), "");
     assert.strictEqual(app.holdLine(null), "");
   },
@@ -352,8 +352,8 @@ const tests = {
   "hold requests: minutes and a reason, or no expiry; release has an empty body"() {
     assert.deepStrictEqual(app.holdRequest(20, "cable"), { kind: "service", method: "POST", path: "api/hold", body: { minutes: 20, reason: "cable" }, password: false,
       changes: [], restart: false, title: "Hold", event: null,
-      summary: "hold for 20 min (cable): the watchdog judges nothing until the miner answers twice in a row, or 20 min pass" });
-    assert.strictEqual(app.holdRequest(null, "").summary, "hold with no expiry: the watchdog judges nothing until the miner answers twice in a row, or you press Release");
+      summary: "hold for 20 min (cable): the watchdog judges nothing until the miner hashes twice in a row, or 20 min pass" });
+    assert.strictEqual(app.holdRequest(null, "").summary, "hold with no expiry: the watchdog judges nothing until the miner hashes twice in a row, or you press Release");
     assert.deepStrictEqual(app.holdRequest(null, "").body, { minutes: null, reason: "" });
     assert.deepStrictEqual(app.holdReleaseRequest().body, {});
     assert.strictEqual(app.holdReleaseRequest().path, "api/hold/release");

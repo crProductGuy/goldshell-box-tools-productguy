@@ -460,7 +460,28 @@ class HoldTest(unittest.TestCase):
         self.assertIsNotNone(self.wd.hold)
         self.feed(1, accepted=2)
         self.assertIsNone(self.wd.hold)
-        self.assertIn("hold: released, miner back after 2 min", self.hold_lines()[-1])
+        self.assertIn("hold: released, miner hashing again after 2 min", self.hold_lines()[-1])
+
+    def test_answering_without_hashing_does_not_release(self):
+        """2026-09-13 15:46: the controller came back without its hashboard, answered HTTP with a zero hashrate,
+        and the hold released on two answers. Release must mean hashing, not answering."""
+        self.wd.hold_start(20, "switched on, booting")
+        for i in range(4):
+            self.clock.tick(self.INTERVAL)
+            self.wd.observe(True, 0, hashing=False)
+            self.wd.check()
+        self.assertIsNotNone(self.wd.hold)
+        self.assertEqual(self.wd.hold["ok_streak"], 0)
+        self.clock.tick(self.INTERVAL); self.wd.observe(True, 1, hashing=True); self.wd.check()
+        self.assertIsNotNone(self.wd.hold)
+        self.clock.tick(self.INTERVAL); self.wd.observe(True, 2, hashing=True); self.wd.check()
+        self.assertIsNone(self.wd.hold)
+        self.assertIn("hold: released, miner hashing again after 3 min", self.hold_lines()[-1])
+
+    def test_hashing_defaults_to_the_ok_flag(self):
+        self.wd.hold_start(20, "x")
+        self.feed(2, accepted=lambda i: i)          # observe() without the hashing argument: ok counts, as before
+        self.assertIsNone(self.wd.hold)
 
     def test_one_good_sample_between_failures_does_not_release(self):
         self.wd.hold_start(60, "PSU swap")

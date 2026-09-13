@@ -89,7 +89,7 @@ block once you have watched it judge a real freeze. The guide is
 
 A planned outage should not look like a freeze. Since 0.5.0 the service
 knows about **holds**: tell it the miner will be unreachable on purpose and
-the watchdog judges nothing until the miner answers twice in a row, the
+the watchdog judges nothing until the miner hashes twice in a row, the
 hold expires, or you release it. The dashboard's Controls section has a
 Power block for all of it when the page is served; the same things from a
 terminal:

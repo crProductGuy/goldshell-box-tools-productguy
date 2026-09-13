@@ -1112,3 +1112,21 @@ the caps carried over. The live done-when with his hands is still open.
 Also found from the same log: the ladder's second soft restart lands about
 10 minutes after the first, not 5, because judging needs a full fresh
 window after the gap; a fix was proposed, not built.
+
+**Addendum, 2026-09-13 late afternoon: 0.5.1, release means hashing.**
+The live done-when, Mark's hands: Hold 20 min (logged, auto-released),
+Off with the password (logged, relay open), On. "The unit is acting
+weird: low wattage, both red LEDs on, not hashing. I think it needs
+another power cycle. What do you see from the LAN?" The log: controller
+up and answering, clock 0, chip temps 0, board sensor -150, fans winding
+down, 9 W at the wall: the hashboard never came up after the power-on.
+The hold had released on two HTTP answers. Five minutes later the older
+stall rule (accepted frozen) sent a soft restart and the board came back
+with it, at 550 MHz. Mark: "fix the release rule so it needs hashing."
+Test first (a boardless controller answering with a zero hashrate must
+not release; the poller must pass the signal), then the rule: the poller
+passes `hashing` (a nonzero 20 s hashrate), only hashing samples count.
+Wording changed everywhere from "answers" to "hashes". Patch version
+0.5.1. A second finding from the same afternoon: "board absent after a
+power-on" is curable by a soft restart, and the stall rule finds it in
+five minutes.

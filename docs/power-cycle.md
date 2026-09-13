@@ -180,7 +180,7 @@ difference. Design and reasoning: `power-hold-proposal.md`.
 **A hold** tells the service the miner will be unreachable on purpose. While
 it runs, the watchdog judges nothing; the poller keeps logging, so the
 outage is data rather than a mystery. A hold ends when the miner answers
-two samples in a row (about a minute), when it expires, or when you release
+two hashing samples in a row (about a minute), when it expires, or when you release
 it, whichever comes first. So a swap that runs long keeps the hold,
 and a swap that finishes early lifts it by itself. Holds count against no
 cap. They need no plug: press Hold before you pull the cord.
@@ -233,7 +233,7 @@ page names the boot time next to them.
 |---|---|
 | `hold: started by you until 2026-09-13 07:00:00 (PSU swap)` | a hold with an expiry; `by the schedule` when the schedule set it |
 | `hold: started by you, no expiry (switched off)` | a hold that ends only on the miner's return or a release |
-| `hold: released, miner back after 12 min` | two good samples in a row ended it |
+| `hold: released, miner hashing again after 12 min` | two hashing samples in a row ended it (until 0.5.1, two answers did) |
 | `hold: expired after 60 min with the miner still unreachable; watchdog resumed` | the outage outlived the hold |
 | `hold: released by you` | Release on the page or `gbox hold release` |
 | `service: hold picked up from the event log (...)` | the service restarted mid-hold and kept it |

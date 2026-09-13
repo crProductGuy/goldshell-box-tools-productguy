@@ -133,6 +133,40 @@ class PollerTest(unittest.TestCase):
         self.assertFalse(poller.migrate_columns(self.csv))          # current header: no note, no change
 
 
+class PollerHashingSignalTest(unittest.TestCase):
+    """The poller tells the watchdog whether the sample was hashing, so a hold releases on hashing, not on answering."""
+
+    def setUp(self):
+        self.fm = FakeMiner().start()
+        self.addCleanup(self.fm.stop)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.csv = Path(self.tmp.name) / "log.csv"
+
+    class Spy:
+        def __init__(self):
+            self.seen = []
+
+        def observe(self, ok, accepted, t=None, hashing=None):
+            self.seen.append((ok, hashing))
+
+        def check(self):
+            return None
+
+    def test_hashing_is_true_for_a_live_sample_and_false_for_an_error_row(self):
+        spy = self.Spy()
+        poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, watchdog=spy).poll_once()
+        poller.Poller(api.Miner("127.0.0.1:1", password="password", timeout=1), self.csv, 30, watchdog=spy).poll_once()
+        self.assertEqual(spy.seen, [(True, True), (False, False)])
+
+    def test_hashing_is_false_when_the_board_reports_no_hashrate(self):
+        import re
+        self.fm.minerinfo = re.sub(r"\[MHS (20s|av)\] => [^\n]*", r"[MHS \1] => 0.0", self.fm.minerinfo)
+        spy = self.Spy()
+        poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, watchdog=spy).poll_once()
+        self.assertEqual(spy.seen, [(True, False)])
+
+
 class PollerScheduleTest(unittest.TestCase):
     """The scheduler ticks once per sample, after the sample, and never fails one."""
 

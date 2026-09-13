@@ -170,7 +170,7 @@ function powerActionRequest(action, service, offSeconds) {
 function holdRequest(minutes, reason) {
   const r = reason || "", timed = minutes != null;
   const summary = (timed ? "hold for " + minutes + " min" : "hold with no expiry") + (r ? " (" + r + ")" : "") +
-    ": the watchdog judges nothing until the miner answers twice in a row, or " + (timed ? minutes + " min pass" : "you press Release");
+    ": the watchdog judges nothing until the miner hashes twice in a row, or " + (timed ? minutes + " min pass" : "you press Release");
   return { kind: "service", method: "POST", path: "api/hold", body: { minutes: timed ? minutes : null, reason: r }, password: false, changes: [], restart: false, title: "Hold", event: null, summary };
 }
 function holdReleaseRequest() {
@@ -347,7 +347,7 @@ function interventions(text, rows) {
       if ((x = /^started by (you|the schedule) until \d{4}-\d{2}-\d{2} (\d{2}:\d{2}):\d{2}(?: \((.*)\))?$/.exec(msg))) { who = x[1] === "you" ? "you" : "schedule"; what = "hold until " + x[2] + (x[3] ? " (" + x[3] + ")" : ""); }
       else if ((x = /^started by (you|the schedule), no expiry(?: \((.*)\))?$/.exec(msg))) { who = x[1] === "you" ? "you" : "schedule"; what = "hold with no expiry" + (x[2] ? " (" + x[2] + ")" : ""); }
       else if (msg === "released by you") { who = "you"; what = "hold released"; }
-      else if ((x = /^released, (miner back after .*)$/.exec(msg))) { who = "service"; what = "hold released: " + x[1]; }
+      else if ((x = /^released, (miner (?:hashing again|back) after .*)$/.exec(msg))) { who = "service"; what = "hold released: " + x[1]; }
       else if (/^expired /.test(msg)) { who = "service"; what = "hold " + msg; }
       else return;
     } else if (src === "dashboard") {
@@ -390,7 +390,7 @@ function chartData(hist) {
   return { unit: unit, div: div, data: first < 0 ? [] : vals.slice(first) };
 }
 // The page's own version, shown in the header: opened as a file there is no service to ask. tests/test_app_js.py keeps it equal to gbox.__version__.
-const VERSION = "0.5.0";
+const VERSION = "0.5.1";
 // The wall-clock time under a chart's "now" label: 24-hour, minutes only, so the last refresh reads at a glance.
 function clockLabel(t) { const d = new Date(t); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
 // The service log as the page shows it: newest line on top, like the interventions table, so a short window shows what matters.
@@ -414,7 +414,7 @@ function holdLine(h) {
   if (!hold) return "";
   const hhmm = s => (s || "").slice(11, 16), who = hold.source === "schedule" ? "the schedule" : "you";
   const head = (hold.until ? "Held until " + hhmm(hold.until) : "Held with no expiry") + (hold.reason ? " (" + hold.reason + ")" : "") + ", by " + who + " since " + hhmm(hold.since);
-  const twice = "the miner answers twice in a row" + (hold.ok_streak ? " (" + hold.ok_streak + " so far)" : "");
+  const twice = "the miner hashes twice in a row" + (hold.ok_streak ? " (" + hold.ok_streak + " so far)" : "");
   return head + ": nothing is judged until " + twice + ", or " + (hold.until ? hold.minutes_left + " min pass" : "you press Release") + ".";
 }
 if (typeof module !== "undefined") module.exports = { VERSION, clockLabel, newestFirst, ladderLine, encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
@@ -490,7 +490,7 @@ function renderPowerControls() {
   ["btnoff", "btnon", "btncycle"].forEach(id => { $(id).disabled = !plug || !!p.busy; });
   $("btnrelease").disabled = !service.hold;
   $("powerctlnote").textContent = plug
-    ? "Off and cycle ask for the password; on does not. Each starts a hold: the watchdog judges nothing until the miner answers twice in a row. Hold alone covers an outage you make by hand, such as pulling the cord."
+    ? "Off and cycle ask for the password; on does not. Each starts a hold: the watchdog judges nothing until the miner hashes twice in a row. Hold alone covers an outage you make by hand, such as pulling the cord."
     : "No plug configured (gbox power init), so only Hold and Release here. Press Hold before you pull the cord, so the watchdog does not read the outage as a freeze.";
 }
 // The Power tile and the watts section's caption; the section itself only shows with a plug configured.
