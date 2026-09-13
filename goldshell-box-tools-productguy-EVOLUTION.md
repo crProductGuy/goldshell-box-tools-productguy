@@ -1200,3 +1200,26 @@ tooltip; the standalone file unchanged.
 leaves Mark wanting it. One slip to own: the series module's tests were
 written before the code but ran green on their first run, so there was no
 red run for that task.
+
+**Addendum, 2026-09-13 evening: the charts after Mark's first look, and a
+design review.** Mark, on the live 0.6.0 page: bold the axis titles;
+tooltips truncate at the right edge, "they should grow left"; Power at
+the wall above the three-day chart so the 24-hour charts sit together;
+and the resets panel was "too touchy": hovering should read resets from
+anywhere in that panel, with "some slight visual break between the 3
+sections" and the hovered one emphasized. Built and merged as web-only
+changes (no restart): axis titles bold, tooltips flip left, section order,
+panel separators, the hovered panel lifted with its own tooltip. Then
+"Run Claude Design to see if there are any other visual improvements":
+a canvas with three directions for the errors chart drawn in the page's
+own tokens, each with its motivation and tradeoff. A second look at the
+artboards caught two false claims in one option's note and a crowded
+marker pair, fixed before Mark saw it. Mark: "I accept Main": alarm
+bands on bad half hours, a three-fact strip, worded markers, the clock
+as a block. Built the same evening; the first live look found the clock
+fill closing across log gaps into a wedge and the watchdog's own restarts
+burying the owner's actions among the worded markers; both fixed. Mark
+also asked for explainers on Hold and Release "plain to the user or
+accessible to the user easily"; proposed on the canvas as a "what is
+this?" disclosure under every control plus a Terms section, his pick
+pending.
