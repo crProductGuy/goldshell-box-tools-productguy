@@ -24,7 +24,12 @@ KD-BOX, HS-BOX, LT-BOX and relatives running the "cloud-box" MCB_V5 firmware):
   (with a metering plug), temperature, fan speed.
   `gbox trials run 550 575 600 --hours 4` steps through a list unattended
   and backs off to a safe clock at the first board reset
-- a command line: `gbox status | chips | plan | fantarget | restart | trials | power | hold | serve`
+- charts over days, not hours: hashrate, fans, temperatures and power over
+  the last 24 hours from the service log, and an errors chart over three
+  days showing the bad share of all chips and of the worst chip per half
+  hour, the clock, and board resets, so a bad night is visible the next
+  morning. The same buckets as text: `gbox errors`
+- a command line: `gbox status | chips | plan | fantarget | restart | trials | errors | power | hold | serve`
 
 Born from a diagnosis of an SC-BOX running at 30 percent: one marginal chip was
 resetting the whole board every nine seconds at the factory clock, and the
