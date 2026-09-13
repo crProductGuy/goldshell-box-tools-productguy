@@ -1,10 +1,12 @@
 """The local HTTP server behind `gbox serve`.
 
 Serves the dashboard, the CSV the logger writes, the event log, a health
-endpoint, and two writes: the dashboard hands its session token to the
-service so the poller and watchdog can work without a password on disk, and
-it reports what its buttons did so the event log has one line per change.
-The dashboard talks to the miner itself; the service never proxies a write.
+endpoint, and a few writes: the dashboard hands its session token to the
+service so the poller and watchdog can work without a password on disk, it
+reports what its buttons did so the event log has one line per change, and
+since 0.5.0 it can start or release a hold and switch the plug (off and
+cycle only with the miner's password, checked by a login). The dashboard
+talks to the miner itself; the service never proxies a settings write.
 
 Binds to 127.0.0.1 unless told otherwise. Never logs a request line: the
 miner login URL carries the encrypted password, and tokens are password-
@@ -17,12 +19,20 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import __version__, models, trials
+from . import __version__, api, models, trials
+from .power import PowerRefused
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 STATIC = {"/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/style.css": "style.css"}
 MAX_BODY = 8192
 MAX_EVENT = 500            # characters of a dashboard-reported event line (200 cut hand-written notes; 2026-09-12)
+HOLD_DEFAULT_MINUTES = 60  # a hold with no `minutes` given; long enough for a swap, short enough to notice
+HOLD_MAX_MINUTES = 1440
+
+
+def _int_in(value, lo, hi):
+    """`value` if it is an int (not a bool) within [lo, hi], else None."""
+    return value if isinstance(value, int) and not isinstance(value, bool) and lo <= value <= hi else None
 
 
 def clean_event_text(text):
@@ -40,13 +50,14 @@ def clean_event_text(text):
 class ServiceState:
     """What the handlers may look at. One instance per running service."""
 
-    def __init__(self, cfg, miner, data_dir, poller=None, watchdog=None, events=None):
+    def __init__(self, cfg, miner, data_dir, poller=None, watchdog=None, events=None, power_control=None):
         self.cfg = cfg
         self.miner = miner
         self.data_dir = Path(data_dir)
         self.poller = poller
         self.watchdog = watchdog
         self.events = events
+        self.power_control = power_control   # gbox.power.PowerControl when a plug is configured
         self.lock = threading.Lock()
         self.trials_cache = (None, None)     # ((mtime_ns, size) of log.csv, table) so a refresh does not re-parse
 
@@ -90,6 +101,7 @@ class ServiceState:
             },
             "power": self.power_health(),
             "ladder": self.ladder(),
+            "hold": w.hold_info() if w else None,
         }
 
     def ladder(self):
@@ -118,6 +130,8 @@ class ServiceState:
             "cycle": bool(cfg.get("cycle")) if cfg else False,
             "cycles_today": w.cycles_today() if w and hasattr(w, "cycles_today") else 0,
             "last_reason": getattr(w, "last_power_reason", None) if w else None,
+            "off_by_you": bool(self.power_control.off_by_you) if self.power_control else False,
+            "busy": self.power_control.busy if self.power_control else None,
         }
 
 
@@ -207,7 +221,76 @@ def make_handler(state):
                 return self._post_token()
             if path == "/api/event":
                 return self._post_event()
+            if path == "/api/hold":
+                return self._post_hold()
+            if path == "/api/hold/release":
+                return self._post_hold_release()
+            if path == "/api/power":
+                return self._post_power()
             self._send(404, "not found")
+
+        def _error(self, code, text):
+            self._json(code, {"error": text})
+
+        # -- holds and planned power (docs/power-hold-proposal.md)
+
+        def _post_hold(self):
+            body = self._json_body()
+            if body is None:
+                return
+            if state.watchdog is None:
+                return self._error(409, "the watchdog is off for this run (--no-watchdog), so there is nothing to hold")
+            minutes = body.get("minutes", HOLD_DEFAULT_MINUTES)
+            if minutes is not None and _int_in(minutes, 1, HOLD_MAX_MINUTES) is None:
+                return self._error(400, "minutes must be 1 to %d, or null for no expiry" % HOLD_MAX_MINUTES)
+            reason = clean_event_text(body.get("reason")) if body.get("reason") is not None else ""
+            state.watchdog.hold_start(minutes, reason, "page")
+            self._json(200, {"hold": state.watchdog.hold_info()})
+
+        def _post_hold_release(self):
+            if (self.headers.get("Content-Length") or "0") != "0" and self._json_body() is None:
+                return
+            if state.watchdog is None:
+                return self._error(409, "the watchdog is off for this run (--no-watchdog), so there is no hold")
+            state.watchdog.hold_release("you")
+            self._json(200, {"hold": None})
+
+        def _post_power(self):
+            body = self._json_body()
+            if body is None:
+                return
+            pc = state.power_control
+            if pc is None:
+                return self._error(409, "no plug configured: `gbox power discover`, then `gbox power init --plug <address>`, "
+                                        "then restart the service")
+            action = body.get("action")
+            if action not in ("off", "on", "cycle"):
+                return self._error(400, "action must be off, on or cycle")
+            off_seconds = body.get("off_seconds")
+            if off_seconds is not None and _int_in(off_seconds, 3, 120) is None:
+                return self._error(400, "off_seconds must be 3 to 120")
+            if action != "on":
+                hexpw = body.get("password_hex")
+                if not isinstance(hexpw, str) or not hexpw:
+                    return self._error(400, "password_hex is required to switch off or cycle")
+                try:
+                    state.miner.verify_password_hex(hexpw)
+                except api.AuthError:
+                    return self._error(403, "the miner rejected that password; nothing sent")
+                except api.MinerError:
+                    return self._error(409, "the miner is not answering, so the password cannot be checked; nothing sent. "
+                                            "A frozen miner is the watchdog's job (it cycles the plug on its own); "
+                                            "for a cycle by hand run `gbox power cycle` from a terminal")
+            try:
+                if action == "off":
+                    st = pc.off("page")
+                elif action == "on":
+                    st = pc.on("page")
+                else:
+                    st = pc.cycle("page", off_seconds)
+            except PowerRefused as e:
+                return self._error(409, str(e))
+            self._json(200, {"power": st, "hold": st["hold"]})
 
         def _post_token(self):
             body = self._json_body()
