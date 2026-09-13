@@ -1024,3 +1024,12 @@ paragraph for a quotation spanning lines, capped at 800 characters; two
 tests. The one remaining hit, the entry that lists the banned words
 while describing the rule, now quotes each word so the checker reads a
 mention as a mention. This file: 0 fail, 35 warn.
+
+**Close of session K, 19:50.** Mark: "push the goldshell commits." Pushed:
+`origin/main` at `a883296` with the three tags. The rest of the evening
+went to work outside this repo (the Mac-to-Windows SSH star and the
+style checker), recorded in the working root's notes rather than here.
+Left for the next session: watch the APW3++ reset count against the
+brick's zero; the first freeze on the 5-minute ladder is the test of the
+new timings; then the 0.5.0 plan for other models, the Linux installer,
+the other plug drivers, event-log rotation.
