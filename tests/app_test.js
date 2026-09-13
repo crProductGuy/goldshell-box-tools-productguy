@@ -484,9 +484,9 @@ const tests = {
     assert.strictEqual(w("dashboard: soft restart sent"), "restart");
     assert.strictEqual(w("dashboard: power: cycled by hand (gbox power cycle; 187 W before)"), "cycle");
     assert.strictEqual(w("dashboard: power: switched off by hand (gbox power off; 188 W before)"), "off");
-    assert.strictEqual(w("watchdog: restart #8 sent (accepted shares frozen for 5 min)"), "watchdog restart");
-    assert.strictEqual(w("watchdog: restart attempt failed: PUT mcb/restart: timed out (miner unreachable for 2 min)"), "restart failed");
-    assert.strictEqual(w("service: started v0.6.0, miner x, poll 30s, watchdog on, power plug armed, listening on 127.0.0.1:8765"), "start 0.6.0");
+    assert.strictEqual(w("watchdog: restart #8 sent (accepted shares frozen for 5 min)"), "");          // many on a bad day: the bars tell it
+    assert.strictEqual(w("watchdog: restart attempt failed: PUT mcb/restart: timed out (miner unreachable for 2 min)"), "");
+    assert.strictEqual(w("service: started v0.6.0, miner x, poll 30s, watchdog on, power plug armed, listening on 127.0.0.1:8765"), "");
     assert.strictEqual(w("hold: started by you until 2026-09-13 16:01:21 (first test)"), "hold");
     assert.strictEqual(w("hold: released, miner hashing again after 1 min"), "");
     assert.strictEqual(w("power: plug back"), "");
