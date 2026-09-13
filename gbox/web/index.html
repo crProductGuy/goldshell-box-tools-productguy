@@ -98,6 +98,10 @@
       <div class="ctrl"><div class="k">Controller</div>
         <div class="row"><button type="button" id="btnrestart" class="act danger">soft restart&hellip;</button></div>
         <div class="s">Reboots the controller; hashing resumes after 60-90 s. Asks for the password. The watchdog is told, so it does not restart again on top.</div></div>
+      <div class="ctrl" id="powerctl" hidden><div class="k">Power and holds (through the gbox service)</div>
+        <div class="row"><button type="button" id="btnoff" class="act danger">switch off&hellip;</button><button type="button" id="btnon" class="act">switch on&hellip;</button><button type="button" id="btncycle" class="act danger">power cycle&hellip;</button></div>
+        <div class="row"><select id="holdsel" aria-label="hold length"><option value="20">hold 20 min</option><option value="60" selected>hold 1 h</option><option value="240">hold 4 h</option></select><input id="holdwhy" placeholder="why (optional)" maxlength="80" autocomplete="off"><button type="button" id="btnhold" class="act">hold&hellip;</button><button type="button" id="btnrelease" class="act">release&hellip;</button></div>
+        <div class="s" id="powerctlnote">&mdash;</div></div>
     </div>
   </section>
 
@@ -118,6 +122,7 @@
   <section id="svc" hidden>
     <h2>Service<span id="svcsub"></span></h2>
     <p class="note" id="ladder"></p>
+    <p class="note ok" id="hold" hidden></p>
     <p class="note">Event log, newest first.</p>
     <pre class="events" id="events"></pre>
   </section>

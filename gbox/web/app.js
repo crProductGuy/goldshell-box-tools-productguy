@@ -147,6 +147,36 @@ function restartRequest() {
   return { method: "PUT", path: "mcb/restart", body: null, password: true, restart: true, changes: [],
     summary: "soft restart: the controller reboots and hashing resumes after 60-90 s", event: "soft restart sent" };
 }
+// Requests to the gbox service rather than the miner (kind "service"): the plug and the hold. Off and cycle carry the
+// password in the encrypted form the miner's own login takes; the service checks it by logging in. On needs none:
+// turning a miner on is what the watchdog already does unasked. See docs/power-hold-proposal.md.
+function powerActionRequest(action, service, offSeconds) {
+  if (!["off", "on", "cycle"].includes(action)) throw new Error("action must be off, on or cycle");
+  const p = (service && service.power) || {}, lad = (service && service.ladder) || {};
+  const plug = (p.alias ? "'" + p.alias + "'" : "the plug") + " (" + (p.model || "?") + ")";
+  const idle = lad.idle_watts != null ? lad.idle_watts : 100;
+  const reading = p.meter && p.watts != null ? "reading " + Math.round(p.watts) + " W now" + (p.watts >= idle ? " (that looks like a miner hashing, not a hung one)" : "") : "no meter";
+  const settle = lad.settle_minutes != null ? lad.settle_minutes + " min" : "the settle gap";
+  const body = { action };
+  let summary, title;
+  if (action === "off") { title = "Switch the plug off"; summary = "switch off " + plug + ", " + reading + "; the miner stays off, unjudged, until you press On"; }
+  else if (action === "on") { title = "Switch the plug on"; summary = "switch on " + plug + "; the watchdog waits " + settle + " for the boot before judging anything"; }
+  else {
+    title = "Power cycle"; if (offSeconds != null) body.off_seconds = offSeconds;
+    summary = "cut power to " + plug + " for " + (offSeconds != null ? offSeconds : "a few") + " s, then restore it; " + reading + "; the watchdog waits " + settle + " for the boot";
+  }
+  return { kind: "service", method: "POST", path: "api/power", body, password: action !== "on", changes: [], restart: false, title, event: null, summary };
+}
+function holdRequest(minutes, reason) {
+  const r = reason || "", timed = minutes != null;
+  const summary = (timed ? "hold for " + minutes + " min" : "hold with no expiry") + (r ? " (" + r + ")" : "") +
+    ": the watchdog judges nothing until the miner answers twice in a row, or " + (timed ? minutes + " min pass" : "you press Release");
+  return { kind: "service", method: "POST", path: "api/hold", body: { minutes: timed ? minutes : null, reason: r }, password: false, changes: [], restart: false, title: "Hold", event: null, summary };
+}
+function holdReleaseRequest() {
+  return { kind: "service", method: "POST", path: "api/hold/release", body: {}, password: false, changes: [], restart: false, title: "Release the hold", event: null,
+    summary: "release the hold: the watchdog judges again once it has a fresh window of samples" };
+}
 // Top-level fields that differ between what the miner holds and what will be sent: the part of the body to read.
 function settingDiff(before, after) {
   const keys = Object.keys(Object.assign({}, before, after));
@@ -160,20 +190,21 @@ function describeRequest(base, req) {
 function eventMarkers(text) {
   const out = [];
   (text || "").split(/\r?\n/).forEach(line => {
-    const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) ((?:dashboard|watchdog|power): .*|service: started .*)$/.exec(line);
+    const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) ((?:dashboard|watchdog|power|hold): .*|service: started .*)$/.exec(line);
     if (m) out.push({ t: new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime(), label: m[7] });
   });
   return out;
 }
 function markerGlyph(label) {
-  return label.startsWith("service") ? "S" : label.startsWith("power") ? "P" : label.startsWith("watchdog") ? "W" : "▼";
+  return label.startsWith("service") ? "S" : label.startsWith("power") ? "P" : label.startsWith("watchdog") ? "W" : label.startsWith("hold") ? "H" : "▼";
 }
 // The plug, as /api/health reports it: appended to the service line. Empty without a plug.
 function powerLine(service) {
   const p = (service && service.power) || {};
   if (!p.configured) return "";
-  const reading = p.state == null ? "unreachable" :
-    p.state + ", " + (p.meter && p.watts != null ? Math.round(p.watts) + " W" : "no meter");
+  const state = p.busy ? "cycling" : p.state == null ? null : (p.state === "off" && p.off_by_you ? "off by you" : p.state);
+  const reading = state === null ? "unreachable" :
+    state + ", " + (p.meter && p.watts != null ? Math.round(p.watts) + " W" : "no meter");
   return " · plug " + (p.model || "?") + " " + reading + ", " + (p.cycle ? "armed" : "dry run") + ", " +
     p.cycles_today + (p.cycles_today === 1 ? " cycle" : " cycles") + " today";
 }
@@ -303,6 +334,21 @@ function interventions(text, rows) {
       if ((x = /^cycled (#\d+ today: .*)$/.exec(msg))) { kind = "cycle"; what = "power cycle " + x[1]; result = cameBack(t); }
       else if ((x = /^would cycle now \((.*)\)$/.exec(msg))) { kind = "dryrun"; what = "would cycle (dry run): " + x[1]; }
       else if ((x = /^cycle failed: (.*)$/.exec(msg))) { kind = "failed"; what = "power cycle failed: " + x[1]; }
+      else if ((x = /^switched (off|on) by (you|the schedule)(?: \((.*)\))?$/.exec(msg))) {
+        who = x[2] === "you" ? "you" : "schedule"; kind = x[1]; what = "switched " + x[1] + (x[3] ? " (" + x[3] + ")" : ""); if (x[1] === "on") result = cameBack(t);
+      }
+      else if ((x = /^cycled by (you|the schedule)(?: \((.*)\))?: (.*)$/.exec(msg))) {
+        who = x[1] === "you" ? "you" : "schedule"; kind = "cycle"; what = "power cycle" + (x[2] ? " (" + x[2] + ")" : "") + ": " + x[3]; result = cameBack(t);
+      }
+      else if ((x = /^switch (off|on) failed: (.*)$/.exec(msg))) { kind = "failed"; what = "switch " + x[1] + " failed: " + x[2]; }
+      else return;
+    } else if (src === "hold") {
+      kind = "hold";
+      if ((x = /^started by (you|the schedule) until \d{4}-\d{2}-\d{2} (\d{2}:\d{2}):\d{2}(?: \((.*)\))?$/.exec(msg))) { who = x[1] === "you" ? "you" : "schedule"; what = "hold until " + x[2] + (x[3] ? " (" + x[3] + ")" : ""); }
+      else if ((x = /^started by (you|the schedule), no expiry(?: \((.*)\))?$/.exec(msg))) { who = x[1] === "you" ? "you" : "schedule"; what = "hold with no expiry" + (x[2] ? " (" + x[2] + ")" : ""); }
+      else if (msg === "released by you") { who = "you"; what = "hold released"; }
+      else if ((x = /^released, (miner back after .*)$/.exec(msg))) { who = "service"; what = "hold released: " + x[1]; }
+      else if (/^expired /.test(msg)) { who = "service"; what = "hold " + msg; }
       else return;
     } else if (src === "dashboard") {
       who = "you";
@@ -359,8 +405,18 @@ function ladderLine(h) {
     : "no plug, so no power cycle (docs/power-cycle.md); cap " + lad.max_restarts_per_day + " restarts a day. ";
   return s + "Set in " + lad.config_path + " (watchdog" + (plug ? " and power blocks" : " block") + "); restart the service after editing.";
 }
+// The running hold, as /api/health reports it, in one sentence for the Service section. Empty without one.
+function holdLine(h) {
+  const hold = h && h.hold;
+  if (!hold) return "";
+  const hhmm = s => (s || "").slice(11, 16), who = hold.source === "schedule" ? "the schedule" : "you";
+  const head = (hold.until ? "Held until " + hhmm(hold.until) : "Held with no expiry") + (hold.reason ? " (" + hold.reason + ")" : "") + ", by " + who + " since " + hhmm(hold.since);
+  const twice = "the miner answers twice in a row" + (hold.ok_streak ? " (" + hold.ok_streak + " so far)" : "");
+  return head + ": nothing is judged until " + twice + ", or " + (hold.until ? hold.minutes_left + " min pass" : "you press Release") + ".";
+}
 if (typeof module !== "undefined") module.exports = { VERSION, clockLabel, newestFirst, ladderLine, encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
+  powerActionRequest, holdRequest, holdReleaseRequest, holdLine,
   markerGlyph, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf,
   powerTile, envRowsFrom, lastHour, recentHashrate, interventions, interventionCounts };
 
@@ -419,8 +475,20 @@ async function probeService() {
     if (service.last_error) $("svcsub").textContent += " · " + service.last_error;
     $("ladder").textContent = ladderLine(service);
   }
-  renderPower();
+  renderPower(); renderHold(); renderPowerControls();
   return service;
+}
+// The hold banner in the Service section, and the Power block in Controls (served only: a browser cannot speak the plug's protocol).
+function renderHold() { const t = holdLine(service); $("hold").textContent = t; $("hold").hidden = !t; }
+function renderPowerControls() {
+  $("powerctl").hidden = !service;
+  if (!service) return;
+  const p = service.power || {}, plug = !!p.configured;
+  ["btnoff", "btnon", "btncycle"].forEach(id => { $(id).disabled = !plug || !!p.busy; });
+  $("btnrelease").disabled = !service.hold;
+  $("powerctlnote").textContent = plug
+    ? "Off and cycle ask for the password; on does not. Each starts a hold: the watchdog judges nothing until the miner answers twice in a row. Hold alone covers an outage you make by hand, such as pulling the cord."
+    : "No plug configured (gbox power init), so only Hold and Release here. Press Hold before you pull the cord, so the watchdog does not read the outage as a freeze.";
 }
 // The Power tile and the watts section's caption; the section itself only shows with a plug configured.
 function renderPower() {
@@ -824,8 +892,35 @@ function renderChanges(req) {
   const show = v => typeof v === "string" ? "\"" + v + "\"" : JSON.stringify(v);
   (req.changes || []).forEach(c => { const li = document.createElement("li"); li.textContent = c.key + ": " + show(c.from) + " → " + show(c.to); ul.append(li); });
   const n = (req.changes || []).length;
-  $("creqsum").textContent = req.body === null ? "the request has no body" : "show the full request (" + n + " of " + Object.keys(req.body).length + " fields change; the rest is sent back unchanged)";
+  $("creqsum").textContent = req.body === null ? "the request has no body" : req.kind === "service" ? "show the full request (to the gbox service" + (req.password ? "; the encrypted password is added when you click" : "") + ")"
+    : "show the full request (" + n + " of " + Object.keys(req.body).length + " fields change; the rest is sent back unchanged)";
   $("creq").parentNode.open = req.body === null;
+}
+// A request to the gbox service (plug or hold): no settings fetch first, since the miner may be off; the dialog is the same.
+function openServiceConfirm(req) {
+  if (!service) { $("err").textContent = "No gbox service behind this page, so the plug and the hold are out of reach."; return; }
+  $("err").textContent = "";
+  pending = { req, title: req.title };
+  $("ctitle").textContent = req.title; $("csummary").textContent = req.summary; $("creq").textContent = describeRequest(location.origin, req); renderChanges(req);
+  $("cpwrow").hidden = !req.password; $("cpw").value = "";
+  $("cstatus").textContent = ""; $("cstatus").className = "note";
+  $("cok").disabled = false; $("cok").hidden = false; $("ccancel").disabled = false; $("ccancel").textContent = "cancel";
+  $("confirm").classList.add("show"); (req.password ? $("cpw") : $("ccancel")).focus();
+}
+async function runServiceRequest(req, say) {
+  const body = Object.assign({}, req.body);
+  if (req.password) {
+    if (!$("cpw").value) throw new Error("enter the miner password");
+    say("sending; the service checks the password with the miner…");
+    body.password_hex = await encryptPassword($("cpw").value, crypto.subtle);
+    $("cpw").value = "";
+  } else say("sending…");
+  const r = await fetch(req.path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) {
+    let msg = "HTTP " + r.status;
+    try { msg = (await r.json()).error || msg; } catch (e) {}
+    throw new Error(msg);
+  }
 }
 async function openConfirm(title, build) {
   const token = getToken();
@@ -850,6 +945,14 @@ async function runConfirmed() {
   const req = pending.req, say = (m, cls) => { $("cstatus").textContent = m; $("cstatus").className = cls || "note"; };
   $("cok").disabled = true; $("ccancel").disabled = true;
   try {
+    if (req.kind === "service") {
+      await runServiceRequest(req, say);
+      say("Done. Logged in the service event log.", "note ok");
+      $("cok").hidden = true; $("ccancel").disabled = false; $("ccancel").textContent = "close"; $("ccancel").focus();
+      pending = null;
+      probeService().then(refreshEvents);
+      return;
+    }
     let token = getToken();
     if (req.password) {
       if (!$("cpw").value) throw new Error("enter the miner password");
@@ -887,6 +990,11 @@ $("btnfan").onclick = () => openConfirm("Set the fan target", s => fanTargetRequ
 $("presetsel").onchange = () => { $("presetsel").dataset.touched = "1"; $("btnpreset").disabled = false; };
 $("btnpreset").onclick = () => openConfirm("Use a firmware preset", s => presetRequest(s, parseInt($("presetsel").value)));
 $("btnrestart").onclick = () => openConfirm("Soft restart", restartRequest);
+$("btnoff").onclick = () => openServiceConfirm(powerActionRequest("off", service));
+$("btnon").onclick = () => openServiceConfirm(powerActionRequest("on", service));
+$("btncycle").onclick = () => openServiceConfirm(powerActionRequest("cycle", service, ((service || {}).ladder || {}).off_seconds));
+$("btnhold").onclick = () => openServiceConfirm(holdRequest(parseInt($("holdsel").value), $("holdwhy").value.trim()));
+$("btnrelease").onclick = () => openServiceConfirm(holdReleaseRequest());
 $("ccancel").onclick = closeConfirm;
 $("cok").onclick = runConfirmed;
 $("confirm").addEventListener("keydown", e => {
