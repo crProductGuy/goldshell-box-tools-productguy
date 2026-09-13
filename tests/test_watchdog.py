@@ -394,3 +394,113 @@ class SeedFromEventsTest(unittest.TestCase):
             self.wd.check()
         self.assertNotIn("off", self.plug.calls)
         self.assertTrue(any("3 cycles in 24 h is the cap; not cycling" in m for m in self.wrote), self.wrote)
+
+    def test_seed_restores_a_running_hold(self):
+        self.wd.seed_from_events(self.lines((600, "hold: started by you until %s (PSU swap)" % self.stamp(self.T0 + 3000))))
+        self.assertIsNotNone(self.wd.hold)
+        self.assertEqual(self.wd.hold["reason"], "PSU swap")
+        self.assertAlmostEqual(self.wd.hold["until"], self.T0 + 3000, delta=1)
+        self.assertTrue(any("hold" in m and "picked up" in m for m in self.wrote), self.wrote)
+
+    def test_seed_ignores_a_released_or_expired_hold(self):
+        self.wd.seed_from_events(self.lines(
+            (600, "hold: started by you until %s (PSU swap)" % self.stamp(self.T0 + 3000)),
+            (300, "hold: released by you")))
+        self.assertIsNone(self.wd.hold)
+        self.wd.seed_from_events(self.lines((600, "hold: started by you until %s (old)" % self.stamp(self.T0 - 100))))
+        self.assertIsNone(self.wd.hold)
+
+    def test_seed_restores_a_no_expiry_hold(self):
+        self.wd.seed_from_events(self.lines((600, "hold: started by you, no expiry (switched off)")))
+        self.assertIsNotNone(self.wd.hold)
+        self.assertIsNone(self.wd.hold["until"])
+        self.assertEqual(self.wd.hold["reason"], "switched off")
+
+
+class HoldTest(unittest.TestCase):
+    """A hold: the miner is expected to be unreachable, so nothing is judged until it is back."""
+    INTERVAL = 30
+
+    def setUp(self):
+        self.clock = FakeClock()
+        self.restart = Recorder()
+        self.lines = []
+        self.events = EventLog()
+        self.events.write = lambda m: self.lines.append(m) or m
+        self.wd = Watchdog(self.restart, self.events, self.INTERVAL, stall_minutes=5, unreachable_minutes=2,
+                           min_gap_minutes=10, max_restarts_per_day=6, clock=self.clock)
+
+    def feed(self, n, ok=True, accepted=None):
+        last = None
+        for i in range(n):
+            self.clock.tick(self.INTERVAL)
+            acc = accepted(i) if callable(accepted) else accepted
+            self.wd.observe(ok, acc)
+            last = self.wd.check()
+        return last
+
+    def hold_lines(self):
+        return [l for l in self.lines if l.startswith("hold:")]
+
+    def test_hold_stops_judging_until_released(self):
+        self.feed(6, accepted=lambda i: i)
+        self.wd.hold_start(60, "PSU swap")
+        self.assertIsNone(self.feed(10, ok=False))
+        self.assertEqual(self.restart.restarts, 0)
+        self.wd.hold_release("you")
+        self.assertIsNone(self.wd.hold)
+        self.assertEqual(self.hold_lines()[-1], "hold: released by you")
+        self.feed(10, ok=False)                                  # a full fresh window after the release
+        self.assertEqual(self.restart.restarts, 1)
+
+    def test_two_good_samples_release_the_hold(self):
+        self.wd.hold_start(60, "PSU swap")
+        self.feed(3, ok=False)
+        self.feed(1, accepted=1)
+        self.assertIsNotNone(self.wd.hold)
+        self.feed(1, accepted=2)
+        self.assertIsNone(self.wd.hold)
+        self.assertIn("hold: released, miner back after 2 min", self.hold_lines()[-1])
+
+    def test_one_good_sample_between_failures_does_not_release(self):
+        self.wd.hold_start(60, "PSU swap")
+        self.feed(1, accepted=1)
+        self.feed(1, ok=False)
+        self.feed(1, accepted=2)
+        self.assertIsNotNone(self.wd.hold)
+        self.assertEqual(self.wd.hold["ok_streak"], 1)
+
+    def test_expiry_with_the_miner_down_resumes_the_watchdog(self):
+        self.feed(6, accepted=lambda i: i)
+        self.wd.hold_start(20, "cable")
+        self.feed(41, ok=False)                                  # 20.5 min
+        self.assertIsNone(self.wd.hold)
+        self.assertIn("hold: expired after 20 min with the miner still unreachable; watchdog resumed", self.hold_lines()[-1])
+        self.assertEqual(self.restart.restarts, 0)               # the window was cleared on release
+        self.feed(10, ok=False)                                  # a full fresh window is needed again
+        self.assertEqual(self.restart.restarts, 1)
+
+    def test_no_expiry_hold_never_expires(self):
+        self.feed(6, accepted=lambda i: i)
+        self.wd.hold_start(None, "switched off")
+        self.assertIsNone(self.feed(360, ok=False))              # three hours
+        self.assertIsNotNone(self.wd.hold)
+        self.assertEqual(self.restart.restarts, 0)
+
+    def test_hold_lines_and_info(self):
+        import datetime
+        h = self.wd.hold_start(60, "PSU swap")
+        until = datetime.datetime.fromtimestamp(self.clock() + 3600).strftime("%Y-%m-%d %H:%M:%S")
+        self.assertEqual(self.hold_lines()[-1], "hold: started by you until %s (PSU swap)" % until)
+        self.assertEqual(h["until"], self.clock() + 3600)
+        info = self.wd.hold_info()
+        self.assertEqual(info["minutes_left"], 60)
+        self.assertEqual(info["until"], until)
+        self.assertEqual(info["reason"], "PSU swap")
+        self.assertEqual(info["source"], "page")
+        self.wd.hold_start(None, "switched off", source="cli")
+        self.assertEqual(self.hold_lines()[-1], "hold: started by you, no expiry (switched off)")
+        self.assertIsNone(self.wd.hold_info()["minutes_left"])
+        self.wd.hold_start(20, "switched on, booting", source="schedule")
+        self.assertTrue(self.hold_lines()[-1].startswith("hold: started by the schedule until "))
+        self.assertIsNone(Watchdog(self.restart, self.events, 30, clock=self.clock).hold_info())
