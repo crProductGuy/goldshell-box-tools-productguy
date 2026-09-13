@@ -178,11 +178,29 @@ class Miner:
         with self._lock:
             return self._login_locked()
 
-    def _login_locked(self):
-        if not self._password_hex:
+    def verify_password_hex(self, password_hex):
+        """True when the miner accepts this encrypted password. AuthError when it rejects it (or the
+        input is not one), MinerError when it does not answer. The session's own token is untouched.
+
+        Used by the service for the power buttons: the page proves the password the way the clock
+        button does, by a login, but the service is the one holding the plug.
+        """
+        try:
+            raw = bytes.fromhex(password_hex) if isinstance(password_hex, str) else b""
+        except ValueError:
+            raw = b""
+        if not raw or len(raw) % 16:
+            raise AuthError("password check: not an encrypted password")
+        with self._lock:
+            self._login_locked(password_hex, store=False)
+        return True
+
+    def _login_locked(self, password_hex=None, store=True):
+        hexpw = password_hex or self._password_hex
+        if not hexpw:
             raise NoCredentials("no password to log in with")
         url = "%s/user/login?%s" % (self.base, urllib.parse.urlencode(
-            {"username": "admin", "password": self._password_hex, "cipher": "true"}))
+            {"username": "admin", "password": hexpw, "cipher": "true"}))
         try:
             with urllib.request.urlopen(url, timeout=self.timeout) as r:
                 body = json.loads(r.read().decode("utf-8", "replace"))
@@ -193,7 +211,8 @@ class Miner:
         tok = body.get("JWT Token") if isinstance(body, dict) else None
         if not isinstance(tok, str) or tok.count(".") != 2:
             raise AuthError("login rejected (wrong password?)")
-        self._token = tok
+        if store:
+            self._token = tok
         return tok
 
     # -- raw requests

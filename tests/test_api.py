@@ -124,3 +124,35 @@ class SessionTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VerifyPasswordTest(unittest.TestCase):
+    """The service checks a password the page offers for a power action, without touching its own session."""
+
+    def setUp(self):
+        self.fm = FakeMiner().start()
+        self.addCleanup(self.fm.stop)
+
+    def test_right_hex_is_true_and_the_session_is_untouched(self):
+        m = api.Miner(self.fm.address, token=TOKEN)
+        self.assertTrue(m.verify_password_hex(self.fm.password_hex))
+        self.assertEqual(m.status()["firmware"], "2.2.5")        # still on its own token
+        self.assertEqual(self.fm.logins, 1)                       # one login: the check
+
+    def test_wrong_hex_is_auth_error(self):
+        m = api.Miner(self.fm.address, token=TOKEN)
+        with self.assertRaises(api.AuthError):
+            m.verify_password_hex("00" * 16)
+        self.assertEqual(m.status()["firmware"], "2.2.5")
+
+    def test_bad_input_is_auth_error_without_a_request(self):
+        m = api.Miner(self.fm.address, token=TOKEN)
+        for bad in ("", None, "zz", 12, "0123"):
+            with self.assertRaises(api.AuthError):
+                m.verify_password_hex(bad)
+        self.assertEqual(self.fm.logins, 0)
+
+    def test_dead_miner_is_miner_error(self):
+        m = api.Miner("127.0.0.1:1", token=TOKEN, timeout=1)
+        with self.assertRaises(api.MinerError):
+            m.verify_password_hex(self.fm.password_hex)
