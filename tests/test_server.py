@@ -250,6 +250,50 @@ class ServerTest(unittest.TestCase):
         self.assertIsNone(h["power"]["alias"])
 
 
+class SeriesRouteTest(ServerTest):
+    """/api/series: the bucketed log for the charts, validated and cached by the log's modification time."""
+
+    def series(self, query=""):
+        status, headers, body = self.get("/api/series" + query)
+        return status, json.loads(body)
+
+    def test_default_shape_after_two_polls(self):
+        self.miner.set_token(TOKEN)
+        self.poller.poll_once(); self.poller.poll_once()
+        status, s = self.series()
+        self.assertEqual(status, 200)
+        self.assertEqual((s["hours"], s["bucket_minutes"]), (24, 5))
+        self.assertGreater(len(s["buckets"]), 200)
+        last = [b for b in s["buckets"] if b["samples"]][-1]
+        self.assertEqual(last["samples"], 2)
+        self.assertIsNotNone(last["hashrate"])
+        self.assertIn("worst", last)
+        self.assertIsInstance(s["events"], list)
+
+    def test_parameters_and_limits(self):
+        status, s = self.series("?hours=72&bucket=30")
+        self.assertEqual((status, s["hours"], s["bucket_minutes"]), (200, 72, 30))
+        for bad in ("?hours=0", "?hours=999", "?bucket=1", "?bucket=x", "?hours=abc"):
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                self.get("/api/series" + bad)
+            self.assertEqual(cm.exception.code, 400, bad)
+
+    def test_cached_until_the_log_changes(self):
+        self.miner.set_token(TOKEN)
+        self.poller.poll_once()
+        a = self.state.series(24, 5)
+        self.assertIs(self.state.series(24, 5), a)
+        self.assertIsNot(self.state.series(72, 30), a)
+        self.poller.poll_once()
+        self.assertIsNot(self.state.series(24, 5), a)
+
+    def test_events_come_from_the_event_log(self):
+        self.events.write("watchdog: restart #1 sent (miner unreachable for 2 min)")
+        status, s = self.series("?hours=1&bucket=5")
+        self.assertEqual(len(s["events"]), 1)
+        self.assertTrue(s["events"][0]["label"].startswith("watchdog:"))
+
+
 class HoldAndPowerRoutesTest(ServerTest):
     """The owner's planned outages: /api/hold, /api/hold/release and /api/power."""
 

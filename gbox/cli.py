@@ -7,6 +7,7 @@
     gbox fantarget 65              fan controller target on the board sensor
     gbox restart                   soft restart
     gbox trials                    error and throughput per clock, from the service log
+    gbox errors                    bad share, worst chip, clock and resets per half hour, from the service log
     gbox power discover|init|status|cycle|off|on
                                    a smart plug that can cut power to a frozen controller,
                                    and switch the miner off and on by hand
@@ -25,7 +26,7 @@ import os
 import sys
 import threading
 
-from . import __version__, api, config, plug as plugmod, trials
+from . import __version__, api, config, plug as plugmod, series, trials
 from .events import EventLog
 from .poller import COLUMNS, Poller, migrate_columns
 from .power import PowerControl, Scheduler
@@ -301,6 +302,23 @@ def _fmt_watts(w):
     return ("%.0f W" % w) if w is not None else "no meter"
 
 
+def cmd_errors(args, cfg, data_dir):
+    """The charts' buckets as text: what the errors chart shows, from the log alone (docs/charts-proposal.md)."""
+    if not (series.MIN_HOURS <= args.hours <= series.MAX_HOURS):
+        _die("--hours must be %d to %d" % (series.MIN_HOURS, series.MAX_HOURS))
+    if not (series.MIN_BUCKET <= args.bucket <= series.MAX_BUCKET):
+        _die("--bucket must be %d to %d minutes" % (series.MIN_BUCKET, series.MAX_BUCKET))
+    log = data_dir / "log.csv"
+    rows = series.read_rows(log)
+    if not rows:
+        _out("no log at %s: the service writes it (gbox serve)" % log)
+        return
+    events = EventLog(data_dir / "events.log").tail(4000)
+    _out(series.format_table(series.buckets(rows, args.hours, args.bucket, events=events)))
+    _out("")
+    _out("Bad share is bad nonces over all nonces in the bucket, summed from the log's counters across boots; the worst chip is board.chip.")
+
+
 def cmd_power_discover(args, cfg, data_dir):
     found = plugmod.discover(timeout=args.timeout, port=args.port, targets=tuple(args.target) if args.target else None)
     if not found:
@@ -566,6 +584,11 @@ def build_parser():
     run.add_argument("--max-resets", type=int, default=0, help="board resets tolerated in one step before aborting (default 0)")
     run.add_argument("--max-bad", type=float, default=3.0, help="worst chip bad share, percent, tolerated before aborting (default 3)")
     run.set_defaults(fn=cmd_trials)
+    sp = sub.add_parser("errors", help="bad share, worst chip, clock and board resets per bucket, from the service log")
+    sp.add_argument("--hours", type=int, default=72, help="how far back (default 72)")
+    sp.add_argument("--bucket", type=int, default=30, help="bucket width in minutes (default 30)")
+    sp.set_defaults(fn=cmd_errors)
+
     sp = sub.add_parser("power", help="a smart plug that can cut power to a frozen controller (optional)",
                         description="Find, set up, read and, by hand, cycle the smart plug the miner is powered from. "
                                     "The watchdog uses it only after soft restarts have failed, and only once armed.")

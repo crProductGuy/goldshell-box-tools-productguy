@@ -103,6 +103,38 @@ class TrialsRunCommandTest(unittest.TestCase):
         self.assertIn("600 MHz", self.fm.setting["manualPowerplan"])
 
 
+class ErrorsCommandTest(unittest.TestCase):
+    """`gbox errors`: the bucketed series as a table from the data directory's log, no miner contact."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.data = Path(self.tmp.name)
+
+    def run_cli(self, *argv):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.main(["--data", self.tmp.name] + list(argv))
+        return out.getvalue()
+
+    def test_prints_the_table_from_the_log(self):
+        write_csv(self.data / "log.csv", fixture_rows(), poller.COLUMNS)
+        text = self.run_cli("errors", "--hours", "168", "--bucket", "120")
+        head = text.splitlines()[0]
+        for col in ("time", "clock", "bad share", "worst chip", "resets"):
+            self.assertIn(col, head)
+        self.assertIn("no samples", text)          # the fixture does not fill a whole week
+
+    def test_no_log_says_so(self):
+        self.assertIn("no log", self.run_cli("errors").lower())
+
+    def test_bad_parameters_die(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+            self.run_cli("errors", "--hours", "0")
+        self.assertIn("hours", err.getvalue())
+
+
 class FakeTTY(io.StringIO):
     """stdin that claims to be a terminal, so prompts are asked and answered from the string."""
 

@@ -19,7 +19,9 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import __version__, api, models, trials
+import urllib.parse
+
+from . import __version__, api, models, series, trials
 from .power import PowerRefused
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -60,6 +62,27 @@ class ServiceState:
         self.power_control = power_control   # gbox.power.PowerControl when a plug is configured
         self.lock = threading.Lock()
         self.trials_cache = (None, None)     # ((mtime_ns, size) of log.csv, table) so a refresh does not re-parse
+        self.series_cache = {}               # (hours, bucket) -> ((mtime_ns, size), result), same idea for the charts
+
+    def _log_key(self):
+        try:
+            st = (self.data_dir / "log.csv").stat()
+            return (st.st_mtime_ns, st.st_size)
+        except OSError:
+            return None
+
+    def series(self, hours, bucket):
+        """The bucketed log for the charts (docs/charts-proposal.md), recomputed only when log.csv changed."""
+        key = self._log_key()
+        with self.lock:
+            cached = self.series_cache.get((hours, bucket))
+            if cached and cached[0] == key:
+                return cached[1]
+            rows = series.read_rows(self.data_dir / "log.csv")
+            lines = self.events.tail(4000) if self.events else []
+            result = series.buckets(rows, hours, bucket, events=lines)
+            self.series_cache[(hours, bucket)] = (key, result)
+            return result
 
     def trials_table(self):
         """The clock-trials table, recomputed only when log.csv changed."""
@@ -192,7 +215,21 @@ def make_handler(state):
                 return self._json(200, state.trials_table())
             if path == "/api/trial":
                 return self._json(200, state.trial_progress())
+            if path == "/api/series":
+                return self._get_series()
             self._send(404, "not found")
+
+        def _get_series(self):
+            q = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+            try:
+                hours = int(q.get("hours", ["24"])[0])
+                bucket = int(q.get("bucket", ["5"])[0])
+                if not (series.MIN_HOURS <= hours <= series.MAX_HOURS and series.MIN_BUCKET <= bucket <= series.MAX_BUCKET):
+                    raise ValueError
+            except ValueError:
+                return self._json(400, {"error": "hours must be %d to %d and bucket %d to %d minutes"
+                                        % (series.MIN_HOURS, series.MAX_HOURS, series.MIN_BUCKET, series.MAX_BUCKET)})
+            self._json(200, state.series(hours, bucket))
 
         def _json_body(self):
             """The POST body as parsed JSON, or None after an error reply has been sent."""
