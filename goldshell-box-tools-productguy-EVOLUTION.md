@@ -1158,3 +1158,45 @@ refuses non-systemd boxes with a pointer. 0.5.2. Devuan, which Mark may
 use for a node: no systemd; the answer would be a respawn line in
 /etc/inittab or a runit service directory, and the installer could grow
 that as a second backend once there is a box to test it on.
+
+## 2026-09-13 evening, session M: 0.6.0, the operator's view over days
+
+**Mark's brief.** "Spec looks right, write the plan and build it," on
+`docs/charts-proposal.md`, itself the product of an argument he asked
+for: bad share over bad count, resets on the same chart, time on x, 30-minute
+buckets, every chip logged every poll, all other charts to 24 hours. His
+purpose, kept at the top of the spec: "for the human operator to see when
+things really went bad on a graph, so she/he can do something."
+
+**Built, test-first, in a worktree, in order.** (1) The `chips` column:
+every chip's cumulative counts as `board.chip:good/bad`, from the icinfo
+request the poller already makes, so a bigger unit costs disk, not
+controller time; three older tests that said "watts is the last column"
+were updated to the new width. (2) `gbox/series.py`: every row read, the
+window cut into buckets aligned to midnight, means over good samples,
+counts as row-to-row increments with the counter-reset rule the tiles and
+the trials table already use, the worst chip per bucket from the chips
+column with the flagged-chips column as the fallback for older rows,
+events in the window. One test expectation was corrected mid-way: an
+increment belongs to the bucket of the later sample, as the spec says.
+(3) `/api/series?hours&bucket`, cached by the log's modification time
+and size; three days compute in a third of a second and answer from cache
+in two milliseconds. (4) `gbox errors`, which read the live log at once
+and showed the morning: chip 8 at 55% with 34 resets in the 07:00 bucket,
+46 resets on a flat share at 16:00. (5) The page: the panel renderer
+gained long-span ticks with dates at midnight, step lines and bars; the
+hashrate, fan, temperature and watts charts draw 24 hours of 5-minute
+means when served; the errors section draws three days of bad share,
+worst chip, clock and resets with the counts on hover; `/api/log.csv`
+gained a `tail` parameter so the tiles stop pulling the whole log. (6)
+Docs and 0.6.0. Verified: 42 JS tests, the Python suite by a fresh agent
+into an evidence file, and Chrome on a scratch service fed by a new
+synthetic three-day log generator (`tests/make_synthetic_log.py`): the
+burst, the hole, the clock step, the markers, the day labels, the
+tooltip; the standalone file unchanged.
+
+**Left out, said so.** Log rotation goes with the multi-board work
+(0.7.0); alerting later; a clock-on-x scatter only if the time chart
+leaves Mark wanting it. One slip to own: the series module's tests were
+written before the code but ran green on their first run, so there was no
+red run for that task.
