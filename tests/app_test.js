@@ -314,6 +314,87 @@ const tests = {
     assert.strictEqual(byT[new Date(2026, 8, 9, 20, 29, 0).getTime()].what, "declined: 6 restarts in 24 h is the cap (miner unreachable for 2 min)");
     assert.deepStrictEqual(app.interventionCounts(iv), { restarts: 1, cycles: 2, actions: 2 });
   },
+  "hold line: what is held, until when, by whom, and what lifts it; empty without a hold"() {
+    const hold = { since: "2026-09-12 21:00:00", until: "2026-09-12 22:00:00", reason: "PSU swap", source: "page", minutes_left: 60, ok_streak: 0 };
+    assert.strictEqual(app.holdLine({ hold }),
+      "Held until 22:00 (PSU swap), by you since 21:00: nothing is judged until the miner answers twice in a row, or 60 min pass.");
+    assert.strictEqual(app.holdLine({ hold: Object.assign({}, hold, { until: null, minutes_left: null, reason: "switched off" }) }),
+      "Held with no expiry (switched off), by you since 21:00: nothing is judged until the miner answers twice in a row, or you press Release.");
+    assert.strictEqual(app.holdLine({ hold: Object.assign({}, hold, { source: "schedule", reason: "", ok_streak: 1 }) }),
+      "Held until 22:00, by the schedule since 21:00: nothing is judged until the miner answers twice in a row (1 so far), or 60 min pass.");
+    assert.strictEqual(app.holdLine({ hold: null }), "");
+    assert.strictEqual(app.holdLine(null), "");
+  },
+  "power action requests: off and cycle ask for the password, on does not; the summary reads the plug"() {
+    const service = { power: { configured: true, alias: "workbench", model: "HS110(US)", meter: true, watts: 197.3, state: "on" },
+                      ladder: { settle_minutes: 20, after_minutes: 5 } };
+    const off = app.powerActionRequest("off", service);
+    assert.deepStrictEqual(off, { kind: "service", method: "POST", path: "api/power", body: { action: "off" }, password: true, changes: [], restart: false,
+      title: "Switch the plug off", event: null,
+      summary: "switch off 'workbench' (HS110(US)), reading 197 W now (that looks like a miner hashing, not a hung one); the miner stays off, unjudged, until you press On" });
+    const on = app.powerActionRequest("on", service);
+    assert.strictEqual(on.password, false);
+    assert.deepStrictEqual(on.body, { action: "on" });
+    assert.strictEqual(on.summary, "switch on 'workbench' (HS110(US)); the watchdog waits 20 min for the boot before judging anything");
+    const cycle = app.powerActionRequest("cycle", service, 15);
+    assert.strictEqual(cycle.password, true);
+    assert.deepStrictEqual(cycle.body, { action: "cycle", off_seconds: 15 });
+    assert.strictEqual(cycle.summary, "cut power to 'workbench' (HS110(US)) for 15 s, then restore it; reading 197 W now (that looks like a miner hashing, not a hung one); the watchdog waits 20 min for the boot");
+    const idle = app.powerActionRequest("off", { power: { configured: true, alias: "", model: "HS105(US)", meter: false, watts: null }, ladder: {} });
+    assert.strictEqual(idle.summary, "switch off the plug (HS105(US)), no meter; the miner stays off, unjudged, until you press On");
+    assert.throws(() => app.powerActionRequest("explode", service), /off, on or cycle/);
+  },
+  "hold requests: minutes and a reason, or no expiry; release has an empty body"() {
+    assert.deepStrictEqual(app.holdRequest(20, "cable"), { kind: "service", method: "POST", path: "api/hold", body: { minutes: 20, reason: "cable" }, password: false,
+      changes: [], restart: false, title: "Hold", event: null,
+      summary: "hold for 20 min (cable): the watchdog judges nothing until the miner answers twice in a row, or 20 min pass" });
+    assert.strictEqual(app.holdRequest(null, "").summary, "hold with no expiry: the watchdog judges nothing until the miner answers twice in a row, or you press Release");
+    assert.deepStrictEqual(app.holdRequest(null, "").body, { minutes: null, reason: "" });
+    assert.deepStrictEqual(app.holdReleaseRequest().body, {});
+    assert.strictEqual(app.holdReleaseRequest().path, "api/hold/release");
+    assert.strictEqual(app.holdReleaseRequest().password, false);
+  },
+  "interventions: holds and planned power read as yours (or the schedule's), and the service's own releases as the service's"() {
+    const T = (h, m, s) => new Date(2026, 8, 12, h, m, s).getTime();
+    const row = (h, m, s, ok) => ({ t: T(h, m, s), ok: ok, fan0: 1200, fan1: 1200, chip: 70, board: 63, watts: ok ? 197 : 0 });
+    const rows = [row(21, 0, 30, true), row(21, 5, 30, false), row(21, 6, 0, false), row(21, 7, 0, true)];
+    const log = [
+      "2026-09-12 20:00:00 hold: started by you until 2026-09-12 21:00:00 (PSU swap)",
+      "2026-09-12 20:12:00 hold: released, miner back after 12 min",
+      "2026-09-12 20:20:00 hold: started by the schedule until 2026-09-12 20:40:00 (switched on, booting)",
+      "2026-09-12 20:30:00 hold: released by you",
+      "2026-09-12 20:40:00 hold: expired after 20 min with the miner still unreachable; watchdog resumed",
+      "2026-09-12 21:05:00 power: switched off by you (page; 197 W before)",
+      "2026-09-12 21:06:30 power: switched on by you (page)",
+      "2026-09-12 21:10:00 power: cycled by you (gbox power cycle): off 15 s, on (197 W before)",
+      "2026-09-12 21:11:00 power: switched off by the schedule (197 W before)",
+      "2026-09-12 21:12:00 power: switch off failed: plug did not answer",
+      "2026-09-12 21:13:00 service: hold picked up from the event log (no expiry): nothing judged until the miner is back",
+    ].join("\n") + "\n";
+    const iv = app.interventions(log, rows);
+    assert.deepStrictEqual(iv.map(i => i.who), ["plug", "schedule", "you", "you", "you", "service", "you", "schedule", "service", "you"]);
+    assert.deepStrictEqual(iv.map(i => i.kind), ["failed", "off", "cycle", "on", "off", "hold", "hold", "hold", "hold", "hold"]);
+    const byT = Object.fromEntries(iv.map(i => [i.t, i]));
+    assert.strictEqual(byT[T(20, 0, 0)].what, "hold until 21:00 (PSU swap)");
+    assert.strictEqual(byT[T(20, 12, 0)].what, "hold released: miner back after 12 min");
+    assert.strictEqual(byT[T(20, 30, 0)].what, "hold released");
+    assert.strictEqual(byT[T(20, 40, 0)].what, "hold expired after 20 min with the miner still unreachable; watchdog resumed");
+    assert.strictEqual(byT[T(21, 5, 0)].what, "switched off (page; 197 W before)");
+    assert.strictEqual(byT[T(21, 5, 0)].result, "");
+    assert.strictEqual(byT[T(21, 6, 30)].what, "switched on (page)");
+    assert.strictEqual(byT[T(21, 6, 30)].result, "no outage seen in the log");
+    assert.strictEqual(byT[T(21, 10, 0)].what, "power cycle (gbox power cycle): off 15 s, on (197 W before)");
+    assert.strictEqual(byT[T(21, 11, 0)].what, "switched off (197 W before)");
+    assert.strictEqual(byT[T(21, 12, 0)].what, "switch off failed: plug did not answer");
+    assert.deepStrictEqual(app.interventionCounts(iv), { restarts: 0, cycles: 1, actions: 5 });
+    assert.strictEqual(app.markerGlyph("hold: started by you until x"), "H");
+    assert.strictEqual(app.eventMarkers("2026-09-12 20:00:00 hold: started by you until 2026-09-12 21:00:00 (PSU swap)\n").length, 1);
+  },
+  "the service line says when the plug is off by you or cycling"() {
+    const on = { configured: true, model: "HS110(US)", meter: true, state: "on", watts: 187.8, cycle: true, cycles_today: 0, last_reason: null };
+    assert.strictEqual(app.powerLine({ power: Object.assign({}, on, { state: "off", watts: 0, off_by_you: true }) }), " · plug HS110(US) off by you, 0 W, armed, 0 cycles today");
+    assert.strictEqual(app.powerLine({ power: Object.assign({}, on, { busy: "cycling" }) }), " · plug HS110(US) cycling, 188 W, armed, 0 cycles today");
+  },
   "rated figures come from the model table, looked up loosely; unknown models get none"() {
     assert.strictEqual(app.ratedFor("Goldshell-SCBox").rated_watts, 200);
     assert.strictEqual(app.ratedFor(" goldshell scbox ").rated_mhs, 900000);
