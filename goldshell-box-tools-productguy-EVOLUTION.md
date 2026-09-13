@@ -1130,3 +1130,31 @@ Wording changed everywhere from "answers" to "hashes". Patch version
 0.5.1. A second finding from the same afternoon: "board absent after a
 power-on" is curable by a soft restart, and the stall rule finds it in
 five minutes.
+
+**Addendum, 2026-09-13 evening: the Linux installer (plan step 3), and
+the 0.6.0 charts agreed.** Mark, after the syslog read: "I think we need
+another new graph box, showing the avg error rate per unit time, and the
+error rate per worst chip per unit time, vs. the clock rate ... a longer
+time horizon - probably 3 days ... Argue with me or ask questions." The
+agent argued for bad share over bad count (a faster clock attempts more
+nonces), for board resets on the same chart (the 16:02 event was 46
+resets and 9 bad nonces; an error chart alone stays flat through it),
+for time on x with the clock overlaid, 30-minute buckets, and one
+appended all-chips column written board-aware; Mark took all of it, added
+"the other graphs should be extended to a min of 24 hours", asked about
+polling on a multi-board unit (answer: no change; the per-chip data is in
+the request the poller already makes), chose to build this separately
+from the other-models work, and said the purpose plainly: "for the human
+operator to see when things really went bad on a graph, so she/he can do
+something." That is 0.6.0, spec to follow.
+
+First, at his word, the Linux installer for a friend: "I really want to
+get the Linux version out tonight." No WSL or Docker on this box, so the
+live checklist runs on the Ubuntu 22.04 sibling after a push. Built
+test-first: a dry-run test under bash asserts the unit and the command
+sequence; the script mirrors the Windows launcher (same command line,
+same data rule, uninstall), adds linger with a sudo fallback message, and
+refuses non-systemd boxes with a pointer. 0.5.2. Devuan, which Mark may
+use for a node: no systemd; the answer would be a respawn line in
+/etc/inittab or a runit service directory, and the installer could grow
+that as a second backend once there is a box to test it on.
