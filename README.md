@@ -59,7 +59,15 @@ Start at logon:
 
 - Windows: `powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1`
   (no administrator rights needed; `-Uninstall` reverses it)
-- Linux: `scripts/install-linux.sh` (systemd user unit) — next step of the plan
+- Linux with systemd (Ubuntu, Debian, Fedora and most others):
+  `scripts/install-linux.sh` writes a user unit, enables it, and turns on
+  linger so the service runs with nobody logged in and after a reboot
+  (`--uninstall` reverses it; `--dry-run` prints every step and touches
+  nothing). No root needed, except that some distributions ask for
+  `sudo loginctl enable-linger $USER` once, and the script says so. A
+  fresh box needs three commands: clone, `python3 -m gbox init`, then the
+  script. Without systemd (Devuan, Alpine), run `python3 -m gbox serve`
+  from the clone under your init's supervisor; the script says as much.
 
 ## Power-cycling a hung miner
 
