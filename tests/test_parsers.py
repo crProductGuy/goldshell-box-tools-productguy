@@ -99,3 +99,31 @@ class HashrateUnitsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ChipsColumnTest(unittest.TestCase):
+    """The all-chips column: every chip's counts, board-aware, round-tripped."""
+
+    def boards(self):
+        return api.parse_icinfo(fixture("dbg_icinfo.json"))
+
+    def test_format_is_board_dot_chip_in_order(self):
+        text = api.format_chips(self.boards())
+        parts = text.split(";")
+        self.assertEqual(len(parts), 16)
+        self.assertTrue(parts[0].startswith("0.1:"))          # the firmware numbers chips from 1
+        self.assertTrue(parts[7].startswith("0.8:"))
+        self.assertRegex(parts[7], r"^0\.8:\d+/\d+$")
+        self.assertEqual(api.format_chips([]), "")
+
+    def test_two_boards_carry_their_index(self):
+        boards = [[{"chip": 0, "good": 5, "bad": 1}], [{"chip": 0, "good": 7, "bad": 0}, {"chip": 1, "good": 8, "bad": 2}]]
+        self.assertEqual(api.format_chips(boards), "0.0:5/1;1.0:7/0;1.1:8/2")
+
+    def test_parse_round_trips_and_ignores_junk(self):
+        self.assertEqual(api.parse_chips("0.0:5/1;1.0:7/0"), {"0.0": (5, 1), "1.0": (7, 0)})
+        self.assertEqual(api.parse_chips(""), {})
+        self.assertEqual(api.parse_chips(None), {})
+        self.assertEqual(api.parse_chips("garbage;0.3:1/x;0.4:2/3"), {"0.4": (2, 3)})
+        text = api.format_chips(self.boards())
+        self.assertEqual(len(api.parse_chips(text)), 16)
