@@ -22,7 +22,8 @@ from . import api
 
 COLUMNS = ["time", "http", "elapsed", "mhs_av", "mhs_20s", "hwerr", "hwerr_pct", "accepted",
            "rejected", "clock", "fan0", "fan1", "tstemp0", "tstemp1", "tstemp2", "rebootcnt",
-           "weak_chips", "nonces_good", "nonces_bad", "temp_target", "overheat", "watts"]
+           "weak_chips", "nonces_good", "nonces_bad", "temp_target", "overheat", "watts",
+           "chips"]        # 0.6.0: every chip's cumulative good/bad as board.chip:g/b;... (docs/charts-proposal.md)
 
 
 def sample(miner):
@@ -41,6 +42,7 @@ def sample(miner):
         "rebootcnt": info["rebootcnt"], "weak_chips": weak,
         "nonces_good": sum(c["good"] for c in chips), "nonces_bad": sum(c["bad"] for c in chips),
         "temp_target": setting.get("temp_target"), "overheat": info["overheat"],
+        "chips": api.format_chips(boards),
     }
 
 

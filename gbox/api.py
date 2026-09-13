@@ -72,6 +72,26 @@ def parse_icinfo(text):
             for board in body["drawdata"]]
 
 
+def format_chips(boards):
+    """Every chip's cumulative counts for the log's `chips` column: `board.chip:good/bad` joined by `;`,
+    in board then chip order. Board-aware from the first row so a multi-board unit needs no second format."""
+    return ";".join("%d.%d:%d/%d" % (b, c["chip"], c["good"], c["bad"])
+                    for b, board in enumerate(boards) for c in board)
+
+
+_CHIPS_RE = re.compile(r"^(\d+\.\d+):(\d+)/(\d+)$")
+
+
+def parse_chips(text):
+    """The `chips` column back into {"board.chip": (good, bad)}; junk entries are skipped, "" is {}."""
+    out = {}
+    for part in (text or "").split(";"):
+        m = _CHIPS_RE.match(part.strip())
+        if m:
+            out[m.group(1)] = (int(m.group(2)), int(m.group(3)))
+    return out
+
+
 def chip_health(chip, best_good):
     """One of ok, weak, failing, judged relative to the best chip on the board."""
     total = chip["good"] + chip["bad"]

@@ -76,7 +76,7 @@ class PollerTest(unittest.TestCase):
         with open(self.csv, encoding="utf-8") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
-        self.assertEqual(lines[1], "2026-09-05 21:05:52,ok,1,2,3,4,0.4,5,0,600.0,3000,3000,70,70,63,0,8:1/1,,,,,")
+        self.assertEqual(lines[1], "2026-09-05 21:05:52,ok,1,2,3,4,0.4,5,0,600.0,3000,3000,70,70,63,0,8:1/1,,,,,,")
         self.assertEqual(lines[2].count(","), len(poller.COLUMNS) - 1)
         self.assertTrue((self.csv.parent / "log.csv.bak").exists())
         rows = self.rows()
@@ -113,7 +113,7 @@ class PollerTest(unittest.TestCase):
         with open(self.csv, encoding="utf-8") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
-        self.assertTrue(lines[1].endswith(",65,0,"))
+        self.assertTrue(lines[1].endswith(",65,0,,"))          # watts and chips padded
 
     def test_migration_note_says_whether_the_backup_is_new(self):
         """The first migration writes log.csv.bak; a later one keeps the older backup and says so."""
@@ -131,6 +131,45 @@ class PollerTest(unittest.TestCase):
         self.assertEqual(note, "the older log.csv.bak was left as is")
         self.assertEqual(backup.read_text(encoding="utf-8"), first_backup)
         self.assertFalse(poller.migrate_columns(self.csv))          # current header: no note, no change
+
+
+class ChipsColumnPollerTest(unittest.TestCase):
+    """The poller writes every chip's counts as the last column; a 22-column log from 0.5.x is migrated."""
+
+    def setUp(self):
+        self.fm = FakeMiner().start()
+        self.addCleanup(self.fm.stop)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.csv = Path(self.tmp.name) / "log.csv"
+
+    def rows(self):
+        with open(self.csv, newline="", encoding="utf-8") as f:
+            return list(csv.DictReader(f))
+
+    def test_chips_is_the_last_column_with_every_chip(self):
+        self.assertEqual(poller.COLUMNS[-1], "chips")
+        self.assertEqual(poller.COLUMNS[-2], "watts")
+        poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30).poll_once()
+        row = self.rows()[0]
+        parts = row["chips"].split(";")
+        self.assertEqual(len(parts), 16)
+        self.assertTrue(parts[0].startswith("0.1:"))          # the firmware numbers chips from 1
+        self.assertIn("0.8", api.parse_chips(row["chips"]))
+
+    def test_22_column_header_from_0_5_x_is_migrated(self):
+        old = poller.COLUMNS[:22]
+        self.assertEqual(old[-1], "watts")
+        with open(self.csv, "w", encoding="utf-8", newline="") as f:
+            f.write(",".join(old) + "\n")
+            f.write("2026-09-13 15:52:32,ok,5,13015.584,13015.584,0,0.0,1,0,550.0,2880,2880,34.0,34.0,24.63,0,,10,0,65,0,174.476037\n")
+        self.assertTrue(poller.migrate_columns(self.csv))
+        with open(self.csv, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(lines[0], ",".join(poller.COLUMNS))
+        self.assertTrue(lines[1].endswith(",174.476037,"))
+        self.assertEqual(self.rows()[0]["chips"], "")
+        self.assertTrue((self.csv.parent / "log.csv.bak").exists())
 
 
 class PollerHashingSignalTest(unittest.TestCase):
@@ -214,7 +253,7 @@ class PollerPlugTest(unittest.TestCase):
             return list(csv.DictReader(f))
 
     def test_watts_is_the_last_column_and_empty_without_a_plug(self):
-        self.assertEqual(poller.COLUMNS[-1], "watts")
+        self.assertEqual(poller.COLUMNS[-2], "watts")          # chips followed it in 0.6.0
         p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30)
         p.poll_once()
         self.assertEqual(self.rows()[0]["watts"], "")
