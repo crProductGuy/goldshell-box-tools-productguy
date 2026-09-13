@@ -390,7 +390,49 @@ function chartData(hist) {
   return { unit: unit, div: div, data: first < 0 ? [] : vals.slice(first) };
 }
 // The page's own version, shown in the header: opened as a file there is no service to ask. tests/test_app_js.py keeps it equal to gbox.__version__.
-const VERSION = "0.5.2";
+// ---- the served charts over days (docs/charts-proposal.md): /api/series buckets as chart rows ----
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function parseStamp(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?$/.exec(s || "");
+  return m ? new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)).getTime() : NaN;
+}
+// One row per bucket for drawPanels, timed at the bucket's middle. Nulls stay null (a gap), never 0.
+function seriesRows(s) {
+  const half = (s.bucket_minutes || 30) * 30000;
+  return (s.buckets || []).map(b => ({
+    t: parseStamp(b.t) + half, label: b.t, ok: b.samples > 0, samples: b.samples, errors: b.errors,
+    hashrate: b.hashrate, fan0: b.fan0, fan1: b.fan1, chip: b.chip_temp, board: b.board_temp, watts: b.watts, clock: b.clock,
+    share: b.share, worst_share: b.worst ? b.worst.share : null, worst: b.worst, resets: b.resets, good: b.good, bad: b.bad,
+  }));
+}
+const nfmt = (v, d) => (v === null || v === undefined || isNaN(v)) ? "—" : v.toLocaleString("en-US", { minimumFractionDigits: d || 0, maximumFractionDigits: d || 0 });
+function errorTip(row, bucketMin) {
+  const from = clockLabel(row.t - bucketMin * 30000), to = clockLabel(row.t + bucketMin * 30000), win = from + " to " + to;
+  if (!row.ok) return win + " · no samples";
+  const clock = row.clock == null ? "" : " · " + nfmt(row.clock) + " MHz";
+  if (row.bad == null) return win + " · counts need a previous sample" + clock;
+  const w = row.worst ? " · worst chip " + w_text(row.worst) : "";
+  return win + " · bad " + nfmt(row.bad) + " of " + nfmt(row.good + row.bad) + " (" + nfmt(row.share, 2) + "%)" + w + clock + " · " + nfmt(row.resets) + " reset" + (row.resets === 1 ? "" : "s");
+}
+function w_text(w) { return w.chip + ": " + nfmt(w.bad) + " of " + nfmt(w.good + w.bad) + " (" + nfmt(w.share, 2) + "%)"; }
+// Tick and label plan for a time axis of `spanMin` minutes ending at `now`: hours-back labels for a few hours, wall-clock
+// labels (with the date at midnight) for a day or more.
+function axisTicks(spanMin, now, wide) {
+  if (spanMin <= 720) {
+    const every = wide ? 60 : 120, labels = [];
+    for (let m = every; m <= spanMin; m += every) labels.push({ m: m, text: "-" + (m / 60) + " h" });
+    return { tickEvery: 5, labels: labels };
+  }
+  const everyH = spanMin <= 1440 ? (wide ? 6 : 12) : (wide ? 12 : 24), labels = [], d = new Date(now);
+  d.setMinutes(0, 0, 0);
+  for (let t = d.getTime(); now - t <= spanMin * 60000; t -= 3600000) {
+    const dt = new Date(t), h = dt.getHours(), m = Math.round((now - t) / 60000);
+    if (m <= 0 || h % everyH !== 0) continue;
+    labels.push({ m: m, text: clockLabel(t) + (h === 0 ? " " + MONTHS[dt.getMonth()] + " " + dt.getDate() : "") });
+  }
+  return { tickEvery: 60, labels: labels };
+}
+const VERSION = "0.6.0";
 // The wall-clock time under a chart's "now" label: 24-hour, minutes only, so the last refresh reads at a glance.
 function clockLabel(t) { const d = new Date(t); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
 // The service log as the page shows it: newest line on top, like the interventions table, so a short window shows what matters.
@@ -419,7 +461,7 @@ function holdLine(h) {
 }
 if (typeof module !== "undefined") module.exports = { VERSION, clockLabel, newestFirst, ladderLine, encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
-  powerActionRequest, holdRequest, holdReleaseRequest, holdLine,
+  powerActionRequest, holdRequest, holdReleaseRequest, holdLine, seriesRows, errorTip, axisTicks, parseStamp,
   markerGlyph, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf,
   powerTile, envRowsFrom, lastHour, recentHashrate, interventions, interventionCounts };
 
@@ -659,6 +701,7 @@ function rightAxis(xR, y, top, max, rated, title) {
   return s + "<text class=\"rlbl\" x=\"" + (xR + 46) + "\" y=\"" + (top - 10) + "\" text-anchor=\"end\">" + title + "</text>";
 }
 function renderChart(hist) {
+  if (service && series24) return renderHashrateSeries();
   const box = $("chart"), { unit, div, data } = chartData(hist);
   if (data.length === 0) { box.innerHTML = "<p class=\"note\">no history yet</p>"; return; }
   if (data.length === 1) {
@@ -713,21 +756,57 @@ async function refreshFan() {
 }
 // ---- fans + temperature from the service's log.csv ----
 let envRows = null;
+let series24 = null, series72 = null;   // /api/series for the 24-hour charts and the three-day errors chart (served only)
+const SERVED_SPAN = 1440, ERR_SPAN = 4320;
+function servedOpts(box, spanMin, bucketMin) { return { gapMs: bucketMin * 60000 * 1.5, bucketMin: bucketMin, ticks: axisTicks(spanMin, Date.now(), box.clientWidth >= 700) }; }
 async function refreshEnv() {
   if (!service) { $("envchart").innerHTML = "<p class=\"note\">Fan and temperature history needs the gbox service: run <code>gbox serve</code> and open the page from the address it prints.</p>"; return; }
   try {
-    const r = await fetch("api/log.csv", { cache: "no-store" });
+    const r = await fetch("api/log.csv?tail=3000", { cache: "no-store" });        // the tiles' last hour and the interventions join: a day of rows is plenty
     if (!r.ok) throw new Error("no samples yet");
     envRows = envRowsFrom(await r.text());
-    renderEnv(); renderWatts(); renderInterventions();
+    try {
+      const [a, b] = await Promise.all([fetch("api/series?hours=24&bucket=5", { cache: "no-store" }), fetch("api/series?hours=72&bucket=30", { cache: "no-store" })]);
+      series24 = a.ok ? await a.json() : null; series72 = b.ok ? await b.json() : null;
+    } catch (e) { series24 = series72 = null; }
+    renderEnv(); renderWatts(); renderErrors(); renderInterventions(); if (lastHistory) renderChart(lastHistory);
   } catch (e) { $("envchart").innerHTML = "<p class=\"note\">No logger samples yet (" + e.message + ").</p>"; }
+}
+// The errors chart: bad share of all chips and of the worst chip, the clock as a step, board resets as bars, over three days.
+function renderErrors() {
+  const sec = $("errors"), box = $("errchart");
+  if (!service || !series72) { sec.hidden = true; return; }
+  sec.hidden = false;
+  const rows = seriesRows(series72), now = Date.now(), spanMin = ERR_SPAN, bm = series72.bucket_minutes;
+  if (rows.filter(r => r.ok).length < 2) { box.innerHTML = "<p class=\"note\">no logger samples in this window yet</p>"; return; }
+  const mx = k => Math.max.apply(null, rows.map(r => r[k]).filter(v => v !== null && v !== undefined).concat([0]));
+  const shareMax = niceMax(Math.max(mx("share"), mx("worst_share"), 0.5) * 1.05), clockMax = niceMax(mx("clock") * 1.1) || 800, resetMax = niceMax(Math.max(mx("resets"), 4) * 1.1);
+  const panels = [
+    { label: "% bad", min: 0, max: shareMax, step: shareMax / 4, series: [["share", "", "all chips"], ["worst_share", "s2", "worst chip"]], rated: null },
+    { label: "MHz", min: 0, max: clockMax, step: clockMax / 4, series: [["clock", "s3", "clock", { step: true }]], rated: null },
+    { label: "resets", min: 0, max: resetMax, step: resetMax / 4, series: [], bars: "resets", rated: null } ];
+  drawPanels(box, panels, rows, spanMin, now, best => errorTip(best, bm), "errors over three days", servedOpts(box, spanMin, bm));
+}
+// The hashrate chart when served: 24 hours of 5-minute means from the log, with the rated axis.
+function renderHashrateSeries() {
+  const box = $("chart"), rows = seriesRows(series24), now = Date.now(), spanMin = SERVED_SPAN;
+  const vals = rows.map(r => r.hashrate).filter(v => v !== null && v !== undefined);
+  if (vals.length < 2) { box.innerHTML = "<p class=\"note\">no logger samples in this window yet</p>"; return; }
+  const [unit, div] = hashUnit(Math.max.apply(null, vals)), rated = ratedFor(lastModel), ratedV = rated ? rated.rated_mhs / div : null;
+  const scaled = rows.map(r => Object.assign({}, r, { h: r.hashrate === null || r.hashrate === undefined ? null : r.hashrate / div }));
+  const yMax = niceMax(Math.max(Math.max.apply(null, vals) / div * 1.05, ratedV ? ratedV * 1.1 : 0));
+  drawPanels(box, [{ label: unit, min: 0, max: yMax, step: yMax / 4, series: [["h", "", unit]], rated: ratedV ? { value: ratedV, title: "% of rated" } : null }], scaled, spanMin, now,
+    best => clockLabel(best.t) + " · " + (best.h === null ? "no samples" : fmt(best.h, div === 1 ? 0 : 1) + " " + unit + (ratedV ? " (" + fmt(100 * best.h / ratedV) + "% of rated)" : "")),
+    "hashrate over 24 hours", servedOpts(box, spanMin, series24.bucket_minutes));
+  $("hashsub").textContent = "last 24 hours from the gbox service log, 5-minute means of the miner's 20 s reading; the tiles above are live";
 }
 // The window both log charts share: as far back as the miner's own hashrate buffer reaches, at least an hour.
 function logSpanMin() { return Math.max(lastHistory.filter(v => v > 0).length * SAMPLE_MIN, 60); }
 // Shared scaffold for the log charts: stacked panels on one time axis, series that break at a gap or a missing value,
 // event markers, an optional right-hand "% of rated" axis per panel, and one hover tooltip. Each panel:
 // { label, min, max, step, series: [[rowKey, cssClass, name]...], rated: { value, title } | null }.
-function drawPanels(box, panels, rows, spanMin, now, tipText, aria) {
+function drawPanels(box, panels, rows, spanMin, now, tipText, aria, opts) {
+  const o = opts || {}, gapMs = o.gapMs || 180000, tk = o.ticks || null;
   const W = Math.max(box.clientWidth, 320), L = 44, R = 12, PH = 130, GAP = 34, T = 24, B = 48, n = panels.length;
   const H = T + n * PH + (n - 1) * GAP + B, RW = panels.some(p => p.rated) ? 44 : 0, xR = W - R - RW, y0 = T + n * PH + (n - 1) * GAP;
   const xOf = t => L + (xR - L) * (1 - (now - t) / (spanMin * 60000));
@@ -735,27 +814,40 @@ function drawPanels(box, panels, rows, spanMin, now, tipText, aria) {
   let s = "<svg width=\"" + W + "\" height=\"" + H + "\" viewBox=\"0 0 " + W + " " + H + "\" role=\"img\" aria-label=\"" + aria + "\">";
   panels.forEach((p, i) => {
     const top = T + i * (PH + GAP), y = v => top + PH * (1 - (Math.min(Math.max(v, p.min), p.max) - p.min) / (p.max - p.min));
-    for (let g = p.min; g <= p.max + 1e-9; g += p.step) s += "<line class=\"grid\" x1=\"" + L + "\" x2=\"" + xR + "\" y1=\"" + y(g) + "\" y2=\"" + y(g) + "\"/><text x=\"" + (L - 6) + "\" y=\"" + (y(g) + 4) + "\" text-anchor=\"end\">" + fmt(g) + "</text>";
+    for (let g = p.min; g <= p.max + 1e-9; g += p.step) s += "<line class=\"grid\" x1=\"" + L + "\" x2=\"" + xR + "\" y1=\"" + y(g) + "\" y2=\"" + y(g) + "\"/><text x=\"" + (L - 6) + "\" y=\"" + (y(g) + 4) + "\" text-anchor=\"end\">" + fmt(g, p.step < 1 ? 1 : 0) + "</text>";
     s += "<text x=\"" + (L - 6) + "\" y=\"" + (top - 10) + "\" text-anchor=\"end\">" + p.label + "</text>";
-    p.series.forEach(([key, cls, name], idx) => {
-      let d = "", prev = null, last = null;
+    (p.series || []).forEach(([key, cls, name, style], idx) => {
+      let d = "", prev = null, last = null, yPrev = null;
       rows.forEach(r => {
         if (!has(r[key])) { prev = null; return; }
-        d += (prev !== null && r.t - prev < 180000 ? "L" : "M") + xOf(r.t).toFixed(1) + " " + y(r[key]).toFixed(1); prev = r.t; last = r;
+        const X = xOf(r.t).toFixed(1), Y = y(r[key]).toFixed(1);
+        if (prev !== null && r.t - prev < gapMs) d += (style && style.step ? "L" + X + " " + yPrev : "") + "L" + X + " " + Y;
+        else d += "M" + X + " " + Y;
+        prev = r.t; yPrev = Y; last = r;
       });
       if (!last) return;
-      s += "<path class=\"line " + cls + "\" d=\"" + d + "\"/><text class=\"lbl\" x=\"" + (xOf(last.t) - 4) + "\" y=\"" + (y(last[key]) + (idx ? 15 : -6)) + "\" text-anchor=\"end\">" + name + " " + fmt(last[key]) + "</text>";
+      s += "<path class=\"line " + cls + "\" d=\"" + d + "\"/><text class=\"lbl\" x=\"" + (xOf(last.t) - 4) + "\" y=\"" + (y(last[key]) + (idx ? 15 : -6)) + "\" text-anchor=\"end\">" + name + " " + fmt(last[key], p.step < 1 ? 2 : 0) + "</text>";
     });
+    if (p.bars) {
+      // one bar per bucket from the baseline, the tallest labeled with its count
+      const bw = Math.max(2, (xR - L) * (o.bucketMin || 5) / spanMin * 0.7);
+      let tallest = null;
+      rows.forEach(r => { const v = r[p.bars]; if (!has(v) || v <= 0) return; if (!tallest || v > tallest[p.bars]) tallest = r;
+        s += "<rect class=\"bar\" x=\"" + (xOf(r.t) - bw / 2).toFixed(1) + "\" y=\"" + y(v).toFixed(1) + "\" width=\"" + bw.toFixed(1) + "\" height=\"" + (y(0) - y(v)).toFixed(1) + "\"/>"; });
+      if (tallest) s += "<text class=\"barlbl\" x=\"" + xOf(tallest.t).toFixed(1) + "\" y=\"" + (y(tallest[p.bars]) - 4).toFixed(1) + "\" text-anchor=\"middle\">" + fmt(tallest[p.bars]) + "</text>";
+    }
     if (p.rated) s += rightAxis(xR, y, top, p.max, p.rated.value, p.rated.title);
   });
   const xAtMin = m => L + (xR - L) * (1 - m / spanMin), labelEvery = W < 700 ? 120 : 60;
+  const tickEvery = tk ? tk.tickEvery : 5, majorEvery = tickEvery >= 60 ? 360 : 60, midEvery = tickEvery >= 60 ? 180 : 15;
   s += "<line class=\"tick\" x1=\"" + L + "\" x2=\"" + xR + "\" y1=\"" + y0 + "\" y2=\"" + y0 + "\"/>";
-  for (let m = 0; m <= spanMin; m += 5) {
-    const major = m % 60 === 0, mid = m % 15 === 0, len = major ? 9 : mid ? 6 : 3, xx = xAtMin(m);
+  for (let m = 0; m <= spanMin; m += tickEvery) {
+    const major = m % majorEvery === 0, mid = m % midEvery === 0, len = major ? 9 : mid ? 6 : 3, xx = xAtMin(m);
     s += "<line class=\"tick" + (major ? " major" : "") + "\" x1=\"" + xx + "\" x2=\"" + xx + "\" y1=\"" + y0 + "\" y2=\"" + (y0 + len) + "\"/>";
     if (m === 0) s += "<text x=\"" + xx + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"end\">now</text><text x=\"" + xx + "\" y=\"" + (y0 + 34) + "\" text-anchor=\"end\">" + clockLabel(now) + "</text>";
-    else if (m % labelEvery === 0 && xx > L + 24) s += "<text x=\"" + xx + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"middle\">-" + (m / 60) + " h</text>";
+    else if (!tk && m % labelEvery === 0 && xx > L + 24) s += "<text x=\"" + xx + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"middle\">-" + (m / 60) + " h</text>";
   }
+  if (tk) tk.labels.forEach(l => { const xx = xAtMin(l.m); if (xx > L + 30 && xx < xR - 40) s += "<text x=\"" + xx.toFixed(1) + "\" y=\"" + (y0 + 20) + "\" text-anchor=\"middle\">" + l.text + "</text>"; });
   // markers: what the buttons, the watchdog and the plug did, and each service start (S); hover for the event text
   const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
   eventMarks.filter(m => now - m.t <= spanMin * 60000 && m.t <= now).forEach(m => {
@@ -778,17 +870,19 @@ function drawPanels(box, panels, rows, spanMin, now, tipText, aria) {
 }
 function renderEnv() {
   const box = $("envchart"); if (!envRows || !lastHistory) return;
-  const spanMin = logSpanMin(), now = Date.now();
-  const rows = envRows.filter(r => r.ok && now - r.t <= spanMin * 60000);
-  if (rows.length < 2) { box.innerHTML = "<p class=\"note\">no logger samples in this window yet</p>"; return; }
+  const long = series24 && service ? seriesRows(series24) : null, now = Date.now();
+  const spanMin = long ? SERVED_SPAN : logSpanMin();
+  const rows = long ? long : envRows.filter(r => r.ok && now - r.t <= spanMin * 60000);
+  if (rows.filter(r => r.ok).length < 2) { box.innerHTML = "<p class=\"note\">no logger samples in this window yet</p>"; return; }
+  if (long) $("envsub").textContent = "last 24 hours from the gbox service log, 5-minute means";
   const rated = ratedFor(lastModel), maxRpm = rated && rated.fan_max_rpm;
   const fanMax = niceMax(Math.max(Math.max.apply(null, rows.map(r => Math.max(r.fan0, r.fan1))) * 1.05, maxRpm ? maxRpm * 1.1 : 0)) || 5000;
   const panels = [
     { label: "RPM", min: 0, max: fanMax, step: fanMax / 5, series: [["fan0", "", "fan0"], ["fan1", "s2", "fan1"]], rated: maxRpm ? { value: maxRpm, title: "% of max RPM" } : null },
     { label: "°C", min: 20, max: 100, step: 20, series: [["chip", "", "chip"], ["board", "s2", "board"]], rated: null } ];
-  drawPanels(box, panels, rows, spanMin, now, best => new Date(best.t).toLocaleTimeString() + " · fans " + fmt(best.fan0) + " / " + fmt(best.fan1) + " RPM" +
-    (maxRpm ? " (" + fmt(100 * Math.max(best.fan0, best.fan1) / maxRpm) + "% of max)" : "") + " · chip " + fmt(best.chip) + " °C · board " + fmt(best.board, 1) + " °C",
-    "fan speed and temperature history");
+  drawPanels(box, panels, rows, spanMin, now, best => (long ? clockLabel(best.t) : new Date(best.t).toLocaleTimeString()) + (best.ok === false ? " · no samples" : " · fans " + fmt(best.fan0) + " / " + fmt(best.fan1) + " RPM" +
+    (maxRpm ? " (" + fmt(100 * Math.max(best.fan0, best.fan1) / maxRpm) + "% of max)" : "") + " · chip " + fmt(best.chip) + " °C · board " + fmt(best.board, 1) + " °C"),
+    "fan speed and temperature history", long ? servedOpts(box, spanMin, series24.bucket_minutes) : null);
   $("fanpctnote").textContent = maxRpm ? "Right axis: RPM as a share of " + fmt(maxRpm) + " RPM, the " + rated.name + "'s maximum (observed, not the duty cycle the Fans tile shows)."
     : (lastModel ? "No maximum fan speed on record for " + lastModel + ", so no percent axis." : "");
 }
@@ -796,18 +890,20 @@ function renderEnv() {
 // missing reading breaks the line rather than drawing zero.
 function renderWatts() {
   const box = $("wattchart"); if (!envRows || !lastHistory || !service || !service.power || !service.power.configured) return;
-  const spanMin = logSpanMin(), now = Date.now();
-  const rows = envRows.filter(r => now - r.t <= spanMin * 60000), withW = rows.filter(r => r.watts !== null);
+  const long = series24 ? seriesRows(series24) : null, now = Date.now();
+  const spanMin = long ? SERVED_SPAN : logSpanMin();
+  const rows = long ? long : envRows.filter(r => now - r.t <= spanMin * 60000), withW = rows.filter(r => r.watts !== null && r.watts !== undefined);
   if (withW.length < 2) { box.innerHTML = "<p class=\"note\">no plug readings in this window yet</p>"; return; }
+  if (long) $("wattsub").textContent = "last 24 hours from the gbox service log, 5-minute means";
   const rated = service.rated && service.rated.rated_watts;
   const wMax = niceMax(Math.max(Math.max.apply(null, withW.map(r => r.watts)) * 1.05, rated ? rated * 1.1 : 0)) || 300;
   const panels = [{ label: "W", min: 0, max: wMax, step: wMax / 5, series: [["watts", "", "watts"]], rated: rated ? { value: rated, title: "% of rated" } : null }];
-  drawPanels(box, panels, rows, spanMin, now, best => new Date(best.t).toLocaleTimeString() + " · " +
-    (best.watts === null ? "no reading" : fmt(best.watts) + " W" + (rated ? " (" + fmt(100 * best.watts / rated) + "% of rated)" : "")) + (best.ok ? "" : " · miner not answering"),
-    "power at the wall");
+  drawPanels(box, panels, rows, spanMin, now, best => (long ? clockLabel(best.t) : new Date(best.t).toLocaleTimeString()) + " · " +
+    (best.watts === null || best.watts === undefined ? "no reading" : fmt(best.watts) + " W" + (rated ? " (" + fmt(100 * best.watts / rated) + "% of rated)" : "")) + (best.ok ? "" : long ? " · no samples" : " · miner not answering"),
+    "power at the wall", long ? servedOpts(box, spanMin, series24.bucket_minutes) : null);
 }
 let resizeTimer = null;
-window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (lastHistory) { renderChart(lastHistory); renderEnv(); renderWatts(); } }, 150); });
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (lastHistory) { renderChart(lastHistory); renderEnv(); renderWatts(); renderErrors(); } }, 150); });
 // This page sends the miner one request at a time (token-check race, see docs/firmware-api.md): the poll cycle and
 // the buttons share one `busy` flag. A poll that finds the page busy is skipped; a button waits for the poll to end.
 let busy = false;

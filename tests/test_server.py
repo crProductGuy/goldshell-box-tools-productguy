@@ -136,6 +136,20 @@ class ServerTest(unittest.TestCase):
         self.events.write("hello")
         self.assertIn(b"hello", self.get("/api/events")[2])
 
+    def test_csv_tail_keeps_the_header_and_the_last_rows(self):
+        self.miner.set_token(TOKEN)
+        for _ in range(4):
+            self.poller.poll_once()
+        full = self.get("/api/log.csv")[2].decode("utf-8").splitlines()
+        self.assertEqual(len(full), 5)
+        tail = self.get("/api/log.csv?tail=2")[2].decode("utf-8").splitlines()
+        self.assertEqual(tail[0], full[0])
+        self.assertEqual(tail[1:], full[-2:])
+        self.assertEqual(len(self.get("/api/log.csv?tail=999")[2].decode("utf-8").splitlines()), 5)
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self.get("/api/log.csv?tail=x")
+        self.assertEqual(cm.exception.code, 400)
+
     def test_requests_are_not_logged(self):
         buf = io.StringIO()
         old = sys.stderr
