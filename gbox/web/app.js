@@ -404,7 +404,9 @@ function ladderLine(h) {
   let s = "Ladder: soft restart after " + lad.unreachable_minutes + " min unreachable or " + lad.stall_minutes + " min of frozen shares, a second one " + lad.min_gap_minutes + " min later; ";
   s += plug ? "power cycle after two failed restarts and " + lad.after_minutes + " min down, then " + lad.settle_minutes + " min to settle; caps " + lad.max_restarts_per_day + " restarts and " + lad.max_cycles_per_day + " cycles a day. "
     : "no plug, so no power cycle (docs/power-cycle.md); cap " + lad.max_restarts_per_day + " restarts a day. ";
-  return s + "Set in " + lad.config_path + " (watchdog" + (plug ? " and power blocks" : " block") + "); restart the service after editing.";
+  const sch = lad.schedule ? " Schedule: off " + lad.schedule.off + ", on " + lad.schedule.on + ", " +
+    (lad.schedule.days && lad.schedule.days.length ? lad.schedule.days.join(", ") : "every day") + " (power.schedule in the same file)." : "";
+  return s + "Set in " + lad.config_path + " (watchdog" + (plug ? " and power blocks" : " block") + "); restart the service after editing." + sch;
 }
 // The running hold, as /api/health reports it, in one sentence for the Service section. Empty without one.
 function holdLine(h) {

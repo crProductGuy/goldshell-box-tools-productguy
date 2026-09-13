@@ -85,9 +85,10 @@ def error_row(exc):
 
 
 class Poller(threading.Thread):
-    def __init__(self, miner, csv_path, interval, watchdog=None, events=None, clock=time.time, plug=None):
+    def __init__(self, miner, csv_path, interval, watchdog=None, events=None, clock=time.time, plug=None, scheduler=None):
         super().__init__(name="gbox-poller", daemon=True)
         self.miner = miner
+        self.scheduler = scheduler  # gbox.power.Scheduler: ticked once per sample, after the watchdog
         self.csv_path = Path(csv_path)
         self.interval = float(interval)
         self.watchdog = watchdog
@@ -157,6 +158,12 @@ class Poller(threading.Thread):
         if self.watchdog is not None and not row["http"].startswith("ERR:NoCredentials"):
             self.watchdog.observe(row["http"] == "ok", row.get("accepted"), self._clock())
             self.watchdog.check()
+        if self.scheduler is not None:
+            try:
+                self.scheduler.tick()
+            except Exception as e:          # a schedule bug must never cost a sample
+                if self.events:
+                    self.events.write("service: schedule tick failed: %s" % e)
         return row
 
     def _append(self, row):

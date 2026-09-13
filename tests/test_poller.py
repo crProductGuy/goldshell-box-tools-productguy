@@ -133,6 +133,30 @@ class PollerTest(unittest.TestCase):
         self.assertFalse(poller.migrate_columns(self.csv))          # current header: no note, no change
 
 
+class PollerScheduleTest(unittest.TestCase):
+    """The scheduler ticks once per sample, after the sample, and never fails one."""
+
+    def setUp(self):
+        self.fm = FakeMiner().start()
+        self.addCleanup(self.fm.stop)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.csv = Path(self.tmp.name) / "log.csv"
+
+    def test_tick_once_per_sample_even_when_it_raises(self):
+        class Ticker:
+            ticks = 0
+
+            def tick(self):
+                self.ticks += 1
+                raise RuntimeError("boom")
+        t = Ticker()
+        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, scheduler=t)
+        self.assertEqual(p.poll_once()["http"], "ok")
+        p.poll_once()
+        self.assertEqual(t.ticks, 2)
+
+
 class PollerPlugTest(unittest.TestCase):
     """The watts column: read from the plug after the miner sample, empty without a meter, never a failed sample."""
 

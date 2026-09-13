@@ -41,6 +41,34 @@ DEFAULT_POWER = {
     "idle_watts": 100,           # below this the miner is idle (hung draws about 34 W, hashing 180+)
 }
 PLUG_DRIVERS = ("kasa",)
+DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def parse_hhmm(text):
+    """"23:05" -> (23, 5); ValueError for anything else."""
+    if not isinstance(text, str) or len(text) != 5 or text[2] != ":" or not (text[:2] + text[3:]).isdigit():
+        raise ValueError("not HH:MM")
+    h, m = int(text[:2]), int(text[3:])
+    if h > 23 or m > 59:
+        raise ValueError("not HH:MM")
+    return h, m
+
+
+def validate_schedule(sched):
+    """The optional power.schedule block: {"off": "23:00", "on": "06:00", "days": [...]}. Raises ValueError."""
+    if not isinstance(sched, dict):
+        raise ValueError("power.schedule must be an object with \"off\" and \"on\" times")
+    times = {}
+    for key in ("off", "on"):
+        try:
+            times[key] = parse_hhmm(sched.get(key))
+        except ValueError:
+            raise ValueError("power.schedule.%s must be a time like \"23:00\"" % key) from None
+    if times["off"] == times["on"]:
+        raise ValueError("power.schedule: off and on must be different times")
+    days = sched.get("days")
+    if days is not None and (not isinstance(days, list) or not days or any(d not in DAYS for d in days)):
+        raise ValueError("power.schedule.days must be a non-empty list from: %s" % ", ".join(DAYS))
 
 
 class Config:
@@ -88,6 +116,8 @@ class Config:
             if int(self.watchdog["max_restarts_per_day"]) < 2 * int(p["max_cycles_per_day"]):
                 raise ValueError("watchdog.max_restarts_per_day must be at least twice power.max_cycles_per_day: "
                                  "a cycle needs two failed soft restarts, and every attempt uses a restart slot")
+            if p.get("schedule") is not None:
+                validate_schedule(p["schedule"])
         return self
 
     def to_dict(self, include_secret=True):

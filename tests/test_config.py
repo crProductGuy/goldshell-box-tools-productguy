@@ -7,6 +7,26 @@ from pathlib import Path
 from gbox import config
 
 
+class ScheduleConfigTest(unittest.TestCase):
+    """`power.schedule`: off and on times, optional days; validated at load."""
+
+    def cfg(self, schedule):
+        return config.Config.from_dict({"host": "m", "power": {"host": "p", "device_id": "abc", "schedule": schedule}})
+
+    def test_absent_by_default_and_kept_when_given(self):
+        self.assertIsNone(config.Config.from_dict({"host": "m", "power": {"host": "p"}}).power.get("schedule"))
+        cfg = self.cfg({"off": "23:00", "on": "06:00"}).validate()
+        self.assertEqual(cfg.power["schedule"], {"off": "23:00", "on": "06:00"})
+        cfg = self.cfg({"off": "23:00", "on": "06:00", "days": ["mon", "fri"]}).validate()
+        self.assertEqual(cfg.power["schedule"]["days"], ["mon", "fri"])
+
+    def test_rejects_bad_times_days_and_equal_times(self):
+        for bad in ({"off": "25:00", "on": "06:00"}, {"off": "23:00"}, {"off": "23:00", "on": "6"}, {"off": "23:00", "on": "06:00", "days": ["monday"]},
+                    {"off": "23:00", "on": "23:00"}, {"off": "23:00", "on": "06:00", "days": []}, "23:00-06:00"):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                self.cfg(bad).validate()
+
+
 class PowerConfigTest(unittest.TestCase):
     def test_no_power_block_means_none(self):
         self.assertIsNone(config.Config().power)
