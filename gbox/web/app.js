@@ -353,6 +353,7 @@ function interventions(text, rows) {
     } else if (src === "dashboard") {
       who = "you";
       if ((x = /^power: cycled by hand \((.*)\)$/.exec(msg))) { kind = "cycle"; what = "power cycle by hand (" + x[1] + ")"; result = cameBack(t); }
+      else if ((x = /^power: switched (off|on) by hand (\(.*\))$/.exec(msg))) { kind = x[1]; what = "switched " + x[1] + " by hand " + x[2]; if (x[1] === "on") result = cameBack(t); }
       else if (/^soft restart/.test(msg)) { kind = "restart"; result = cameBack(t); }
       else kind = "action";
     } else if (src === "service") {

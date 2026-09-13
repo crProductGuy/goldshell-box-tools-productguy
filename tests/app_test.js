@@ -390,6 +390,16 @@ const tests = {
     assert.strictEqual(app.markerGlyph("hold: started by you until x"), "H");
     assert.strictEqual(app.eventMarkers("2026-09-12 20:00:00 hold: started by you until 2026-09-12 21:00:00 (PSU swap)\n").length, 1);
   },
+  "interventions: the CLI's by-hand power lines arrive with the dashboard prefix and read as yours"() {
+    const T = (h, m, s) => new Date(2026, 8, 12, h, m, s).getTime();
+    const rows = [{ t: T(21, 5, 30), ok: false }, { t: T(21, 7, 0), ok: true }];
+    const log = "2026-09-12 21:05:00 dashboard: power: switched off by hand (gbox power off; 188 W before)\n" +
+                "2026-09-12 21:06:00 dashboard: power: switched on by hand (gbox power on)\n";
+    const iv = app.interventions(log, rows);
+    assert.deepStrictEqual(iv.map(i => [i.who, i.kind, i.what]), [["you", "on", "switched on by hand (gbox power on)"], ["you", "off", "switched off by hand (gbox power off; 188 W before)"]]);
+    assert.strictEqual(iv[0].result, "no outage seen in the log");
+    assert.strictEqual(iv[1].result, "");
+  },
   "the service line says when the plug is off by you or cycling"() {
     const on = { configured: true, model: "HS110(US)", meter: true, state: "on", watts: 187.8, cycle: true, cycles_today: 0, last_reason: null };
     assert.strictEqual(app.powerLine({ power: Object.assign({}, on, { state: "off", watts: 0, off_by_you: true }) }), " · plug HS110(US) off by you, 0 W, armed, 0 cycles today");
