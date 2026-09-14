@@ -198,6 +198,21 @@ function eventMarkers(text) {
 function markerGlyph(label) {
   return label.startsWith("service") ? "S" : label.startsWith("power") ? "P" : label.startsWith("watchdog") ? "W" : label.startsWith("hold") ? "H" : "▼";
 }
+// One vocabulary, used by the key under every chart, the marker hover titles, the explainer and the Terms section:
+// a board reset is the miner's own doing (drawn as bars, never a marker); a soft restart (W, or ▼ when you pressed it)
+// and a power cycle (P) are what gbox did to the miner. Same order as the ladder.
+const MARKER_KEY = [["▼", "you, from Controls"], ["W", "watchdog soft restart"], ["P", "plug power cycle"], ["S", "service start"], ["H", "hold"]];
+function markerKind(label) { const g = markerGlyph(label); return (MARKER_KEY.find(k => k[0] === g) || MARKER_KEY[0])[1]; }
+function markerTitle(t, label) { return new Date(t).toLocaleTimeString() + " · " + markerKind(label) + " · " + label; }
+// The key's items for a chart: marker glyphs (or one line about worded labels), the resets bar swatch, the alarm band swatch.
+function chartKey(opts) {
+  const o = opts || {}, items = [];
+  if (o.words) items.push({ text: "labels: what you or the plug did, by name" });
+  else MARKER_KEY.forEach(k => items.push({ glyph: k[0], text: k[1] }));
+  if (o.bars) items.push({ swatch: "bar", text: "board resets: the miner reinitializing its own hashboard; nothing gbox did" });
+  if (o.band) items.push({ swatch: "band", text: "alarm: a board reset, or bad share over 1%, in that bucket" });
+  return items;
+}
 // The plug, as /api/health reports it: appended to the service line. Empty without a plug.
 function powerLine(service) {
   const p = (service && service.power) || {};
@@ -412,7 +427,7 @@ function errorTip(row, bucketMin) {
   const clock = row.clock == null ? "" : " · " + nfmt(row.clock) + " MHz";
   if (row.bad == null) return win + " · counts need a previous sample" + clock;
   const w = row.worst ? " · worst chip " + w_text(row.worst) : "";
-  return win + " · bad " + nfmt(row.bad) + " of " + nfmt(row.good + row.bad) + " (" + nfmt(row.share, 2) + "%)" + w + clock + " · " + nfmt(row.resets) + " reset" + (row.resets === 1 ? "" : "s");
+  return win + " · bad " + nfmt(row.bad) + " of " + nfmt(row.good + row.bad) + " (" + nfmt(row.share, 2) + "%)" + w + clock + " · " + nfmt(row.resets) + " board reset" + (row.resets === 1 ? "" : "s");
 }
 function w_text(w) { return w.chip + ": " + nfmt(w.bad) + " of " + nfmt(w.good + w.bad) + " (" + nfmt(w.share, 2) + "%)"; }
 // The same bucket, led by what the panel under the cursor shows: resets first in the resets panel, the clock first in the clock panel.
@@ -422,17 +437,17 @@ function bucketWindow(row, bucketMin) { return clockLabel(row.t - bucketMin * 30
 // showed on the errors chart and nowhere else (the 5-minute means only showed its side effects).
 function alarmBucket(r) { return !!(r.ok && ((r.share != null && r.share > 1) || (r.resets != null && r.resets > 0))); }
 // " · N resets" for a tooltip, or "" when the bucket had none or cannot know.
-function resetsSuffix(r) { return r.resets ? " · " + nfmt(r.resets) + " reset" + (r.resets === 1 ? "" : "s") : ""; }
+function resetsSuffix(r) { return r.resets ? " · " + nfmt(r.resets) + " board reset" + (r.resets === 1 ? "" : "s") : ""; }
 function resetsTip(row, bucketMin) {
   const win = bucketWindow(row, bucketMin);
   if (!row.ok) return win + " · no samples";
   const bad = row.bad == null ? "" : " · bad " + nfmt(row.bad) + " of " + nfmt(row.good + row.bad) + " (" + nfmt(row.share, 2) + "%)";
-  return win + " · " + (row.resets == null ? "resets need a previous sample" : nfmt(row.resets) + " reset" + (row.resets === 1 ? "" : "s")) + bad + (row.clock == null ? "" : " · " + nfmt(row.clock) + " MHz");
+  return win + " · " + (row.resets == null ? "resets need a previous sample" : nfmt(row.resets) + " board reset" + (row.resets === 1 ? "" : "s")) + bad + (row.clock == null ? "" : " · " + nfmt(row.clock) + " MHz");
 }
 function clockTip(row, bucketMin) {
   const win = bucketWindow(row, bucketMin);
   if (!row.ok) return win + " · no samples";
-  return win + (row.clock == null ? "" : " · " + nfmt(row.clock) + " MHz") + (row.share == null ? "" : " · bad " + nfmt(row.share, 2) + "%") + (row.resets == null ? "" : " · " + nfmt(row.resets) + " reset" + (row.resets === 1 ? "" : "s"));
+  return win + (row.clock == null ? "" : " · " + nfmt(row.clock) + " MHz") + (row.share == null ? "" : " · bad " + nfmt(row.share, 2) + "%") + (row.resets == null ? "" : " · " + nfmt(row.resets) + " board reset" + (row.resets === 1 ? "" : "s"));
 }
 // The three facts above the errors chart: the worst half hour, resets over the window, the bad share over the last day.
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -514,7 +529,7 @@ function holdLine(h) {
 if (typeof module !== "undefined") module.exports = { VERSION, clockLabel, newestFirst, ladderLine, encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
   powerActionRequest, holdRequest, holdReleaseRequest, holdLine, seriesRows, errorTip, resetsTip, clockTip, axisTicks, parseStamp, errorFacts, markerWords,
-  markerGlyph, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf, alarmBucket, resetsSuffix,
+  markerGlyph, markerKind, markerTitle, chartKey, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf, alarmBucket, resetsSuffix,
   powerTile, envRowsFrom, lastHour, recentHashrate, interventions, interventionCounts };
 
 // ---- presentation (skipped under Node, where the data layer above is unit-tested) ----
@@ -817,6 +832,13 @@ let envRows = null;
 let series24 = null, series72 = null;   // /api/series for the 24-hour charts and the three-day errors chart (served only)
 const SERVED_SPAN = 1440, ERR_SPAN = 4320;
 function servedOpts(box, spanMin, bucketMin) { return { gapMs: bucketMin * 60000 * 1.5, bucketMin: bucketMin, ticks: axisTicks(spanMin, Date.now(), box.clientWidth >= 700), band: alarmBucket }; }
+// The key under a chart: the marker glyphs, the resets bar and the alarm band, from chartKey.
+function renderKey(id, opts) {
+  const el = $(id); if (!el) return;
+  const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  el.innerHTML = chartKey(opts).map(i => "<span>" + (i.glyph ? "<b>" + esc(i.glyph) + "</b>" : i.swatch ? "<i class=\"sw" + i.swatch + "\"></i>" : "") + esc(i.text) + "</span>").join("");
+  el.hidden = false;
+}
 // The board-resets panel under a served chart: one bar per 5-minute bucket, the same bars the three-day chart draws per half hour.
 function resetsPanel(rows) {
   const most = Math.max.apply(null, rows.map(r => r.resets).filter(v => v !== null && v !== undefined).concat([0]));
@@ -852,6 +874,7 @@ function renderErrors() {
     { label: "resets", min: 0, max: resetMax, step: resetMax / 4, series: [], bars: "resets", rated: null, tip: best => resetsTip(best, bm) } ];
   const opts = Object.assign(servedOpts(box, spanMin, bm), { words: true, band: alarmBucket });
   drawPanels(box, panels, rows, spanMin, now, best => errorTip(best, bm), "errors over three days", opts);
+  renderKey("errkey", { words: true, bars: true, band: true });
   renderErrorFacts(errorFacts(rows, bm, now));
 }
 // The three facts above the errors chart. The worst half hour is red when its share is over 1% or it had resets.
@@ -879,6 +902,7 @@ function renderHashrateSeries() {
     best => clockLabel(best.t) + " · " + (best.h === null ? "no samples" : fmt(best.h, div === 1 ? 0 : 1) + " " + unit + (ratedV ? " (" + fmt(100 * best.h / ratedV) + "% of rated)" : "")) + resetsSuffix(best),
     "hashrate over 24 hours", servedOpts(box, spanMin, series24.bucket_minutes));
   $("hashsub").textContent = "last 24 hours from the gbox service log, 5-minute means of the miner's 20 s reading; the tiles above are live";
+  renderKey("hashkey", { band: true });
 }
 // The window both log charts share: as far back as the miner's own hashrate buffer reaches, at least an hour.
 function logSpanMin() { return Math.max(lastHistory.filter(v => v > 0).length * SAMPLE_MIN, 60); }
@@ -945,7 +969,7 @@ function drawPanels(box, panels, rows, spanMin, now, tipText, aria, opts) {
     const xx = xOf(m.t), words = o.words ? markerWords(m.label) : null;
     if (o.words && !words) return;                      // on the worded chart, lines not worth a marker get none
     if (o.words && xx - lastMarkX < 6) return;          // and a second marker inside the same few pixels is dropped
-    s += "<line class=\"mark\" x1=\"" + xx.toFixed(1) + "\" x2=\"" + xx.toFixed(1) + "\" y1=\"" + (T - 4) + "\" y2=\"" + y0 + "\"><title>" + esc(new Date(m.t).toLocaleTimeString() + " " + m.label) + "</title></line>";
+    s += "<line class=\"mark\" x1=\"" + xx.toFixed(1) + "\" x2=\"" + xx.toFixed(1) + "\" y1=\"" + (T - 4) + "\" y2=\"" + y0 + "\"><title>" + esc(markerTitle(m.t, m.label)) + "</title></line>";
     if (o.words) {                                      // words, rotated, on the side away from a close neighbour
       const side = xx - lastMarkX < 14 ? 11 : -3; lastMarkX = xx;
       s += "<text class=\"marklbl words\" x=\"" + (xx + side).toFixed(1) + "\" y=\"" + (T - 6) + "\" text-anchor=\"end\" transform=\"rotate(-90 " + (xx + side).toFixed(1) + " " + (T - 6) + ")\">" + esc(words) + "</text>";
@@ -984,6 +1008,7 @@ function renderEnv() {
   drawPanels(box, panels, rows, spanMin, now, best => (long ? clockLabel(best.t) : new Date(best.t).toLocaleTimeString()) + (best.ok === false ? " · no samples" : " · fans " + fmt(best.fan0) + " / " + fmt(best.fan1) + " RPM" +
     (maxRpm ? " (" + fmt(100 * Math.max(best.fan0, best.fan1) / maxRpm) + "% of max)" : "") + " · chip " + fmt(best.chip) + " °C · board " + fmt(best.board, 1) + " °C" + (long ? resetsSuffix(best) : "")),
     "fan speed and temperature history", long ? servedOpts(box, spanMin, series24.bucket_minutes) : null);
+  if (long) renderKey("envkey", { bars: true, band: true }); else $("envkey").hidden = true;
   $("fanpctnote").textContent = maxRpm ? "Right axis: RPM as a share of " + fmt(maxRpm) + " RPM, the " + rated.name + "'s maximum (observed, not the duty cycle the Fans tile shows)."
     : (lastModel ? "No maximum fan speed on record for " + lastModel + ", so no percent axis." : "");
 }
@@ -1002,6 +1027,7 @@ function renderWatts() {
   drawPanels(box, panels, rows, spanMin, now, best => (long ? clockLabel(best.t) : new Date(best.t).toLocaleTimeString()) + " · " +
     (best.watts === null || best.watts === undefined ? "no reading" : fmt(best.watts) + " W" + (rated ? " (" + fmt(100 * best.watts / rated) + "% of rated)" : "")) + (best.ok ? "" : long ? " · no samples" : " · miner not answering") + (long ? resetsSuffix(best) : ""),
     "power at the wall", long ? servedOpts(box, spanMin, series24.bucket_minutes) : null);
+  if (long) renderKey("wattkey", { band: true }); else $("wattkey").hidden = true;
 }
 let resizeTimer = null;
 window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (lastHistory) { renderChart(lastHistory); renderEnv(); renderWatts(); renderErrors(); } }, 150); });

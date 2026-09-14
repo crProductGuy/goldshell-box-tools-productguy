@@ -436,7 +436,7 @@ const tests = {
         clock: 550, good: null, bad: null, share: null, resets: null, worst: null },
       { t: "2026-09-13 17:00", samples: 0, errors: 0, hashrate: null, fan0: null, fan1: null, chip_temp: null, board_temp: null, watts: null,
         clock: null, good: null, bad: null, share: null, resets: null, worst: null }] });
-    assert.strictEqual(app.errorTip(rows[0], 30), "16:00 to 16:30 · bad 9 of 5,155 (0.17%) · worst chip 0.8: 4 of 324 (1.23%) · 550 MHz · 46 resets");
+    assert.strictEqual(app.errorTip(rows[0], 30), "16:00 to 16:30 · bad 9 of 5,155 (0.17%) · worst chip 0.8: 4 of 324 (1.23%) · 550 MHz · 46 board resets");
     assert.strictEqual(app.errorTip(rows[1], 30), "16:30 to 17:00 · counts need a previous sample · 550 MHz");
     assert.strictEqual(app.errorTip(rows[2], 30), "17:00 to 17:30 · no samples");
   },
@@ -446,8 +446,8 @@ const tests = {
         clock: 550, good: 5146, bad: 9, share: 0.1747, resets: 46, worst: { chip: "0.8", good: 320, bad: 4, share: 1.2346 } },
       { t: "2026-09-13 16:30", samples: 0, errors: 0, hashrate: null, fan0: null, fan1: null, chip_temp: null, board_temp: null, watts: null,
         clock: null, good: null, bad: null, share: null, resets: null, worst: null }] });
-    assert.strictEqual(app.resetsTip(rows[0], 30), "16:00 to 16:30 · 46 resets · bad 9 of 5,155 (0.17%) · 550 MHz");
-    assert.strictEqual(app.clockTip(rows[0], 30), "16:00 to 16:30 · 550 MHz · bad 0.17% · 46 resets");
+    assert.strictEqual(app.resetsTip(rows[0], 30), "16:00 to 16:30 · 46 board resets · bad 9 of 5,155 (0.17%) · 550 MHz");
+    assert.strictEqual(app.clockTip(rows[0], 30), "16:00 to 16:30 · 550 MHz · bad 0.17% · 46 board resets");
     assert.strictEqual(app.resetsTip(rows[1], 30), "16:30 to 17:00 · no samples");
     assert.strictEqual(app.clockTip(rows[1], 30), "16:30 to 17:00 · no samples");
   },
@@ -528,8 +528,27 @@ const tests = {
     assert.strictEqual(app.alarmBucket({ ok: false, share: 5, resets: 9 }), false);       // an empty bucket flags nothing
     assert.strictEqual(app.resetsSuffix({ resets: 0 }), "");
     assert.strictEqual(app.resetsSuffix({ resets: null }), "");
-    assert.strictEqual(app.resetsSuffix({ resets: 1 }), " · 1 reset");
-    assert.strictEqual(app.resetsSuffix({ resets: 42 }), " · 42 resets");
+    assert.strictEqual(app.resetsSuffix({ resets: 1 }), " · 1 board reset");
+    assert.strictEqual(app.resetsSuffix({ resets: 42 }), " · 42 board resets");
+  },
+  "chartKey, markerKind, markerTitle: one vocabulary for what the miner did to itself and what gbox did to the miner"() {
+    const glyphs = app.chartKey({ bars: true, band: true });
+    assert.deepStrictEqual(glyphs.filter(i => i.glyph).map(i => i.glyph), ["▼", "W", "P", "S", "H"]);
+    assert.ok(glyphs.find(i => i.glyph === "W").text.includes("soft restart"));
+    assert.ok(glyphs.find(i => i.glyph === "P").text.includes("power cycle"));
+    assert.ok(glyphs.find(i => i.swatch === "bar").text.startsWith("board resets"));
+    assert.ok(glyphs.find(i => i.swatch === "band").text.startsWith("alarm"));
+    assert.strictEqual(app.chartKey({ bars: false, band: true }).some(i => i.swatch === "bar"), false);
+    const words = app.chartKey({ words: true, bars: true, band: true });
+    assert.strictEqual(words.some(i => i.glyph), false);                       // the worded chart names its markers itself
+    assert.ok(words[0].text.startsWith("labels"));
+    assert.strictEqual(app.markerKind("watchdog: restart #18 sent (accepted shares frozen for 5 min)"), "watchdog soft restart");
+    assert.strictEqual(app.markerKind("power: cycled #8 today: off 15 s, on"), "plug power cycle");
+    assert.strictEqual(app.markerKind("dashboard: clock set to 550 MHz"), "you, from Controls");
+    assert.strictEqual(app.markerKind("service: started v0.6.2"), "service start");
+    assert.strictEqual(app.markerKind("hold: until 16:05"), "hold");
+    const title = app.markerTitle(new Date(2026, 8, 14, 13, 11, 47).getTime(), "watchdog: restart #18 sent (accepted shares frozen for 5 min)");
+    assert.ok(title.includes(" · watchdog soft restart · watchdog: restart #18 sent"), title);
   },
   "hashrate chart data: the buffer's leading zeros are dropped and a lone sample is reported as one point, not a line"() {
     assert.deepStrictEqual(app.chartData([]), { unit: "MH/s", div: 1, data: [] });
