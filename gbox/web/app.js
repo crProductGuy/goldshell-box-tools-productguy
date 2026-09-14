@@ -731,10 +731,10 @@ function render(d) {
   const booted = info.elapsed ? clockLabel(now - info.elapsed * 1000) : null, sinceBoot = "since boot" + (booted ? " " + booted : "");
   const opened = clockLabel(baseline.t), hour = envRows ? lastHour(envRows, now) : null;
   const [u20, d20] = hashUnit(info.mhs20), [uav, dav] = hashUnit(info.mhsAv), rh = recentHashrate(d.history, 60);
-  $("mhs20").textContent = fmt(info.mhs20 / d20, d20 === 1 ? 0 : 1); $("unit20").textContent = u20 + " · 20 s reading";
+  $("mhs20").textContent = fmt(info.mhs20 / d20, d20 === 1 ? 0 : 1) + " " + u20; $("unit20").textContent = "20 s reading";
   $("k_av").textContent = "Hashrate " + sinceBoot;
-  $("mhsav").textContent = fmt(info.mhsAv / dav, dav === 1 ? 0 : 1);
-  $("unitav").textContent = uav + (rh !== null ? " · last hour " + fmt(rh / dav, dav === 1 ? 0 : 1) : "");
+  $("mhsav").textContent = fmt(info.mhsAv / dav, dav === 1 ? 0 : 1) + " " + uav;
+  $("unitav").textContent = rh !== null ? "last hour " + fmt(rh / dav, dav === 1 ? 0 : 1) + " " + uav : "";
   $("hwpct").textContent = fmt(info.hwPct, 1) + " %";
   const recentBad = info.hwErrors - baseline.hwErrors, recentAcc = info.accepted - baseline.accepted, pct = (b, a) => fmt(100 * b / (b + a), 1) + " %";
   $("hwrecent").textContent = sinceBoot + " · " + (hour && hour.bad + hour.accepted > 0 ? "last hour " + pct(hour.bad, hour.accepted)
@@ -744,10 +744,10 @@ function render(d) {
   $("rbdelta").textContent = sinceBoot + " · " + (hour ? fmt(hour.resets) + " in the last hour" : "+" + fmt(rbd) + " since " + opened + " (page opened)");
   $("t_rb").className = "tile" + ((hour ? hour.resets > 0 : rbd > 0) ? " critical" : "");
   $("chipsub").textContent = "good and bad nonces " + sinceBoot + "; bad/min since " + opened + " (page opened)";
-  $("chiptemp").textContent = fmt(info.chipTemp) + " °C"; $("boardtemp").textContent = "board sensor (what the stock UI shows) " + fmt(info.boardTemp, 1) + " °C";
+  $("chiptemp").textContent = fmt(info.chipTemp) + " °C"; $("boardtemp").innerHTML = "<b class=\"v2\">" + fmt(info.boardTemp, 1) + " °C</b> board sensor (what the stock UI shows)";
   $("t_temp").className = "tile" + (info.chipTemp >= 85 ? " critical" : info.chipTemp >= 78 ? " serious" : "");
   $("fans").textContent = (fanPct === null ? "" : fmt(fanPct) + " % · ") + fmt(info.fan0) + " / " + fmt(info.fan1);
-  $("fansub").textContent = (fanPct === null ? "" : "% · ") + "RPM fan0 / fan1 · target " + setting.temp_target + " °C";
+  $("fansub").innerHTML = (fanPct === null ? "" : "% · ") + "RPM fan0 / fan1 · target <b class=\"v2\">" + Number(setting.temp_target) + " °C</b>";
   $("accepted").textContent = fmt(info.accepted); $("rejected").textContent = "rejected " + fmt(info.rejected);
   const planText = setting.manual ? setting.manualPowerplan : "preset " + setting.select;
   $("clock").textContent = fmt(info.clock) + " MHz"; $("plan").textContent = "plan " + planText;

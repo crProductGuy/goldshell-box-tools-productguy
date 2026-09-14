@@ -21,6 +21,7 @@ main { padding:16px 20px; max-width:1200px; margin:0 auto; display:grid; gap:16p
 .tile { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:10px 12px }
 .tile .k { color:var(--ink2); font-size:12px } .tile .v { font-size:22px; font-weight:600; font-variant-numeric:tabular-nums; margin-top:2px }
 .tile .s { color:var(--muted); font-size:12px; margin-top:2px; font-variant-numeric:tabular-nums }
+.tile .s b.v2 { color:var(--ink); font-size:17px; font-weight:600 }
 .tile.serious .v { color:var(--serious) } .tile.critical .v { color:var(--critical) }
 section { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:12px 14px }
 section h2 { font-size:14px; margin:0 0 8px; font-weight:600 } section h2 span { color:var(--muted); font-weight:400; margin-left:8px }
