@@ -1313,3 +1313,64 @@ on a scratch service against the fake miner reporting a KD-BOX. The
 merge and the service restart were left for Mark: nothing in the gate is
 worth a night-time restart of the live watchdog he did not ask for.
 Found on the way: `pyproject.toml` still said 0.6.1; fixed to 0.6.2.
+
+## 2026-09-14 afternoon, session P: the night's freezes read, the board that drops, resets made visible and named, gate 1 in
+
+Mark: "have a look at the overnight run ... 7-8 adverse events over 4 hours!
+See if you can find any clues what's going wrong during the night time."
+From the service log and six timed reads of the miner's own logs (they
+persist across reboots and covered the night): seven controller hangs
+between 00:42 and 04:07, each with no log line at all, the meter falling
+from 191 W to about 50 W within one sample, and six of the seven within
+thirty minutes of a boot (10 of the 23 hangs on record). The 0.6.2 ladder
+did what it promised: second restart five minutes after the first, plug
+cycle about 7.5 minutes after the last good sample. One cycle at 02:44 was
+followed by twenty minutes at 43 W with no boot. The cgminer log's
+hottest-chip figure, unnamed, peaks at 93 C. Software explains none of it;
+the evidence points at the power path, and Mark, who knows the APW3++
+holds its output up for most of a minute after the cord is pulled, chose
+to swap back to the 360 W supply and asked for the plug's off time to go
+from 15 s to 120 s. Done in config.json at his word, service restarted.
+
+While reading, the hashboard dropped off at 13:00:39 with the controller
+alive (9 W); the watchdog's first soft restart did not bring it back, the
+stall rule's second did, and a 64-reset cold start followed. After the
+PSU swap the board failed to start at all ("Write Chip0 Reg 4 Failed",
+"Init failed 5 Times"; both red LEDs on); a soft restart cured it. Third
+time for that signature across two supplies: the board's power-up is
+what is marginal, not one PSU. On the 360 W unit the miner draws 161 W
+against 191 W at the same hashrate. Mark also fitted a larger external
+fan; the note to him: the controller holds the board sensor at 65 C and
+gives most of any extra airflow back as slower internal fans.
+
+Mark: "the 64 restarts shown on the 3-day graph don't show in the
+13.00-14.00 timeframe in the 24-hour graphs. This is misleading." True:
+the 24-hour charts had no resets series; the 5-minute buckets carried 7,
+15 and 42 and nothing drew them. Built: a resets panel under the fans
+chart when served, the alarm band rule made one function and applied to
+every served chart, reset counts in the tooltips. Then: "Shouldn't we
+define a Reset? ... How is a Restart related to a W watchdog event?"
+Proposed and built the same afternoon: one vocabulary (a board reset is
+the miner reinitializing its own hashboard, counted, drawn as bars, never
+a marker; a soft restart is W or your ▼; a power cycle is P), a key under
+every served chart from one function, marker hover titles that lead with
+the kind, a "what are board resets, soft restarts and power cycles?"
+disclosure under two charts, Terms entries for the two actions. Then the
+tiles: the hashrate unit beside its number, the board sensor and fan
+target readings bold. Each was web files only, tested under Node,
+checked in Chrome on a scratch service with a copy of the day's log, and
+merged live without a restart.
+
+Gate 1 (the model seam, from the night before) was rebased onto those
+three commits, two one-line conflicts resolved, 336 tests green, merged,
+and the service restarted on it; the live page shows no banner for the
+SC-BOX and the health endpoint names its profile. Verified today on the
+SC-BOX: the firmware exposes no per-chip temperature anywhere (icinfo
+temp 0.0, the cgminer API's temp_max 0), so Mark's asked-for per-chip
+temperature columns cannot be filled here; the plan for gate 2 was
+revised with him (AskUserQuestion): every PGA block of minerinfo, the
+hottest board named in the tile, chip columns behind a flag, built
+against a capture his friend with an SC5 Pro II (four boards, on which
+0.6.2 read only the first) is asked for today. The gate 2 plan:
+`~/.claude/plans/cuddly-sleeping-abelson.md`.
+
