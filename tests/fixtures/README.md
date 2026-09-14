@@ -13,3 +13,12 @@ firmware 2.2.5) taken 2026-09-05, one request at a time.
 
 `/mcb/pools` is deliberately absent: it carries the pool URL, wallet and
 worker password.
+
+## `sclite/`: synthetic, not captured
+
+Built 2026-09-13 from the other developer's notes on an SC Lite, firmware
+2.2.0 (Maveth/goldshell-config, read 2026-09-12): the `model` string, the
+power plan dialect (`<MHz> MHz <mV> V <fanA> RPM <fanB> RPM PV <pv>`), and
+the absence of a fan-target range. `hardware` and `mcbversion` are
+`unknown` because no capture has shown them. These files exercise the
+model seam; a real capture (`docs/capture-request.md`) replaces them.

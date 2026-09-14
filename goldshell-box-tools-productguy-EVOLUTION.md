@@ -1272,3 +1272,44 @@ still describing 0.3.0 and plan step 3 as next, replaced by a pointer to
 the top; the ladder-timing item retired. Chip 8 checked from the log:
 clean at 550 MHz since 16:30. Left for later: the Ubuntu installer check
 (needs the sibling machine), 0.7.0.
+
+## 2026-09-13 night, session O (unattended): the capture request and 0.7.0 gate 1, the model seam
+
+Mark: "pick up the goldshell project, find the next thing in status.md."
+The list's first three items were watching (the first freeze on 0.6.2,
+chip 8, the Ubuntu installer check, which needs the sibling machine); the
+next buildable item was 0.7.0. The session proposed splitting Part C of
+the 2026-09-12 plan into three gates (the model seam and plan dialects;
+per-board sampling with `boards.csv` and per-board panels; `gbox discover`
+and log rotation) and said out loud that all of it is built against
+another lab's notes, not a unit. Mark: "what would I need to tell a dev
+with an SC Lite about what to capture for Devs and Minerinfo, and how to
+capture it? Write an MD file about that ... Go ahead and start with Gate 1
+overnight. I'm off to bed."
+
+**The capture request** (`docs/capture-request.md`, committed on main):
+seven read-only requests, one at a time with a pause (the token race and
+the burst crash), for bash and PowerShell 7; the token from the stock
+UI's browser storage or from the encrypt one-liner; pools, wifisetting
+and the syslogs deliberately left out; the MAC in `setting.name` replaced
+before sending; the debug-lock 401 and the Bearer-or-bare header as
+findings to report. Written so Mark can forward it as is.
+
+**Gate 1, built test-first in a worktree, not merged:** the model table
+grew a capability profile per row (plan dialect, per-board source,
+whether `/dbg/` answers, fan target, what the temperature target is) and
+`profile_for` gives an unknown model the SC-BOX's path with every
+optional capability off; `/api/health` carries it and the page shows one
+line under the title. The plan string is parsed in its three dialects
+from the string itself, and the clock control now rewrites only the MHz
+token, so a unit never receives a plan in a form it did not write. Two
+decisions made without asking, both flagged: string-driven parsing rather
+than table-driven, because the table comes from notes and the string is
+what the unit wrote; and no conversion of the SC Lite's integer volts,
+because nobody has confirmed they are millivolts and nothing needs to
+know. Synthetic SC Lite fixtures, marked as such, exercise the seam.
+336 tests green (16 new); the unknown-model banner was checked in Chrome
+on a scratch service against the fake miner reporting a KD-BOX. The
+merge and the service restart were left for Mark: nothing in the gate is
+worth a night-time restart of the live watchdog he did not ask for.
+Found on the way: `pyproject.toml` still said 0.6.1; fixed to 0.6.2.

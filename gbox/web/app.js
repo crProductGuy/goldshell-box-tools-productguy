@@ -79,13 +79,23 @@ async function apiPut(base, token, path, body, attempt) {
 // ---- the buttons: each builds the exact request the confirm dialog shows and the page then sends ----
 // A request is { method, path, body (null for none), summary, event, password, restart }. `password` says whether
 // the dialog asks for the miner password again; `event` is the line reported to the gbox service on success.
-const PLAN_RE = /^\s*(\d+)\s*MHz\s+([\d.]+)\s*V\s+(\d+)\s*RPM\s+(\d+)\s*RPM\s*$/;
+// The power plan string in every dialect seen so far (docs/firmware-api.md, "Power plan dialects"; same as gbox/api.py):
+//   box "575 MHz 0.41 V 90 RPM 90 RPM" (SC-BOX), mv_pv "625 MHz 9100 V 40 RPM 40 RPM PV 9400" (SC Lite),
+//   float_pv "750 MHz 0.41 V 50 RPM 50 RPM PV 9400" (the HS Box's documented form). voltsText keeps the volts token
+//   verbatim so formatPlan(parsePlan(s)) is s, and the clock button sends a unit only a plan in the form it wrote itself.
+const PLAN_RE = /^\s*(\d+)\s*MHz\s+([\d.]+)\s*V\s+(\d+)\s*RPM\s+(\d+)\s*RPM(?:\s+PV\s+(\d+))?\s*$/;
 function parsePlan(plan) {
-  const m = PLAN_RE.exec(plan || "");
-  if (!m) throw new Error("not a power plan string: " + plan);
-  return { mhz: parseInt(m[1]), volts: parseFloat(m[2]), fanA: parseInt(m[3]), fanB: parseInt(m[4]) };
+  const m = PLAN_RE.exec(typeof plan === "string" ? plan : "");
+  if (!m || isNaN(parseFloat(m[2]))) throw new Error("not a power plan string: " + plan);
+  const pv = m[5] === undefined ? null : parseInt(m[5]);
+  return { mhz: parseInt(m[1]), volts: parseFloat(m[2]), fanA: parseInt(m[3]), fanB: parseInt(m[4]), pv: pv, voltsText: m[2],
+           dialect: pv === null ? "box" : (m[2].includes(".") ? "float_pv" : "mv_pv") };
 }
-function formatPlan(p) { return p.mhz + " MHz " + String(p.volts) + " V " + p.fanA + " RPM " + p.fanB + " RPM"; }
+function formatPlan(p) {
+  const v = (p.voltsText === undefined || p.voltsText === null) ? String(p.volts) : p.voltsText;
+  return p.mhz + " MHz " + v + " V " + p.fanA + " RPM " + p.fanB + " RPM" + ((p.pv === undefined || p.pv === null) ? "" : " PV " + p.pv);
+}
+function withMhz(plan, mhz) { return formatPlan(Object.assign(parsePlan(plan), { mhz: mhz })); }
 function presetPlan(setting, level) {
   const plans = setting.powerplans || [], hit = plans.find(p => p.level === level) || plans[0];
   return hit ? hit.info : null;
@@ -383,19 +393,38 @@ function interventions(text, rows) {
 function interventionCounts(iv) {
   return { restarts: iv.filter(i => i.kind === "restart").length, cycles: iv.filter(i => i.kind === "cycle").length, actions: iv.filter(i => i.who === "you").length };
 }
-// Rated figures per Goldshell model, for the "% of rated" axes. Same table as gbox/models.py (a test keeps them identical);
-// keyed by the /mcb/status model string, looked up ignoring case, spaces and hyphens.
+// The per-model table: rated figures for the "% of rated" axes and the capability profile behind the model seam
+// (plan dialect, per-board source, whether /dbg/ answers, fan target, what the temperature target is). Same table as
+// gbox/models.py, which documents the fields (a test keeps the two identical); keyed by the /mcb/status model string,
+// looked up ignoring case, spaces and hyphens.
 const MODELS = {
   "Goldshell-SCBox": { name: "SC-BOX", rated_mhs: 900000.0, rated_watts: 200.0, fans: 2, fan_max_rpm: 4900.0, boards: 1,
-    source: "Goldshell spec via retailer listings (900 GH/s, 200 W); fan max observed on one unit", verified_string: true },
+    source: "Goldshell spec via retailer listings (900 GH/s, 200 W); fan max observed on one unit", verified_string: true,
+    plan_dialect: "box", board_source: "icinfo", dbg_expected: true, fan_target: true, temp_target_basis: "board_sensor" },
   "Goldshell-SCBox II": { name: "SC-BOX II", rated_mhs: 1900000.0, rated_watts: 400.0, fans: 2, fan_max_rpm: null, boards: 1,
-    source: "retailer listings (kryptex, d-central, miningnow); model string not read from a unit", verified_string: false },
+    source: "retailer listings (kryptex, d-central, miningnow); model string not read from a unit; capabilities assumed as the SC-BOX's", verified_string: false,
+    plan_dialect: "box", board_source: "icinfo", dbg_expected: true, fan_target: true, temp_target_basis: "board_sensor" },
   "Goldshell-SCLITE": { name: "SC Lite", rated_mhs: 4400000.0, rated_watts: 950.0, fans: null, fan_max_rpm: 2200.0, boards: null,
-    source: "goldshell.company/sclite spec table; model string from Maveth/goldshell-config (fw 2.2.0)", verified_string: false },
+    source: "goldshell.company/sclite spec table; model string, plan dialect, devs endpoint, debug lock and fixed 85 C target from Maveth/goldshell-config (fw 2.2.0)", verified_string: false,
+    plan_dialect: "mv_pv", board_source: "devs", dbg_expected: false, fan_target: false, temp_target_basis: "fixed" },
 };
 const modelKey = m => String(m || "").toLowerCase().replace(/[ \-_]/g, "");
 const MODELS_BY_KEY = Object.fromEntries(Object.entries(MODELS).map(([k, v]) => [modelKey(k), v]));
 function ratedFor(model) { return MODELS_BY_KEY[modelKey(model)] || null; }
+// The profile for a model not in the table: the SC-BOX's sampling path, no rated figures, nothing optional (models.UNKNOWN).
+const UNKNOWN_PROFILE = { name: null, rated_mhs: null, rated_watts: null, fans: null, fan_max_rpm: null, boards: null,
+  source: "not in the table; the SC-BOX's sampling path with every optional capability off", verified_string: false,
+  plan_dialect: "box", board_source: "icinfo", dbg_expected: true, fan_target: false, temp_target_basis: "board_sensor" };
+function profileFor(model) {
+  const text = (typeof model === "string" && model) ? model : null, row = MODELS_BY_KEY[modelKey(model)];
+  return row ? Object.assign({}, row, { known: true, model: text }) : Object.assign({}, UNKNOWN_PROFILE, { known: false, model: text, name: text });
+}
+// One line under the title when the model is not in the table; "" when it is, or before the model is known.
+function modelNote(model) {
+  if (!model || profileFor(model).known) return "";
+  return model + " is not in gbox's model table: the page shows what the firmware answers, with no percent axes, and the service " +
+    "samples it the SC-BOX way. A capture of your unit's answers (docs/capture-request.md in the repo) is what adds a model.";
+}
 function pctOf(value, rated) { return (value === null || value === undefined || !rated || rated <= 0) ? null : 100 * value / rated; }
 // The miner's hashrate buffer as the chart draws it: leading zeros (slots a boot wiped) dropped, values in the display unit.
 // A lone sample comes back as one point; the caller says so instead of drawing a path that has no length.
@@ -527,9 +556,9 @@ function holdLine(h) {
   return head + ": nothing is judged until " + twice + ", or " + (hold.until ? hold.minutes_left + " min pass" : "you press Release") + ".";
 }
 if (typeof module !== "undefined") module.exports = { VERSION, clockLabel, newestFirst, ladderLine, encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
-  parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
+  parsePlan, formatPlan, withMhz, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
   powerActionRequest, holdRequest, holdReleaseRequest, holdLine, seriesRows, errorTip, resetsTip, clockTip, axisTicks, parseStamp, errorFacts, markerWords,
-  markerGlyph, markerKind, markerTitle, chartKey, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf, alarmBucket, resetsSuffix,
+  markerGlyph, markerKind, markerTitle, chartKey, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf, alarmBucket, resetsSuffix, profileFor, modelNote,
   powerTile, envRowsFrom, lastHour, recentHashrate, interventions, interventionCounts };
 
 // ---- presentation (skipped under Node, where the data layer above is unit-tested) ----
@@ -725,6 +754,7 @@ function render(d) {
   const up = info.elapsed || 0, upText = Math.floor(up / 3600) + " h " + Math.floor(up % 3600 / 60) + " min";
   lastModel = status.model || null;
   $("title").textContent = status.model || "Goldshell Box"; document.title = (status.model || "Goldshell Box") + " status";
+  const note = modelNote(status.model); $("modelnote").textContent = note; $("modelnote").hidden = !note;
   $("meta").textContent = "fw " + status.firmware + " · up " + upText + (booted ? " since " + booted : "") + " · gbox " + VERSION;
   $("updated").textContent = "updated " + new Date().toLocaleTimeString();
 

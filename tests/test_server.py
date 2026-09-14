@@ -256,11 +256,24 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(h["model"], "Goldshell-SCBox")      # the miner's model, read once on the first good poll
         self.assertEqual(h["rated"]["rated_watts"], 200.0)
         self.assertEqual(h["rated"]["name"], "SC-BOX")
+        self.assertTrue(h["profile"]["known"])                # the capability profile the page and the sampler read
+        self.assertEqual(h["profile"]["plan_dialect"], "box")
 
     def test_health_model_is_unknown_before_the_first_good_poll(self):
         h = json.loads(self.get("/api/health")[2])
         self.assertIsNone(h["model"])
         self.assertIsNone(h["rated"])
+        self.assertIsNone(h["profile"])
+
+    def test_health_profile_for_a_model_not_in_the_table(self):
+        self.fm.status = {"hardware": "x", "model": "Goldshell-KDBox", "mcbversion": "x", "firmware": "x"}
+        self.state.poller = Poller(api.Miner(self.fm.address, password="password"), self.data / "log.csv", 30)
+        self.state.poller.poll_once()
+        h = json.loads(self.get("/api/health")[2])
+        self.assertEqual(h["model"], "Goldshell-KDBox")
+        self.assertIsNone(h["rated"])
+        self.assertFalse(h["profile"]["known"])
+        self.assertEqual(h["profile"]["board_source"], "icinfo")
         self.assertIsNone(h["power"]["alias"])
 
 

@@ -69,7 +69,8 @@ class IcInfoTest(unittest.TestCase):
 
 class SettingsTest(unittest.TestCase):
     def test_plan_round_trip(self):
-        self.assertEqual(api.parse_plan("600 MHz 0.41 V 90 RPM 90 RPM"), (600, 0.41, 90, 90))
+        p = api.parse_plan("600 MHz 0.41 V 90 RPM 90 RPM")
+        self.assertEqual((p["mhz"], p["volts"], p["fan_a"], p["fan_b"], p["dialect"]), (600, 0.41, 90, 90, "box"))
         self.assertEqual(api.format_plan(625, 0.41, 90, 90), "625 MHz 0.41 V 90 RPM 90 RPM")
         self.assertEqual(api.format_plan(725, 0.4, 70, 70), "725 MHz 0.4 V 70 RPM 70 RPM")
 
@@ -127,3 +128,64 @@ class ChipsColumnTest(unittest.TestCase):
         self.assertEqual(api.parse_chips("garbage;0.3:1/x;0.4:2/3"), {"0.4": (2, 3)})
         text = api.format_chips(self.boards())
         self.assertEqual(len(api.parse_chips(text)), 16)
+
+
+class PlanDialectTest(unittest.TestCase):
+    """The power plan string has dialects (docs/firmware-api.md, "Power plan dialects"). Parsing is driven by the
+    string, not by the model table, and formatting writes back exactly what was read except the clock."""
+
+    BOX = "575 MHz 0.41 V 90 RPM 90 RPM"                     # SC-BOX, read from the unit
+    MV_PV = "625 MHz 9100 V 40 RPM 40 RPM PV 9400"            # SC Lite fw 2.2.0, from the other developer's notes
+    FLOAT_PV = "750 MHz 0.41 V 50 RPM 50 RPM PV 9400"         # the documented "float-V / optional-PV" form; no verbatim example on record
+
+    def test_parse_returns_the_parts_and_names_the_dialect(self):
+        self.assertEqual(api.parse_plan(self.BOX), {"mhz": 575, "volts": 0.41, "fan_a": 90, "fan_b": 90, "pv": None,
+                                                    "volts_text": "0.41", "dialect": "box"})
+        self.assertEqual(api.parse_plan(self.MV_PV), {"mhz": 625, "volts": 9100.0, "fan_a": 40, "fan_b": 40, "pv": 9400,
+                                                      "volts_text": "9100", "dialect": "mv_pv"})
+        self.assertEqual(api.parse_plan(self.FLOAT_PV)["dialect"], "float_pv")
+        self.assertEqual(api.parse_plan(self.FLOAT_PV)["pv"], 9400)
+        self.assertEqual(api.parse_plan("0 MHz 0 V 70 RPM 70 RPM")["dialect"], "box")    # the BOX's level-3 preset
+
+    def test_format_round_trips_every_dialect_verbatim(self):
+        for s in (self.BOX, self.MV_PV, self.FLOAT_PV, "0 MHz 0 V 70 RPM 70 RPM", "725 MHz 0.40 V 70 RPM 70 RPM"):
+            self.assertEqual(api.format_plan(**api.parse_plan(s)), s)
+
+    def test_with_mhz_changes_only_the_clock(self):
+        self.assertEqual(api.with_mhz(self.BOX, 550), "550 MHz 0.41 V 90 RPM 90 RPM")
+        self.assertEqual(api.with_mhz(self.MV_PV, 600), "600 MHz 9100 V 40 RPM 40 RPM PV 9400")
+        self.assertEqual(api.with_mhz(self.FLOAT_PV, 725), "725 MHz 0.41 V 50 RPM 50 RPM PV 9400")
+        self.assertEqual(api.with_mhz("  575 MHz  0.41 V 90 RPM 90 RPM ", 550), "550 MHz 0.41 V 90 RPM 90 RPM")
+        self.assertEqual(api.with_mhz(self.BOX, 550, volts=0.4), "550 MHz 0.4 V 90 RPM 90 RPM")
+        with self.assertRaises(ValueError):
+            api.with_mhz("hashrate mode", 550)
+
+    def test_rejects_what_no_firmware_writes(self):
+        for bad in ("625 MHz 9100 V 40 RPM", "625 MHz 9100 V 40 RPM 40 RPM PV", "625 MHz 9100 V 40 RPM 40 RPM PV x",
+                    "625 MHz 9100 V 40 RPM 40 RPM PV 9400 extra", "", None):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                api.parse_plan(bad)
+
+    def test_positional_format_is_the_box_form(self):
+        self.assertEqual(api.format_plan(625, 0.41, 90, 90), "625 MHz 0.41 V 90 RPM 90 RPM")
+        self.assertEqual(api.format_plan(725, 0.4, 70, 70), "725 MHz 0.4 V 70 RPM 70 RPM")
+        self.assertEqual(api.format_plan(625, 9100, 40, 40, pv=9400), "625 MHz 9100 V 40 RPM 40 RPM PV 9400")
+
+
+class SCLiteFixtureTest(unittest.TestCase):
+    """The synthetic SC Lite fixtures (tests/fixtures/sclite, from the other developer's notes) pick the SC Lite
+    profile and parse, so the seam is exercised before a unit is on the bench."""
+
+    def test_status_picks_the_profile(self):
+        from gbox import models
+        st = json.loads(fixture("sclite/mcb_status.json"))
+        p = models.profile_for(st["model"])
+        self.assertTrue(p["known"])
+        self.assertEqual(p["name"], "SC Lite")
+        self.assertEqual(p["plan_dialect"], "mv_pv")
+
+    def test_setting_parses_in_its_dialect(self):
+        st = json.loads(fixture("sclite/mcb_setting.json"))
+        self.assertEqual(api.parse_plan(st["manualPowerplan"])["dialect"], "mv_pv")
+        self.assertEqual(api.max_preset_mhz(st), 625)
+        self.assertNotIn("temp_targets", st)          # no fan-target range on this firmware, per the notes

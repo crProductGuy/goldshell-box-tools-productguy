@@ -39,6 +39,7 @@ on Windows: standard-library Python only, one process, one command.
 | The operator's view over days (2026-09-13, 0.6.0) | every chip's counts logged every poll in one appended `chips` column (`board.chip:good/bad`); `GET /api/series?hours&bucket` serves the log bucketed (means, increment sums with the counter-reset rule, the worst chip, events), cached by the log's mtime; the served page draws every chart over 24 h from it and adds a three-day errors chart (bad share, worst chip, clock as a step, resets as bars); `gbox errors`; `/api/log.csv?tail=N`. Design: `charts-proposal.md` | Mark: "for the human operator to see when things really went bad on a graph, so she/he can do something." Bad share rather than bad count because a faster clock attempts more nonces; resets on the same chart because the 2026-09-13 16:02 event was 46 resets and 9 bad nonces. No new miner requests: the chips data is in the icinfo request already made. The other-models work moves to 0.7.0, with log rotation |
 | Ladder timing (2026-09-13, 0.6.2) | after the settle gap the unreachable rule reads its own `unreachable_minutes` window, which may reach back into the gap, so a controller still dark at the gap's end gets the next rung on the next sample; the stall rule still needs a full window after the gap; once two restarts have failed, `after_minutes` is checked on every dark sample | the second soft restart landed about 10 min after the first, not 5 (09-12 18:17:59 and 18:27:30), because every rule waited for a full `stall_minutes` window of fresh samples after the gap before the 2-minute rule got a look; the plug reached a frozen controller at 12 min where the docs promised 7. Mark chose 7 over "2 min of fresh failures after the gap" (about 9): same evidence, two minutes sooner |
 | 0.6.0 API additions | `chips` column 23; `GET /api/series`; `/api/log.csv?tail=N`; CLI `errors` | the minor bump (log format, HTTP API and CLI all changed); nothing renamed or removed |
+| The model seam (2026-09-13, 0.7.0 gate 1) | `gbox/models.py` rows carry a capability profile (`plan_dialect`, `board_source`, `dbg_expected`, `fan_target`, `temp_target_basis`) and `profile_for` gives an unknown model the SC-BOX path with every optional capability off and `known: False`; `/api/health` carries it and the page says so under the title. The plan string is parsed in its three dialects (`firmware-api.md`, "Power plan dialects") from the string itself, and the clock control rewrites only the MHz token (`with_mhz` / `withMhz`). Synthetic SC Lite fixtures in `tests/fixtures/sclite` | Part C of the 2026-09-12 plan: the seam first, so gates 2 (per-board sampling, `boards.csv`, per-board panels) and 3 (`gbox discover`, log rotation) add to it without touching the BOX path. String-driven parsing rather than table-driven because the table is built from another lab's notes and the string is what the unit actually wrote; rewriting one token rather than formatting from parts because nobody has confirmed what the SC Lite's integer volts or PV mean. No release bump until the gates land; `/api/health` gained a field, so 0.7.0 is the minor bump |
 | Plug drivers | Kasa legacy protocol first (both plugs on hand); Shelly Gen2 and Tasmota next; a generic HTTP driver for REST PDUs; KLAP last | standard-library rule, so every protocol is reimplemented; Shelly outnumbers Kasa two to one among local-control users; KLAP needs credentials and cannot be verified without a device |
 
 ## What must change from `scbox-tools`
@@ -93,14 +94,14 @@ goldshell-box-tools-productguy/
 │   ├── app_test.js          request builders, event markers, trial row formatting, the service power line, the Power tile, CSV rows, interventions
 │   ├── fake_miner.py        HTTP stub serving the fixtures + accepting PUTs; used by tests and by hand
 │   ├── fake_plug.py         a Kasa plug on the legacy protocol, with a meter, a relay, and failure knobs
-│   └── fixtures/
+│   └── fixtures/            sanitized SC-BOX captures; sclite/ is synthetic, from the other developer's notes, until a capture replaces it
 ├── scripts/
 │   ├── install-windows.ps1  Startup .vbs launcher (done)
 │   ├── install-linux.sh     systemd --user unit (step 3)
 │   └── gbox.service         (step 3)
 ├── docs/
 │   ├── plan.md              this file
-│   ├── firmware-api.md      endpoints, cipher, quirks, counters, hashboard behavior seen
+│   ├── firmware-api.md      endpoints, cipher, quirks, power plan dialects, counters, hashboard behavior seen
 │   ├── stock-ui-debug-page.md  the hidden /#/debug page of the stock UI and what each part shows
 │   ├── clock-tuning.md      the method: manual and unattended clock trials, reading the table, power
 │   ├── power-cycle.md       the smart-plug rung: which plugs, discover, init, dry run, the five conditions, arming
