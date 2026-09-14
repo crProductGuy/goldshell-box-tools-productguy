@@ -1,9 +1,9 @@
 :root { color-scheme: light dark;
-  --bg:#f4f4f2; --surface:#fcfcfb; --ink:#1a1a19; --ink2:#5a5a57; --muted:#8a8a86; --line:#e3e3df;
+  --bg:#f4f4f2; --surface:#fcfcfb; --ink:#141413; --ink2:#333331; --muted:#55554f; --line:#d9d9d4;
   --series:#2a78d6; --series2:#eb6834; --good:#006300; --warn:#8a5a00; --serious:#a34a1f; --critical:#d03b3b;
   --goodbg:#e4f5e4; --warnbg:#fff3d6; --critbg:#fbe1e1; }
 @media (prefers-color-scheme: dark) { :root {
-  --bg:#111110; --surface:#1a1a19; --ink:#ececea; --ink2:#b8b8b4; --muted:#8a8a86; --line:#33332f;
+  --bg:#111110; --surface:#1a1a19; --ink:#f4f4f2; --ink2:#d8d8d4; --muted:#b0b0ab; --line:#3d3d38;
   --series:#3987e5; --series2:#d95926; --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --critical:#ff6b6b;
   --goodbg:#0f2a0f; --warnbg:#3a2c05; --critbg:#3d1414; } }
 * { box-sizing:border-box; min-width:0 }
@@ -25,7 +25,7 @@ main { padding:16px 20px; max-width:1200px; margin:0 auto; display:grid; gap:16p
 section { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:12px 14px }
 section h2 { font-size:14px; margin:0 0 8px; font-weight:600 } section h2 span { color:var(--muted); font-weight:400; margin-left:8px }
 .chart { position:relative; width:100% } .chart svg { display:block; width:100%; height:auto }
-svg text { fill:var(--ink2); font-size:11px } svg .grid { stroke:var(--line); stroke-width:1 }
+svg text { fill:var(--ink2); font-size:12px } svg .grid { stroke:var(--line); stroke-width:1 }
 svg .line { fill:none; stroke:var(--series); stroke-width:2; stroke-linejoin:round } svg .area { fill:var(--series); opacity:.08 }
 svg .cross { stroke:var(--muted); stroke-width:1; stroke-dasharray:3 3 } svg .s2 { stroke:var(--series2) } svg .lbl { font-weight:600 }
 .legend { display:flex; flex-wrap:wrap; gap:16px; font-size:12px; color:var(--ink2); margin:2px 0 6px }
@@ -34,7 +34,7 @@ svg .tick { stroke:var(--muted) } svg .tick.major { stroke:var(--ink2); stroke-w
 svg .mark { stroke:var(--warn); stroke-width:1; stroke-dasharray:2 3 }
 svg .s3 { stroke:var(--muted); stroke-width:1.5 } svg .bar { fill:var(--critical); opacity:.75 } svg .barlbl { fill:var(--critical); font-weight:600 }
 svg .axis { fill:var(--ink); font-size:12px; font-weight:700 } svg .sep { stroke:var(--line); stroke-width:1 } svg .panelhl { fill:var(--series); opacity:.06 }
-svg .band { fill:var(--critbg); opacity:.7 } svg .marklbl.words { font-size:10px }
+svg .band { fill:var(--critbg); opacity:.7 } svg .marklbl.words { font-size:11px }
 .facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin:0 0 10px }
 .fact { border:1px solid var(--line); border-radius:8px; padding:8px 12px; background:var(--bg) }
 .fact .k { color:var(--ink2); font-size:12px } .fact .v { font-size:18px; font-weight:600; font-variant-numeric:tabular-nums; margin-top:2px } .fact .s { color:var(--muted); font-size:12px; margin-top:2px }
@@ -46,7 +46,7 @@ td.bar { width:34% } td.bar div { height:8px; border-radius:4px; background:var(
 tr.weak td:first-child::after { content:" weak"; color:var(--serious); font-size:11px; font-weight:600 }
 tr.dead td:first-child::after { content:" failing"; color:var(--critical); font-size:11px; font-weight:600 }
 tr.board td { color:var(--ink2); font-size:12px; text-align:left }
-.note { color:var(--muted); font-size:12px } .err { color:var(--critical); font-size:12px; white-space:pre-wrap }
+.note { color:var(--muted); font-size:13px } .err { color:var(--critical); font-size:12px; white-space:pre-wrap }
 code { font-size:12px }
 .two { display:grid; grid-template-columns:1fr; gap:16px } @media (min-width:1000px) { .two { grid-template-columns:1.2fr 1fr } }
 dl { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:0 } dt { color:var(--ink2) } dd { margin:0; font-variant-numeric:tabular-nums; overflow-wrap:anywhere }
@@ -63,12 +63,17 @@ dl { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:0 } dt {
 .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap } .ctrl .row { margin-top:6px }
 .ctrl select,.ctrl button { font:inherit; padding:6px 10px; border:1px solid var(--line); border-radius:6px; background:var(--surface); color:var(--ink) }
 button.act { cursor:pointer; font-weight:600 } button.danger { color:var(--critical) } button:disabled { opacity:.5; cursor:default }
+/* "what is this?" disclosures under the controls, and the Terms section */
+.ctrl button.why { font:inherit; font-size:12px; padding:0; border:0; background:none; color:var(--series); cursor:pointer; margin-top:8px; display:block; text-align:left }
+.ctrl button.why::before { content:"\25B8  "; font-size:11px } .ctrl button.why[aria-expanded="true"]::before { content:"\25BE  "; }
+.whyx { margin-top:6px; padding:8px 10px; border-left:2px solid var(--series); color:var(--ink2); font-size:13px; line-height:1.5 }
+.terms dl { grid-template-columns:auto 1fr; gap:6px 16px; font-size:13px } .terms dt { font-weight:600; color:var(--ink) } .terms dd { color:var(--ink2); font-variant-numeric:normal }
 .dialog { max-width:min(680px,92vw) } .dialog .summary { font-weight:600; overflow-wrap:anywhere } .dialog .row { justify-content:flex-end }
 .dialog .req { margin:0; font:12px/1.4 ui-monospace,Consolas,monospace; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px 10px; max-height:40vh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere }
 .note.ok { color:var(--good) }
 .dialog .changes { margin:0; padding-left:18px; font:13px/1.5 ui-monospace,Consolas,monospace; overflow-wrap:anywhere } .dialog .changes li { color:var(--ink) }
 .dialog .reqbox summary { cursor:pointer } .dialog .reqbox[open] summary { margin-bottom:6px }
-svg .marklbl { fill:var(--warn); font-size:9px; font-weight:600 } svg .mark:hover { stroke-width:3 }
+svg .marklbl { fill:var(--warn); font-size:11px; font-weight:800 } svg .mark:hover { stroke-width:3 }
 /* clock trials table */
 .scroll { overflow-x:auto } #trialtab { min-width:1060px } #trialtab td { white-space:nowrap }
 #trialtab td.critical { color:var(--critical); font-weight:600 } #trialtab td.serious { color:var(--serious); font-weight:600 }
@@ -77,4 +82,4 @@ svg .marklbl { fill:var(--warn); font-size:9px; font-weight:600 } svg .mark:hove
 /* interventions table and the right-hand percent axes */
 #ivtab td, #ivtab th { text-align:left; white-space:normal } #ivtab td.when { white-space:nowrap; color:var(--ink2) } #ivtab td.who { font-weight:600 }
 #ivtab tr.cycle td.who { color:var(--critical) } #ivtab tr.restart td.who, #ivtab tr.failed td.who, #ivtab tr.declined td.who { color:var(--serious) }
-svg .raxis { stroke:var(--muted) } svg text.rlbl { fill:var(--muted) }
+svg .raxis { stroke:var(--muted) } svg text.rlbl { fill:var(--ink2) }

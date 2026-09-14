@@ -478,7 +478,7 @@ function axisTicks(spanMin, now, wide) {
   }
   return { tickEvery: 60, labels: labels };
 }
-const VERSION = "0.6.0";
+const VERSION = "0.6.1";
 // The wall-clock time under a chart's "now" label: 24-hour, minutes only, so the last refresh reads at a glance.
 function clockLabel(t) { const d = new Date(t); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
 // The service log as the page shows it: newest line on top, like the interventions table, so a short window shows what matters.
@@ -1184,6 +1184,10 @@ $("btnhold").onclick = () => openServiceConfirm(holdRequest(parseInt($("holdsel"
 $("btnrelease").onclick = () => openServiceConfirm(holdReleaseRequest());
 $("ccancel").onclick = closeConfirm;
 $("cok").onclick = runConfirmed;
+// "what is this?" under each control: a click opens the explanation in place (touch and screen readers included)
+document.querySelectorAll("button.why").forEach(b => {
+  b.onclick = () => { const x = $(b.getAttribute("aria-controls")); const open = x.hidden; x.hidden = !open; b.setAttribute("aria-expanded", open ? "true" : "false"); };
+});
 $("confirm").addEventListener("keydown", e => {
   // never press-through: Enter does nothing here, not even on a focused button (a keydown preventDefault stops the click)
   if (e.key === "Enter") { e.preventDefault(); return; }

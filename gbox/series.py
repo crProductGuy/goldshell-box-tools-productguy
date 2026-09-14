@@ -25,6 +25,7 @@ from . import api
 
 MIN_HOURS, MAX_HOURS = 1, 168
 MIN_BUCKET, MAX_BUCKET = 5, 120
+NO_READING = -100.0     # a board-sensor value at or below this is the firmware saying "no sensor", not a temperature
 STAMP = "%Y-%m-%d %H:%M:%S"
 _FLOATS = ("mhs_20s", "clock", "watts", "fan0", "fan1", "tstemp0", "tstemp2")
 _INTS = ("nonces_good", "nonces_bad", "rebootcnt", "hwerr", "accepted", "elapsed")
@@ -68,6 +69,12 @@ def read_rows(path):
                 row[k] = _num(r.get(k), float)
             for k in _INTS:
                 row[k] = _num(r.get(k), int)
+            if row["tstemp2"] is not None and row["tstemp2"] <= NO_READING:
+                # the firmware reports the board sensor as -150 and the chip as 0 with the hashboard absent
+                # (2026-09-13 15:46): no reading, not a temperature
+                row["tstemp2"] = None
+                if row["tstemp0"] == 0:
+                    row["tstemp0"] = None
             chips_text = r.get("chips") or ""
             row["chips"] = api.parse_chips(chips_text) if chips_text else None
             row["weak"] = _weak(r.get("weak_chips"))
