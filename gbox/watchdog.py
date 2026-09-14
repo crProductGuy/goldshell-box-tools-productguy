@@ -9,11 +9,14 @@ interval:
 - unreachable: every sample in the last `unreachable_minutes` failed
 - stalled: every sample in the last `stall_minutes` succeeded and the
   accepted-share counter never moved
-- a restart is followed by `min_gap_minutes` of silence before judging again
+- a restart is followed by `min_gap_minutes` of silence before judging again;
+  the unreachable rule then reads its own window, which may reach back into
+  the gap, so a controller still dark at the gap's end gets the next rung on
+  the next sample; the stall rule needs a full window of samples after the gap
 - at most `max_restarts_per_day` restarts in any rolling 24 hours; past the
   cap the reason is logged once per episode and nothing is sent
 - samples with a gap in them (the PC slept, the service paused) are not
-  judged until a full window of fresh, contiguous samples exists
+  judged until a window of fresh, contiguous samples exists
 
 The power rung, only when a plug is configured. A frozen controller cannot
 take a soft restart (three episodes on record: no HTTP, no ping, the PUT
@@ -24,7 +27,9 @@ signature and nothing looser:
    restarts, as before)
 2. at least two soft restarts in this episode raised (an accepted PUT means
    the controller is alive and gets its settle time)
-3. the episode is at least `after_minutes` old
+3. the episode is at least `after_minutes` old; once two restarts have
+   failed this is checked on every dark sample, so the plug moves when the
+   age is reached rather than at the next restart's turn
 4. fewer than `max_cycles_per_day` cycles in the rolling day
 5. the plug answers, is the device recorded at setup, and reports its relay
    on (off means someone switched it off on purpose)
@@ -229,20 +234,36 @@ class Watchdog:
         floor = (self.last_restart + self.min_gap) if self.last_restart else float("-inf")
         if self.power_gap_until is not None:
             floor = max(floor, self.power_gap_until)
-        rows = [r for r in self._rows if r[0] > floor]
-        if len(rows) < self.stall_rows:
+        rows = list(self._rows)
+        if not rows or rows[-1][0] <= floor or now - rows[-1][0] > 2 * self.interval:
+            return None                     # nothing since the gap ended, or the newest sample is stale
+        # unreachable: its own window, which may reach back into the gap. A restart that worked shows as good
+        # samples well inside min_gap (a soft restart takes 60-90 s), so a dark tail at the gap's end is the verdict;
+        # waiting for a further stall window on top cost 5 min per rung until 2026-09-13.
+        if self._tail_dark(now):
+            return self._unreachable_reason()
+        # stalled: a full window of fresh samples after the gap, so a reboot's own quiet counter is never judged
+        recent = [r for r in rows if r[0] > floor][-self.stall_rows:]
+        if len(recent) < self.stall_rows or not self._contiguous(recent):
             return None
-        recent = rows[-self.stall_rows:]
-        span = recent[-1][0] - recent[0][0]
-        contiguous = span <= (self.stall_rows - 1) * self.interval * 1.5
-        fresh = now - recent[-1][0] <= 2 * self.interval
-        if not (contiguous and fresh):
-            return None
-        if all(not r[1] for r in recent[-self.err_rows:]):
-            return "miner unreachable for %d min" % round(self.err_rows * self.interval / 60)
         if all(r[1] for r in recent) and len({r[2] for r in recent}) == 1 and recent[0][2] is not None:
             return "accepted shares frozen for %d min" % round(self.stall_rows * self.interval / 60)
         return None
+
+    def _unreachable_reason(self):
+        return "miner unreachable for %d min" % round(self.err_rows * self.interval / 60)
+
+    def _tail_dark(self, now):
+        """The last `unreachable_minutes` of samples all failed, with no gap among them and the newest fresh."""
+        rows = list(self._rows)
+        if len(rows) < self.err_rows or now - rows[-1][0] > 2 * self.interval:
+            return False
+        tail = rows[-self.err_rows:]
+        return self._contiguous(tail) and all(not r[1] for r in tail)
+
+    def _contiguous(self, rows):
+        """No gap in these samples (the PC slept, the service paused): the span fits their count with slack."""
+        return rows[-1][0] - rows[0][0] <= (len(rows) - 1) * self.interval * 1.5
 
     def check(self):
         """Judge the samples seen so far; send a restart if one is due. Returns the reason or None."""
@@ -254,6 +275,12 @@ class Watchdog:
         self.last_reason = reason
         if not reason:
             self._capped_logged = False
+            # Two restarts already failed this episode: the rung waits only on `after_minutes` now, on any dark
+            # sample, not on the next restart's turn (which is a whole gap away when after_minutes is the longer).
+            # A rung refused once this episode (plug silent or off, dry run, the cap) is not asked again until
+            # the next restart's turn: the plug is queried once per rung, not every sample for the outage.
+            if self.episode_failed_restarts >= 2 and not self._power_logged and self._tail_dark(self._clock()):
+                self._consider_power(self._unreachable_reason())
             return None
         if self.restarts_today() >= self.max_restarts:
             if not self._capped_logged:

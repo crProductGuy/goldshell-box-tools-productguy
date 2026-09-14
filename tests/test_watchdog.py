@@ -75,6 +75,29 @@ class WatchdogTest(unittest.TestCase):
         self.feed(10, accepted=500)
         self.assertEqual(self.restart.restarts, 2)
 
+    def test_unreachable_is_judged_again_as_soon_as_the_gap_ends(self):
+        """The second rung: after the settle gap the unreachable rule needs only its own window, which
+        may reach back into the gap. Until 2026-09-13 it waited for a full stall window of fresh samples
+        as well, so the second restart landed about 10 min after the first instead of 5 (09-12 18:17 to 18:27)."""
+        self.feed(6, accepted=lambda i: i)
+        self.feed(4, ok=False)
+        self.assertEqual(self.restart.restarts, 1)
+        first = self.wd.last_restart
+        self.assertIsNone(self.feed(20, ok=False))              # the 10-minute gap: silence
+        self.assertEqual(self.restart.restarts, 1)
+        reason = self.feed(1, ok=False)                         # first sample after the gap: still dark
+        self.assertEqual(self.restart.restarts, 2)
+        self.assertIn("unreachable", reason or "")
+        self.assertEqual(self.wd.last_restart - first, 21 * self.INTERVAL)
+
+    def test_stall_still_needs_a_full_fresh_window_after_the_gap(self):
+        """A reachable miner with a frozen counter is judged on stall_minutes of samples after the gap, as before."""
+        self.feed(10, accepted=500)
+        self.assertEqual(self.restart.restarts, 1)
+        self.assertIsNone(self.feed(29, accepted=500))          # gap (20) plus 9 of the 10-row window
+        self.feed(1, accepted=500)
+        self.assertEqual(self.restart.restarts, 2)
+
     def test_cap_per_day_logs_once(self):
         lines = []
         self.events.write = lambda m: lines.append(m)
@@ -133,10 +156,12 @@ class FakePlugObject(Plug):
     def __init__(self, device_id="plug-1", relay=True, watts=34.0, meter=True):
         self.device_id, self.relay, self.watts_value, self.meter = device_id, relay, watts, meter
         self.calls = []
+        self.identifies = 0
         self.fail_identify = False
         self.fail_off = False
 
     def identify(self):
+        self.identifies += 1
         if self.fail_identify:
             raise PlugError("plug did not answer")
         return {"model": "HS110(US)", "alias": "test", "device_id": self.device_id, "meter": self.meter, "hw": "1.0", "fw": "t"}
@@ -209,16 +234,36 @@ class PowerCycleTest(unittest.TestCase):
         self.assertEqual(self.power_lines(), [])
 
     def test_cycles_once_after_two_failed_restarts_and_the_delay(self):
-        t0 = self.freeze(14)
-        self.assertEqual(self.plug.calls, [])                       # one failed restart so far, under 15 min
-        self.feed(10, ok=False)                                     # 19 min: the second restart fails
+        """unreachable 2, min_gap 10, after 5 (the default): restart #1 at 1.5 min, #2 at 12 min on the first
+        sample after the gap, and the cycle with it since the episode is past after_minutes."""
+        t0 = self.freeze(12)                                        # samples up to 11.5 min: the gap's last
+        self.assertEqual(self.plug.calls, [])                       # one failed restart so far
+        self.assertEqual(self.wd.episode_failed_restarts, 1)
+        self.feed(1, ok=False)                                      # 12 min: the second restart fails
         self.assertEqual(self.plug.calls, ["off", "on"])
-        self.assertGreaterEqual(self.clock() - t0, 15 * 60)
+        self.assertEqual(self.clock() - t0, 12 * 60)
+        self.assertGreaterEqual(self.clock() - t0, DEFAULT_POWER["after_minutes"] * 60)
         self.assertEqual(self.wd.cycles_today(), 1)
         cycled = [l for l in self.power_lines() if l.startswith("power: cycled")]
         self.assertEqual(len(cycled), 1)
         self.assertIn("34 W before", cycled[0])
         self.assertIn("unreachable", cycled[0])
+
+    def test_ladder_reaches_the_plug_at_about_seven_minutes_with_the_live_timings(self):
+        """unreachable 2, min_gap 5, after 5 (the defaults since 2026-09-12): restart #1 at 1.5 min into a
+        freeze, the gap to 6.5 min, restart #2 and the cycle on the next sample, at 7 min."""
+        wd = Watchdog(self.restart, self.events, self.INTERVAL, stall_minutes=5, unreachable_minutes=2,
+                      min_gap_minutes=5, max_restarts_per_day=20, clock=self.clock,
+                      plug=self.plug, power=dict(self.power, after_minutes=5, max_cycles_per_day=8),
+                      sleep=lambda s: None)
+        t0 = self.freeze(6.5, wd=wd)                                # samples up to 6 min
+        self.feed(1, ok=False, wd=wd)                               # 6.5 min: the gap's last sample
+        self.assertEqual(self.plug.calls, [])
+        self.assertEqual(wd.restarts_today(), 1)
+        self.feed(1, ok=False, wd=wd)                               # 7 min: the first sample after the gap
+        self.assertEqual(wd.restarts_today(), 2)
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.assertEqual(self.clock() - t0, 7 * 60)
 
     def test_dry_run_logs_once_and_never_switches(self):
         wd = self.make(cycle=False)
@@ -272,18 +317,49 @@ class PowerCycleTest(unittest.TestCase):
         self.assertEqual(sum("cap" in l for l in self.power_lines()), 1)
 
     def test_settle_gap_after_a_cycle_then_judged_again(self):
-        self.freeze(20)
+        """unreachable 2, min_gap 10, after 15 here: restarts at 1.5 and 12 min, the cycle at 15 when the episode
+        is old enough, settle to 35; then the whole ladder again (35.5 and 46 min) before a second cycle."""
+        self.wd = self.make(after_minutes=15)
+        self.freeze(20)                                             # samples up to 19.5 min
         self.assertEqual(self.plug.calls, ["off", "on"])
         restarts_before = sum("restart attempt failed" in l for l in self.lines)
-        self.feed(38, ok=False)                                     # 19 min inside the 20-min settle gap
+        self.feed(31, ok=False)                                     # 35 min: the settle gap's last sample
         self.assertEqual(self.plug.calls, ["off", "on"])
         self.assertEqual(sum("restart attempt failed" in l for l in self.lines), restarts_before)
-        self.feed(30, ok=False)                                     # 34 min: gap over, window, first fresh restart failed
+        self.feed(1, ok=False)                                      # 35.5 min: gap over, first fresh restart failed
         self.assertEqual(self.plug.calls, ["off", "on"])            # the ladder needs two fresh failed restarts
         self.assertEqual(self.wd.episode_failed_restarts, 1)
-        self.feed(20, ok=False)                                     # 44 min: gap, window, second failed restart, cycle
+        self.assertEqual(sum("restart attempt failed" in l for l in self.lines), restarts_before + 1)
+        self.feed(20, ok=False)                                     # 45.5 min: the gap's last sample
+        self.assertEqual(self.wd.episode_failed_restarts, 1)
+        self.feed(1, ok=False)                                      # 46 min: second failed restart, cycle
         self.assertEqual(self.plug.calls, ["off", "on", "off", "on"])
         self.assertEqual(self.wd.cycles_today(), 2)
+
+    def test_a_refused_rung_is_not_retried_on_every_sample(self):
+        """The plug is asked once per rung, not every 30 s for the rest of the outage: after a refusal the
+        next try waits for the next restart's turn (12 min: refused; 22.5 min: asked again)."""
+        self.plug.fail_identify = True
+        self.freeze(12.5)                                           # restarts at 1.5 and 12 min: the first try
+        self.assertEqual(self.plug.identifies, 1)
+        self.feed(20, ok=False)                                     # 22 min: the gap's last sample
+        self.assertEqual(self.plug.identifies, 1)
+        self.feed(1, ok=False)                                      # 22.5 min: restart #3, the second try
+        self.assertEqual(self.plug.identifies, 2)
+        self.assertEqual(sum("did not answer" in l for l in self.power_lines()), 1)
+
+    def test_after_minutes_is_honoured_on_any_dark_sample_once_two_restarts_failed(self):
+        """after_minutes longer than unreachable plus the gap: the plug moves when the age is reached (15 min),
+        not a whole gap later at the next restart's turn."""
+        self.wd = self.make(after_minutes=15)
+        t0 = self.freeze(12.5)                                      # restarts at 1.5 and 12 min, two failed
+        self.assertEqual(self.wd.episode_failed_restarts, 2)
+        self.assertEqual(self.plug.calls, [])
+        self.feed(5, ok=False)                                      # 14.5 min
+        self.assertEqual(self.plug.calls, [])
+        self.feed(1, ok=False)                                      # 15 min
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.assertEqual(self.clock() - t0, 15 * 60)
 
     def test_on_still_attempted_when_off_failed(self):
         self.plug.fail_off = True
