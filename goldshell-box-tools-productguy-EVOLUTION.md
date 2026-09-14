@@ -1223,3 +1223,19 @@ also asked for explainers on Hold and Release "plain to the user or
 accessible to the user easily"; proposed on the canvas as a "what is
 this?" disclosure under every control plus a Terms section, his pick
 pending.
+
+**Addendum, 2026-09-13, 20:15: 0.6.1.** Mark, with a screenshot: "a
+numeric bug (maybe from bad data from the controller, but nonsensical
+negative temps." It was the controller: with the hashboard absent at
+15:46 the firmware reports the board sensor as -150 and the chip as 0,
+and a five-minute mean of those rows read -131. The series now treats
+that as no reading and the line breaks instead. Same message: "the text
+on the display page is too soft; too 'gray' as opposed to black. I have
+mediocre eyes with some cataracts, so I think the density should be
+increased by 50%," and the legend letters and triangle made bold. Done:
+darker secondary and muted text in both color schemes, chart text 12px,
+bold marker glyphs. And "I like what I see and the proposal": the
+explainers went in as proposed, a "what is this?" disclosure under every
+control with the Hold and Release wording from the canvas, title
+tooltips on the power buttons, and a Terms section. Patch version 0.6.1,
+one restart. Verified on the live page.
