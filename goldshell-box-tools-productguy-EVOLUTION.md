@@ -1419,3 +1419,34 @@ predict. 67 tests; both verified through the launcher. No change to gbox;
 the miner was not touched; still 0.6.5 live. Gate 2 still waits for the
 SC5 Pro II capture.
 
+## 2026-09-14, later evening: session R, the cold start measured, the thresholds made absolute
+
+Mark: "load the goldshell project, check the context after all is
+stable." A cold start under the new controls, read as an experiment on
+them: the ground-truth files were read in ranges (machine notes by
+section, the status doc's top block and tail, one evolution entry), the
+Bash hook denied one attempt to print the project AGENTS.md whole, and
+the service was checked through its health endpoint rather than a
+browser. Findings, from `/context` after the load: 85k of a 1m window
+in use; the MCP tool definitions that had cost 79k before the session
+Q change are now listed but deferred, and the two connectors Mark
+switched off remain only as sign-in stubs of a few hundred tokens, not
+worth chasing; the fixed cost before the first message is about 51k,
+5%, and none of what remains is the owner's to trim (the built-in tool
+definitions are the largest part). The loading itself was 36k of
+messages. Loading the six core browser tools into a window costs about
+4k, the screenshot tool alone over 2k, which is a second reason, beside
+the pixels, for the rule that browser checks go to a subagent.
+
+One question came out of the numbers: the session-hygiene thresholds
+were percentages (checkpoint at 50%, restart at 70%), and on a 1m
+window those are 500k and 700k, past the point where the previous
+night's session had visibly drifted at 57%. Proposed an absolute figure
+for the first checkpoint. Mark: "use 250k as the first checkpoint
+threshold", then "update the 2nd threshold too": 350k. Both are now in
+the shared AGENTS.md table with the percentages they replaced, and in
+the project memory. Mark then had main pushed (the session Q entry) and
+the status doc updated. Nothing in gbox changed; 0.6.5 live, 212
+samples, one error, eighteen restarts and seven cycles counted from the
+last day, no hold. Gate 2 still waits for the SC5 Pro II capture.
+
