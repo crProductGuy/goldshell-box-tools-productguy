@@ -59,7 +59,7 @@
     <h2>Fans and temperature<span id="envsub">from the gbox service log, same time scale as above</span></h2>
     <div class="legend"><span><i></i>fan0</span><span><i class="s2"></i>fan1</span><span style="margin-left:auto"><i></i>chip temperature</span><span><i class="s2"></i>board sensor (what the fan controller and the stock UI use)</span></div>
     <div class="chart" id="envchart"></div>
-    <p class="note">Chip temperature is the one to watch: it is what the silicon sees. The board sensor reads lower and is shown because the fan controller steers on it. Markers: <b>▼</b> a dashboard button, <b>W</b> the watchdog, <b>P</b> the plug, <b>S</b> a service start (a gap after an <b>S</b> means the service was down, not the miner); hover one for the event text. <span id="fanpctnote"></span></p>
+    <p class="note">Chip temperature is the one to watch: it is what the silicon sees. The board sensor reads lower and is shown because the fan controller steers on it. Markers: <b>▼</b> a dashboard button, <b>W</b> the watchdog, <b>P</b> the plug, <b>S</b> a service start (a gap after an <b>S</b> means the service was down, not the miner); hover one for the event text. When served, a third panel counts board resets per 5 minutes, and a shaded band down every 24-hour chart marks a 5-minute bucket with a reset or a bad share over 1%, the same marks the three-day chart uses. <span id="fanpctnote"></span></p>
   </section>
 
   <section id="power" hidden>

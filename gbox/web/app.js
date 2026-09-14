@@ -417,6 +417,12 @@ function errorTip(row, bucketMin) {
 function w_text(w) { return w.chip + ": " + nfmt(w.bad) + " of " + nfmt(w.good + w.bad) + " (" + nfmt(w.share, 2) + "%)"; }
 // The same bucket, led by what the panel under the cursor shows: resets first in the resets panel, the clock first in the clock panel.
 function bucketWindow(row, bucketMin) { return clockLabel(row.t - bucketMin * 30000) + " to " + clockLabel(row.t + bucketMin * 30000); }
+// A bucket worth an alarm band: bad share over 1% or any board reset, in a bucket that has samples. The three-day
+// chart always drew these; since 2026-09-14 the 24-hour charts draw them too, after a 64-reset cold start at 13:13
+// showed on the errors chart and nowhere else (the 5-minute means only showed its side effects).
+function alarmBucket(r) { return !!(r.ok && ((r.share != null && r.share > 1) || (r.resets != null && r.resets > 0))); }
+// " · N resets" for a tooltip, or "" when the bucket had none or cannot know.
+function resetsSuffix(r) { return r.resets ? " · " + nfmt(r.resets) + " reset" + (r.resets === 1 ? "" : "s") : ""; }
 function resetsTip(row, bucketMin) {
   const win = bucketWindow(row, bucketMin);
   if (!row.ok) return win + " · no samples";
@@ -508,7 +514,7 @@ function holdLine(h) {
 if (typeof module !== "undefined") module.exports = { VERSION, clockLabel, newestFirst, ladderLine, encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
   powerActionRequest, holdRequest, holdReleaseRequest, holdLine, seriesRows, errorTip, resetsTip, clockTip, axisTicks, parseStamp, errorFacts, markerWords,
-  markerGlyph, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf,
+  markerGlyph, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf, alarmBucket, resetsSuffix,
   powerTile, envRowsFrom, lastHour, recentHashrate, interventions, interventionCounts };
 
 // ---- presentation (skipped under Node, where the data layer above is unit-tested) ----
@@ -810,7 +816,13 @@ async function refreshFan() {
 let envRows = null;
 let series24 = null, series72 = null;   // /api/series for the 24-hour charts and the three-day errors chart (served only)
 const SERVED_SPAN = 1440, ERR_SPAN = 4320;
-function servedOpts(box, spanMin, bucketMin) { return { gapMs: bucketMin * 60000 * 1.5, bucketMin: bucketMin, ticks: axisTicks(spanMin, Date.now(), box.clientWidth >= 700) }; }
+function servedOpts(box, spanMin, bucketMin) { return { gapMs: bucketMin * 60000 * 1.5, bucketMin: bucketMin, ticks: axisTicks(spanMin, Date.now(), box.clientWidth >= 700), band: alarmBucket }; }
+// The board-resets panel under a served chart: one bar per 5-minute bucket, the same bars the three-day chart draws per half hour.
+function resetsPanel(rows) {
+  const most = Math.max.apply(null, rows.map(r => r.resets).filter(v => v !== null && v !== undefined).concat([0]));
+  const max = niceMax(Math.max(most, 4) * 1.1);
+  return { label: "resets", min: 0, max: max, step: max / 4, series: [], bars: "resets", rated: null };
+}
 async function refreshEnv() {
   if (!service) { $("envchart").innerHTML = "<p class=\"note\">Fan and temperature history needs the gbox service: run <code>gbox serve</code> and open the page from the address it prints.</p>"; return; }
   try {
@@ -838,7 +850,7 @@ function renderErrors() {
     { label: "% bad", min: 0, max: shareMax, step: shareMax / 4, series: [["share", "", "all chips"], ["worst_share", "s2", "worst chip"]], rated: null, tip: best => errorTip(best, bm) },
     { label: "MHz", min: clockMin, max: clockMax, step: (clockMax - clockMin) / 4, series: [["clock", "s3", "clock", { step: true, fill: true }]], rated: null, tip: best => clockTip(best, bm) },
     { label: "resets", min: 0, max: resetMax, step: resetMax / 4, series: [], bars: "resets", rated: null, tip: best => resetsTip(best, bm) } ];
-  const opts = Object.assign(servedOpts(box, spanMin, bm), { words: true, band: r => r.ok && ((r.share != null && r.share > 1) || (r.resets != null && r.resets > 0)) });
+  const opts = Object.assign(servedOpts(box, spanMin, bm), { words: true, band: alarmBucket });
   drawPanels(box, panels, rows, spanMin, now, best => errorTip(best, bm), "errors over three days", opts);
   renderErrorFacts(errorFacts(rows, bm, now));
 }
@@ -864,7 +876,7 @@ function renderHashrateSeries() {
   const scaled = rows.map(r => Object.assign({}, r, { h: r.hashrate === null || r.hashrate === undefined ? null : r.hashrate / div }));
   const yMax = niceMax(Math.max(Math.max.apply(null, vals) / div * 1.05, ratedV ? ratedV * 1.1 : 0));
   drawPanels(box, [{ label: unit, min: 0, max: yMax, step: yMax / 4, series: [["h", "", unit]], rated: ratedV ? { value: ratedV, title: "% of rated" } : null }], scaled, spanMin, now,
-    best => clockLabel(best.t) + " · " + (best.h === null ? "no samples" : fmt(best.h, div === 1 ? 0 : 1) + " " + unit + (ratedV ? " (" + fmt(100 * best.h / ratedV) + "% of rated)" : "")),
+    best => clockLabel(best.t) + " · " + (best.h === null ? "no samples" : fmt(best.h, div === 1 ? 0 : 1) + " " + unit + (ratedV ? " (" + fmt(100 * best.h / ratedV) + "% of rated)" : "")) + resetsSuffix(best),
     "hashrate over 24 hours", servedOpts(box, spanMin, series24.bucket_minutes));
   $("hashsub").textContent = "last 24 hours from the gbox service log, 5-minute means of the miner's 20 s reading; the tiles above are live";
 }
@@ -962,14 +974,15 @@ function renderEnv() {
   const spanMin = long ? SERVED_SPAN : logSpanMin();
   const rows = long ? long : envRows.filter(r => r.ok && now - r.t <= spanMin * 60000);
   if (rows.filter(r => r.ok).length < 2) { box.innerHTML = "<p class=\"note\">no logger samples in this window yet</p>"; return; }
-  if (long) $("envsub").textContent = "last 24 hours from the gbox service log, 5-minute means";
+  if (long) $("envsub").textContent = "last 24 hours from the gbox service log, 5-minute means; board resets per 5 minutes below";
   const rated = ratedFor(lastModel), maxRpm = rated && rated.fan_max_rpm;
   const fanMax = niceMax(Math.max(Math.max.apply(null, rows.map(r => Math.max(r.fan0, r.fan1))) * 1.05, maxRpm ? maxRpm * 1.1 : 0)) || 5000;
   const panels = [
     { label: "RPM", min: 0, max: fanMax, step: fanMax / 5, series: [["fan0", "", "fan0"], ["fan1", "s2", "fan1"]], rated: maxRpm ? { value: maxRpm, title: "% of max RPM" } : null },
     { label: "°C", min: 20, max: 100, step: 20, series: [["chip", "", "chip"], ["board", "s2", "board"]], rated: null } ];
+  if (long) panels.push(resetsPanel(rows));      // board resets per 5 minutes, next to the fans and temperatures they disturb
   drawPanels(box, panels, rows, spanMin, now, best => (long ? clockLabel(best.t) : new Date(best.t).toLocaleTimeString()) + (best.ok === false ? " · no samples" : " · fans " + fmt(best.fan0) + " / " + fmt(best.fan1) + " RPM" +
-    (maxRpm ? " (" + fmt(100 * Math.max(best.fan0, best.fan1) / maxRpm) + "% of max)" : "") + " · chip " + fmt(best.chip) + " °C · board " + fmt(best.board, 1) + " °C"),
+    (maxRpm ? " (" + fmt(100 * Math.max(best.fan0, best.fan1) / maxRpm) + "% of max)" : "") + " · chip " + fmt(best.chip) + " °C · board " + fmt(best.board, 1) + " °C" + (long ? resetsSuffix(best) : "")),
     "fan speed and temperature history", long ? servedOpts(box, spanMin, series24.bucket_minutes) : null);
   $("fanpctnote").textContent = maxRpm ? "Right axis: RPM as a share of " + fmt(maxRpm) + " RPM, the " + rated.name + "'s maximum (observed, not the duty cycle the Fans tile shows)."
     : (lastModel ? "No maximum fan speed on record for " + lastModel + ", so no percent axis." : "");
@@ -987,7 +1000,7 @@ function renderWatts() {
   const wMax = niceMax(Math.max(Math.max.apply(null, withW.map(r => r.watts)) * 1.05, rated ? rated * 1.1 : 0)) || 300;
   const panels = [{ label: "W", min: 0, max: wMax, step: wMax / 5, series: [["watts", "", "watts"]], rated: rated ? { value: rated, title: "% of rated" } : null }];
   drawPanels(box, panels, rows, spanMin, now, best => (long ? clockLabel(best.t) : new Date(best.t).toLocaleTimeString()) + " · " +
-    (best.watts === null || best.watts === undefined ? "no reading" : fmt(best.watts) + " W" + (rated ? " (" + fmt(100 * best.watts / rated) + "% of rated)" : "")) + (best.ok ? "" : long ? " · no samples" : " · miner not answering"),
+    (best.watts === null || best.watts === undefined ? "no reading" : fmt(best.watts) + " W" + (rated ? " (" + fmt(100 * best.watts / rated) + "% of rated)" : "")) + (best.ok ? "" : long ? " · no samples" : " · miner not answering") + (long ? resetsSuffix(best) : ""),
     "power at the wall", long ? servedOpts(box, spanMin, series24.bucket_minutes) : null);
 }
 let resizeTimer = null;

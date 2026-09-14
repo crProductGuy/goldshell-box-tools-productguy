@@ -520,6 +520,17 @@ const tests = {
     assert.strictEqual(app.pctOf(187, null), null);
     assert.strictEqual(app.pctOf(187, 0), null);
   },
+  "alarmBucket and resetsSuffix: the rule the three-day chart used inline now serves the 24-hour charts too"() {
+    assert.strictEqual(app.alarmBucket({ ok: true, share: 0, resets: 0 }), false);
+    assert.strictEqual(app.alarmBucket({ ok: true, share: 1.2, resets: 0 }), true);       // bad share over 1%
+    assert.strictEqual(app.alarmBucket({ ok: true, share: 0, resets: 7 }), true);         // any board reset
+    assert.strictEqual(app.alarmBucket({ ok: true, share: null, resets: null }), false);  // counts need a previous sample
+    assert.strictEqual(app.alarmBucket({ ok: false, share: 5, resets: 9 }), false);       // an empty bucket flags nothing
+    assert.strictEqual(app.resetsSuffix({ resets: 0 }), "");
+    assert.strictEqual(app.resetsSuffix({ resets: null }), "");
+    assert.strictEqual(app.resetsSuffix({ resets: 1 }), " · 1 reset");
+    assert.strictEqual(app.resetsSuffix({ resets: 42 }), " · 42 resets");
+  },
   "hashrate chart data: the buffer's leading zeros are dropped and a lone sample is reported as one point, not a line"() {
     assert.deepStrictEqual(app.chartData([]), { unit: "MH/s", div: 1, data: [] });
     assert.deepStrictEqual(app.chartData([0, 0, 0]), { unit: "MH/s", div: 1, data: [] });
