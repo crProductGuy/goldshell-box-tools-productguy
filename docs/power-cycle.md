@@ -104,9 +104,15 @@ Only on the frozen-controller signature, all five at once:
    means it is alive and gets its settle time.
 3. The episode is at least **`after_minutes`** old (default 5). With the
    default watchdog timings (`unreachable_minutes` 2, `min_gap_minutes`
-   5) the second failed restart lands at about 7 minutes, so this is
-   where the ladder reaches the plug. Until 2026-09-12 the defaults were
-   15 and 10, which cost about 17 minutes of hashing per freeze; the
+   5) the second failed restart lands at 7 minutes, so this is where the
+   ladder reaches the plug. Once two restarts have failed the age is
+   checked on every dark sample, so a longer `after_minutes` moves the
+   plug at that age, not a whole gap later at the next restart's turn.
+   Until 2026-09-12 the defaults were 15 and 10, which cost about 17
+   minutes of hashing per freeze; until 2026-09-13 (0.6.2) the second
+   restart also waited for a full `stall_minutes` window of fresh samples
+   after the gap, so it landed at about 12 minutes rather than 7 (the
+   09-12 18:16 freeze: attempts at 18:17:59 and 18:27:30). The
    dashboard's Service section shows the values in force and the file
    they live in.
 4. Fewer than **`max_cycles_per_day`** cycles in the rolling day (default
