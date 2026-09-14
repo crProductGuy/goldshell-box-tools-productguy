@@ -1239,3 +1239,36 @@ explainers went in as proposed, a "what is this?" disclosure under every
 control with the Hold and Release wording from the canvas, title
 tooltips on the power buttons, and a Terms section. Patch version 0.6.1,
 one restart. Verified on the live page.
+
+## 2026-09-13 late evening, session N: 0.6.2, the ladder's second rung on time
+
+Mark: "pick up goldshell project", and from the next-actions list "1 and
+4": the ladder timing and the housekeeping (a picker; confirmed which
+numbering he meant before touching anything). The item on record said
+the second soft restart landed about 10 min after the first, not 5. Read
+from the code and the 09-12 18:16 freeze (attempts at 18:17:59 and
+18:27:30, cycle at 18:27:46): after a restart every rule waited for the
+5-minute gap and then a full 10-sample stall window of fresh samples
+before the 2-minute unreachable rule got a look, so the plug reached a
+frozen controller at about 12 min where `power-cycle.md` promised 7. Two
+readings of the fix were put to Mark: the 2-minute window strictly after
+the gap (about 9 min, as STATUS had worded it) or a window that may reach
+back into the gap (7 min, the documented intent; same evidence, two
+minutes sooner). Mark: 7. Built test-first in a worktree: the unreachable
+rule reads its own window once the gap has ended; the stall rule still
+needs a full window after the gap. Two further decisions made and flagged
+rather than asked: once two restarts have failed, `after_minutes` is
+checked on every dark sample (an `after_minutes` longer than unreachable
+plus the gap used to wait a whole extra gap for the next restart's turn),
+and a rung refused once in an episode is not asked again until that turn
+(self-review caught the plug being queried every 30 s for the rest of an
+outage). Found on the way: the old power-rung tests still read as if
+`after_minutes` were 15 and passed only because the slow ladder overshot;
+they now say their timings. 46 watchdog tests, 320 Python green with the
+JS inside; fast-forward merge, tag v0.6.2, service restarted 20:58:59 and
+`/api/health` answering 0.6.2. Not pushed (Mark's call). Not yet seen on
+a real freeze. Housekeeping: the stale brief at the bottom of STATUS.md,
+still describing 0.3.0 and plan step 3 as next, replaced by a pointer to
+the top; the ladder-timing item retired. Chip 8 checked from the log:
+clean at 550 MHz since 16:30. Left for later: the Ubuntu installer check
+(needs the sibling machine), 0.7.0.
