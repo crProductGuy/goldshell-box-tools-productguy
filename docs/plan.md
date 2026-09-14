@@ -106,6 +106,7 @@ goldshell-box-tools-productguy/
 │   ├── power-cycle.md       the smart-plug rung: which plugs, discover, init, dry run, the five conditions, arming
 │   ├── power-cycle-proposal.md  the research and design behind it (market, repos, protocols, PDUs, effort)
 │   ├── security-notes.md    what the firmware exposes (token, credentials in the API, factory reset); smart plugs
+│   ├── capture-request.md   what an owner of another model captures (seven reads, one at a time), redacts and sends, so a fixture can be built
 │   ├── case-study-scbox.md  the 2026-09-05 diagnosis and the clock trials that followed (step 4)
 │   └── architecture.md      browser / service / miner diagram (step 4)
 ├── Dockerfile               optional (step 4)

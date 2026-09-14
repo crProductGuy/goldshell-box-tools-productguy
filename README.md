@@ -138,6 +138,10 @@ minutes. `docs/clock-tuning.md` has the method, by hand and with
 `gbox trials run`, and explains why accepted shares per hour is a worse
 throughput number than it looks.
 
+Own a different Box model? `docs/capture-request.md` says which seven
+read-only requests to capture, what to redact, and where to send them,
+so gbox can learn your unit without one on the bench.
+
 ## Rules the tools follow, and you should too
 
 - One request in flight to the miner at a time, and never more than one poll
