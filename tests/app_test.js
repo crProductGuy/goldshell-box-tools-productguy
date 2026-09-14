@@ -550,6 +550,44 @@ const tests = {
     const title = app.markerTitle(new Date(2026, 8, 14, 13, 11, 47).getTime(), "watchdog: restart #18 sent (accepted shares frozen for 5 min)");
     assert.ok(title.includes(" · watchdog soft restart · watchdog: restart #18 sent"), title);
   },
+  "parsePlan and formatPlan: the three power plan dialects round-trip verbatim and withMhz changes only the clock"() {
+    const BOX = "575 MHz 0.41 V 90 RPM 90 RPM", MV_PV = "625 MHz 9100 V 40 RPM 40 RPM PV 9400", FLOAT_PV = "750 MHz 0.41 V 50 RPM 50 RPM PV 9400";
+    assert.deepStrictEqual(app.parsePlan(BOX), { mhz: 575, volts: 0.41, fanA: 90, fanB: 90, pv: null, voltsText: "0.41", dialect: "box" });
+    assert.deepStrictEqual(app.parsePlan(MV_PV), { mhz: 625, volts: 9100, fanA: 40, fanB: 40, pv: 9400, voltsText: "9100", dialect: "mv_pv" });
+    assert.strictEqual(app.parsePlan(FLOAT_PV).dialect, "float_pv");
+    for (const s of [BOX, MV_PV, FLOAT_PV, "0 MHz 0 V 70 RPM 70 RPM", "725 MHz 0.40 V 70 RPM 70 RPM"]) assert.strictEqual(app.formatPlan(app.parsePlan(s)), s);
+    assert.strictEqual(app.withMhz(MV_PV, 600), "600 MHz 9100 V 40 RPM 40 RPM PV 9400");
+    assert.strictEqual(app.withMhz("  575 MHz  0.41 V 90 RPM 90 RPM ", 550), "550 MHz 0.41 V 90 RPM 90 RPM");
+    assert.strictEqual(app.formatPlan({ mhz: 725, volts: 0.4, fanA: 70, fanB: 70 }), "725 MHz 0.4 V 70 RPM 70 RPM");   // no voltsText: the number as JS prints it
+    for (const bad of ["625 MHz 9100 V 40 RPM", "625 MHz 9100 V 40 RPM 40 RPM PV", "625 MHz 9100 V 40 RPM 40 RPM PV 9400 x", "", null]) assert.throws(() => app.parsePlan(bad), /not a power plan/);
+  },
+  "planRequest on an SC Lite setting keeps the unit's dialect: only the clock changes, PV and the millivolt field survive"() {
+    const lite = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "sclite", "mcb_setting.json"), "utf8"));
+    const r = app.planRequest(lite, 600);
+    assert.strictEqual(r.body.manualPowerplan, "600 MHz 9100 V 40 RPM 40 RPM PV 9400");
+    assert.strictEqual(r.body.manual, true);
+    assert.deepStrictEqual(app.clockRange(lite), { min: 300, max: 625, step: 25, current: 625 });
+    assert.deepStrictEqual(app.presetList(lite).map(p => p.mhz), [625]);
+  },
+  "profileFor: the capability record for a known model, and the BOX path with every optional capability off for an unknown one"() {
+    const box = app.profileFor("Goldshell-SCBox");
+    assert.strictEqual(box.known, true); assert.strictEqual(box.plan_dialect, "box"); assert.strictEqual(box.fan_target, true);
+    const lite = app.profileFor("goldshell sclite");
+    assert.strictEqual(lite.known, true); assert.strictEqual(lite.board_source, "devs"); assert.strictEqual(lite.dbg_expected, false);
+    const kd = app.profileFor("Goldshell-KDBox");
+    assert.strictEqual(kd.known, false); assert.strictEqual(kd.model, "Goldshell-KDBox"); assert.strictEqual(kd.name, "Goldshell-KDBox");
+    assert.strictEqual(kd.board_source, "icinfo"); assert.strictEqual(kd.fan_target, false); assert.strictEqual(kd.rated_mhs, null);
+    assert.strictEqual(app.profileFor(null).model, null);
+    assert.deepStrictEqual(Object.keys(kd).sort(), Object.keys(box).sort());
+    kd.fan_target = true; assert.strictEqual(app.profileFor("Goldshell-KDBox").fan_target, false);   // no aliasing of the table
+  },
+  "modelNote: one line under the title when the model is not in the table, nothing when it is or when there is no model yet"() {
+    assert.strictEqual(app.modelNote("Goldshell-SCBox"), "");
+    assert.strictEqual(app.modelNote(null), "");
+    const n = app.modelNote("Goldshell-KDBox");
+    assert.ok(n.startsWith("Goldshell-KDBox is not in gbox's model table"), n);
+    assert.ok(n.includes("capture-request.md"), n);
+  },
   "hashrate chart data: the buffer's leading zeros are dropped and a lone sample is reported as one point, not a line"() {
     assert.deepStrictEqual(app.chartData([]), { unit: "MH/s", div: 1, data: [] });
     assert.deepStrictEqual(app.chartData([0, 0, 0]), { unit: "MH/s", div: 1, data: [] });

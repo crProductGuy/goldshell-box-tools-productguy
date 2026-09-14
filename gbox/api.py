@@ -111,19 +111,53 @@ def weak_chips(board):
     return [c for c in board if chip_health(c, best) != "ok"]
 
 
-_PLAN_RE = re.compile(r"^\s*(\d+)\s*MHz\s+([\d.]+)\s*V\s+(\d+)\s*RPM\s+(\d+)\s*RPM\s*$")
+# The power plan string in every dialect seen so far (docs/firmware-api.md, "Power plan dialects"):
+#   box       575 MHz 0.41 V 90 RPM 90 RPM             the SC-BOX, read from the unit
+#   mv_pv     625 MHz 9100 V 40 RPM 40 RPM PV 9400     the SC Lite (fw 2.2.0), from the other developer's notes
+#   float_pv  750 MHz 0.41 V 50 RPM 50 RPM PV 9400     the documented "float-V / optional-PV" form of the HS Box
+_PLAN_RE = re.compile(r"^\s*(\d+)\s*MHz\s+([\d.]+)\s*V\s+(\d+)\s*RPM\s+(\d+)\s*RPM(?:\s+PV\s+(\d+))?\s*$")
 
 
 def parse_plan(plan):
-    """Turn a plan string such as 600 MHz 0.41 V 90 RPM 90 RPM into (600, 0.41, 90, 90)."""
-    m = _PLAN_RE.match(plan or "")
+    """A power plan string into its parts, in whichever dialect the firmware wrote it.
+
+    Returns {mhz, volts, fan_a, fan_b, pv, volts_text, dialect}. `volts` is the number as written (the SC Lite's
+    9100 stays 9100.0: nobody has confirmed it is millivolts, and nothing here needs to know); `volts_text` is
+    the token verbatim so `format_plan(**parse_plan(s))` gives `s` back; `pv` is None without a PV term.
+    """
+    m = _PLAN_RE.match(plan if isinstance(plan, str) else "")
     if not m:
         raise ValueError("not a power plan string: %r" % (plan,))
-    return int(m.group(1)), float(m.group(2)), int(m.group(3)), int(m.group(4))
+    volts_text = m.group(2)
+    try:
+        volts = float(volts_text)
+    except ValueError:
+        raise ValueError("not a power plan string: %r" % (plan,)) from None
+    pv = int(m.group(5)) if m.group(5) is not None else None
+    dialect = "box" if pv is None else ("float_pv" if "." in volts_text else "mv_pv")
+    return {"mhz": int(m.group(1)), "volts": volts, "fan_a": int(m.group(3)), "fan_b": int(m.group(4)),
+            "pv": pv, "volts_text": volts_text, "dialect": dialect}
 
 
-def format_plan(mhz, volts, fan_a, fan_b):
-    return "%d MHz %s V %d RPM %d RPM" % (mhz, ("%.2f" % volts).rstrip("0").rstrip("."), fan_a, fan_b)
+def format_plan(mhz, volts, fan_a, fan_b, pv=None, volts_text=None, dialect=None):
+    """The plan string back. Positional use writes the box form; `volts_text` (from parse_plan) is written
+    verbatim, else volts is trimmed as the BOX writes it (0.4, not 0.40); a `pv` adds the PV term. `dialect`
+    is accepted so `format_plan(**parse_plan(s))` works; the parts decide the form, not the label."""
+    if volts_text is None:
+        volts_text = ("%.2f" % volts).rstrip("0").rstrip(".")
+    text = "%d MHz %s V %d RPM %d RPM" % (mhz, volts_text, fan_a, fan_b)
+    return text + (" PV %d" % pv if pv is not None else "")
+
+
+def with_mhz(plan, mhz, volts=None):
+    """`plan` with only its clock changed (and its volts, when given); every other token as the firmware wrote
+    it, whatever the dialect. This is what the clock control sends, so a unit never gets a plan in a form it
+    did not write itself."""
+    parts = parse_plan(plan)
+    parts["mhz"] = mhz
+    if volts is not None:
+        parts["volts"], parts["volts_text"] = volts, None
+    return format_plan(**parts)
 
 
 def max_preset_mhz(setting):
@@ -131,7 +165,7 @@ def max_preset_mhz(setting):
     best = 0
     for p in setting.get("powerplans", []):
         try:
-            best = max(best, parse_plan(p.get("info"))[0])
+            best = max(best, parse_plan(p.get("info"))["mhz"])
         except ValueError:
             pass
     return best
@@ -308,15 +342,17 @@ class Miner:
     def set_plan(self, mhz, volts=None):
         """Set the clock live via the manual power plan. Returns the plan string applied."""
         st = self.setting()
+        current = st.get("manualPowerplan")
         try:
-            _, cur_v, fan_a, fan_b = parse_plan(st.get("manualPowerplan"))
+            parse_plan(current)
         except ValueError:
-            _, cur_v, fan_a, fan_b = parse_plan(st["powerplans"][0]["info"])
+            current = st["powerplans"][0]["info"]
+            parse_plan(current)
         top = max_preset_mhz(st) or 725
         if mhz % 25 or not 300 <= mhz <= top:
             raise ValueError("clock must be a multiple of 25 between 300 and %d MHz" % top)
         st["manual"] = True
-        st["manualPowerplan"] = format_plan(mhz, volts if volts is not None else cur_v, fan_a, fan_b)
+        st["manualPowerplan"] = with_mhz(current, mhz, volts)     # the unit's own dialect, only the clock changed
         self.put("mcb/setting", st)
         return self.setting().get("manualPowerplan")
 

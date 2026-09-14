@@ -115,6 +115,7 @@ class ServiceState:
             "has_token": self.miner.has_token, "can_login": self.miner.can_login,
             "poll_interval": self.cfg.poll_interval,
             "model": model, "rated": models.rated_for(model),
+            "profile": models.profile_for(model) if model else None,     # the capability record (0.7.0), None before the first good poll
             "samples": p.samples if p else 0, "errors": p.errors if p else 0,
             "last_error": p.last_error if p else None,
             "latest_time": (p.latest or {}).get("time") if p else None,

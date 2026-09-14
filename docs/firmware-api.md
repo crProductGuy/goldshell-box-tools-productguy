@@ -80,6 +80,23 @@ The hidden page `/#/debug` in the stock UI renders most of the `/dbg/` data.
   (`/mcb/algosetting`) and RGB (`/mcb/rgbsetting`) on the same page use their
   own endpoints and do not touch `manual`.
 
+## Power plan dialects
+
+The plan string differs by model. Seen or documented so far:
+
+| Dialect | Example | Where |
+|---|---|---|
+| `box` | `575 MHz 0.41 V 90 RPM 90 RPM` | SC-BOX, read from the unit. The HS Box writes the same form (`750 MHz 0.41 V 50 RPM 50 RPM` in the other developer's notes) |
+| `mv_pv` | `625 MHz 9100 V 40 RPM 40 RPM PV 9400` | SC Lite, firmware 2.2.0, from Maveth/goldshell-config. The volts field is an integer (their notes call it millivolts) and a trailing `PV` term follows. `/dbg/minerhistory` shows the internal form `intchains_qomo:vfff=<pv>:<MHz>:<fanA>:<fanB>:<mV>` |
+| `float_pv` | `750 MHz 0.41 V 50 RPM 50 RPM PV 9400` | the "float-V / optional-PV" form the same notes give for the HS Box; no verbatim example with a PV term is on record |
+
+gbox parses all three from the string itself, not from the model table, and
+the clock control rewrites only the `MHz` token: every other token goes
+back exactly as the firmware wrote it (`with_mhz` in `gbox/api.py`,
+`withMhz` in `app.js`). Nobody has confirmed what the SC Lite's integer
+volts or the `PV` term mean, and nothing in gbox needs to know; the
+confirm dialog shows the exact string either way.
+
 ## Reliability quirks
 
 - The token check has a race: with several requests in flight, roughly one in
