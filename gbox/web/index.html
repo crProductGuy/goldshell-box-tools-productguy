@@ -59,7 +59,7 @@
     <h2>Fans and temperature<span id="envsub">from the gbox service log, same time scale as above</span></h2>
     <div class="legend"><span><i></i>fan0</span><span><i class="s2"></i>fan1</span><span style="margin-left:auto"><i></i>chip temperature</span><span><i class="s2"></i>board sensor (what the fan controller and the stock UI use)</span></div>
     <div class="chart" id="envchart"></div>
-    <p class="note">Chip temperature is the one to watch: it is what the silicon sees. The board sensor reads lower and is shown because the fan controller steers on it. Markers: ▼ a dashboard button, W the watchdog, P the plug, S a service start (a gap after an S means the service was down, not the miner); hover one for the event text. <span id="fanpctnote"></span></p>
+    <p class="note">Chip temperature is the one to watch: it is what the silicon sees. The board sensor reads lower and is shown because the fan controller steers on it. Markers: <b>▼</b> a dashboard button, <b>W</b> the watchdog, <b>P</b> the plug, <b>S</b> a service start (a gap after an <b>S</b> means the service was down, not the miner); hover one for the event text. <span id="fanpctnote"></span></p>
   </section>
 
   <section id="power" hidden>
@@ -95,20 +95,20 @@
     <div class="ctrls">
       <div class="ctrl"><div class="k">Clock</div>
         <div class="row"><select id="clocksel" aria-label="clock in MHz"></select><button type="button" id="btnclock" class="act">set clock&hellip;</button></div>
-        <div class="s">25 MHz steps, applied live through the manual power plan, no reboot. Asks for the password.</div></div>
+        <div class="s">25 MHz steps, applied live through the manual power plan, no reboot. Asks for the password.</div><button type="button" class="why" aria-expanded="false" aria-controls="why-clock">what is this?</button><div class="whyx" id="why-clock" hidden>Sets the chip clock through the manual power plan, live, with no reboot. Lower it 25 MHz at a time when the board resets or a chip's bad share climbs; raise it when a run stays clean for hours. The Clock trials table below compares every clock you have run. Asks for the miner password because it changes what the miner does.</div></div>
       <div class="ctrl"><div class="k">Fan target</div>
         <div class="row"><select id="fansel" aria-label="fan target temperature"></select><button type="button" id="btnfan" class="act">set target&hellip;</button></div>
-        <div class="s">Board-sensor temperature the fans hold. 65 is the coolest this firmware allows. The fans spike for a few minutes after any settings change.</div></div>
+        <div class="s">Board-sensor temperature the fans hold. 65 is the coolest this firmware allows. The fans spike for a few minutes after any settings change.</div><button type="button" class="why" aria-expanded="false" aria-controls="why-fan">what is this?</button><div class="whyx" id="why-fan" hidden>The board-sensor temperature the fan controller holds: the fans speed up until the board reads this. 65 is the coolest this firmware allows. Lower keeps the chips cooler at the cost of noise. The fans spike for a few minutes after any settings change; that is the fan daemon restarting, not a fault. No password.</div></div>
       <div class="ctrl"><div class="k">Power plan preset</div>
         <div class="row"><select id="presetsel" aria-label="firmware power plan preset"></select><button type="button" id="btnpreset" class="act">use preset&hellip;</button></div>
-        <div class="s" id="presetnote">&mdash;</div></div>
+        <div class="s" id="presetnote">&mdash;</div><button type="button" class="why" aria-expanded="false" aria-controls="why-preset">what is this?</button><div class="whyx" id="why-preset" hidden>Puts the miner back on one of the firmware's own power plans and clears the manual clock. On this unit the factory preset is the clock that caused the reset loop, so use it knowingly. Asks for the password.</div></div>
       <div class="ctrl"><div class="k">Controller</div>
         <div class="row"><button type="button" id="btnrestart" class="act danger">soft restart&hellip;</button></div>
-        <div class="s">Reboots the controller; hashing resumes after 60-90 s. Asks for the password. The watchdog is told, so it does not restart again on top.</div></div>
+        <div class="s">Reboots the controller; hashing resumes after 60-90 s. Asks for the password. The watchdog is told, so it does not restart again on top.</div><button type="button" class="why" aria-expanded="false" aria-controls="why-restart">what is this?</button><div class="whyx" id="why-restart" hidden>Reboots the controller, the small computer that runs the miner. The hashboard reinitializes and hashing resumes after 60 to 90 seconds; the manual clock survives. Use it when the miner answers but has stopped producing shares, or came up without its board. The watchdog is told, so it does not restart on top. Asks for the password.</div></div>
       <div class="ctrl" id="powerctl" hidden><div class="k">Power and holds (through the gbox service)</div>
-        <div class="row"><button type="button" id="btnoff" class="act danger">switch off&hellip;</button><button type="button" id="btnon" class="act">switch on&hellip;</button><button type="button" id="btncycle" class="act danger">power cycle&hellip;</button></div>
-        <div class="row"><select id="holdsel" aria-label="hold length"><option value="20">hold 20 min</option><option value="60" selected>hold 1 h</option><option value="240">hold 4 h</option></select><input id="holdwhy" placeholder="why (optional)" maxlength="80" autocomplete="off"><button type="button" id="btnhold" class="act">hold&hellip;</button><button type="button" id="btnrelease" class="act">release&hellip;</button></div>
-        <div class="s" id="powerctlnote">&mdash;</div></div>
+        <div class="row"><button type="button" id="btnoff" class="act danger" title="Open the plug's relay; the miner stays off, unjudged, until On. Asks for the password">switch off&hellip;</button><button type="button" id="btnon" class="act" title="Close the plug's relay; the watchdog waits for the boot">switch on&hellip;</button><button type="button" id="btncycle" class="act danger" title="Off, a pause, then On. Asks for the password">power cycle&hellip;</button></div>
+        <div class="row"><select id="holdsel" aria-label="hold length"><option value="20">hold 20 min</option><option value="60" selected>hold 1 h</option><option value="240">hold 4 h</option></select><input id="holdwhy" placeholder="why (optional)" maxlength="80" autocomplete="off"><button type="button" id="btnhold" class="act" title="Tell the watchdog the miner will be unreachable on purpose; lifts by itself when hashing resumes">hold&hellip;</button><button type="button" id="btnrelease" class="act" title="End a hold early">release&hellip;</button></div>
+        <div class="s" id="powerctlnote">&mdash;</div><button type="button" class="why" aria-expanded="false" aria-controls="why-hold">what are Hold and Release?</button><div class="whyx" id="why-hold" hidden><b>Hold</b> tells the service the miner will be unreachable <i>on purpose</i>, so the watchdog does not read the outage as a freeze and start restarting and power-cycling. Use it before you pull the cord, swap a power supply, or move the unit. It ends by itself as soon as the miner is hashing again (two samples in a row, about a minute), or when the time runs out. <b>Release</b> ends a hold early if you changed your mind. Neither needs a password: a hold only stops the software judging.</div><button type="button" class="why" aria-expanded="false" aria-controls="why-power">what do Off, On and Cycle do?</button><div class="whyx" id="why-power" hidden><b>Off</b> opens the smart plug's relay and holds the watchdog with no expiry: the miner stays off until you press <b>On</b>. Use it for the night, a hot afternoon, or work on the unit. It asks for the miner password, because it stops hashing. <b>Cycle</b> is Off, a pause, then On, for a miner that is misbehaving but still answering. After On the watchdog waits the settle gap before judging anything, so a boot is not mistaken for a freeze.</div></div>
     </div>
   </section>
 
@@ -132,6 +132,12 @@
     <p class="note ok" id="hold" hidden></p>
     <p class="note">Event log, newest first.</p>
     <pre class="events" id="events"></pre>
+  </section>
+
+  <section id="terms" class="terms">
+    <h2>Terms<span>the words this page uses, in the order you meet them</span></h2>
+    <dl><dt>bad share</dt><dd>bad nonces over all nonces in a window, in percent. The number that means the same thing at every clock; a faster clock attempts more nonces, so a bad <i>count</i> does not.</dd><dt>board reset</dt><dd>the firmware reinitializing the hashboard. A burst of resets with a flat bad share is the chain going silent, not bad nonces.</dd><dt>worst chip</dt><dd>the chip with the highest bad share in the window, named board.chip.</dd><dt>cold start</dt><dd>the first half hour after a power-on, when a marginal chip fails first. Compare cold starts, not only steady state.</dd><dt>hold</dt><dd>the watchdog standing down because you said the miner would be unreachable on purpose. Lifts when hashing resumes.</dd><dt>settle gap</dt><dd>the minutes after a restart or a power-on in which the watchdog judges nothing, so a boot is not mistaken for a freeze.</dd><dt>ladder</dt><dd>what the watchdog does to a hung miner, in order: a soft restart, a second one, then the plug, under daily caps.</dd><dt>freeze</dt><dd>the controller dropping off the network with the board idle. A soft restart cannot reach it; only a power cycle clears it.</dd></dl>
+    <p class="note">Every "what is this?" link in Controls opens its own explanation in place; this is the same vocabulary in one place, for reading once.</p>
   </section>
 </main>
 <script src="app.js"></script>

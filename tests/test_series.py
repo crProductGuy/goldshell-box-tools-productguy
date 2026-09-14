@@ -143,6 +143,29 @@ class ReadRowsTest(unittest.TestCase):
         self.assertEqual(series.read_rows(Path(d) / "missing.csv"), [])
 
 
+class NoReadingTest(unittest.TestCase):
+    """The firmware reports the board sensor as -150 and the chip as 0 when the hashboard is absent (2026-09-13 15:46);
+    those are 'no reading', not temperatures, and must not drag a bucket's mean below zero."""
+
+    def test_sensor_absent_values_read_as_missing(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "log.csv"
+            with open(p, "w", encoding="utf-8", newline="") as f:
+                f.write(",".join(poller.COLUMNS) + "\n")
+                f.write("2026-09-13 15:47:02,ok,60,0.0,0.0,0,0.0,0,0,0.0,2340,2400,0.0,0.0,-150.0,0,,0,0,65,0,10.3,\n")
+                f.write("2026-09-13 15:47:32,ok,90,0.0,0.0,0,0.0,0,0,0.0,2160,2100,0.0,0.0,-150.0,0,,0,0,65,0,9.9,\n")
+                f.write("2026-09-13 15:48:02,ok,120,600000.0,600000.0,0,0.0,1,0,550.0,1980,1980,48.0,48.0,37.6,0,,10,0,65,0,190.0,\n")
+            rows = series.read_rows(p)
+        self.assertIsNone(rows[0]["tstemp2"])
+        self.assertIsNone(rows[0]["tstemp0"])
+        self.assertEqual(rows[2]["tstemp2"], 37.6)
+        b = series.buckets(rows, 1, 5, now=T(15, 50))["buckets"]
+        bucket = [x for x in b if x["t"].endswith("15:45")][0]
+        self.assertAlmostEqual(bucket["board_temp"], 37.6)
+        self.assertAlmostEqual(bucket["chip_temp"], 48.0)
+        self.assertEqual(bucket["samples"], 3)
+
+
 class FormatTableTest(unittest.TestCase):
     def test_header_and_a_row(self):
         r = series.buckets(BucketsTest().rows(), 2, 30, now=T(12, 7))
