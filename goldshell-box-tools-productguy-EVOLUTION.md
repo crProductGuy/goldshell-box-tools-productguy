@@ -1374,3 +1374,48 @@ against a capture his friend with an SC5 Pro II (four boards, on which
 0.6.2 read only the first) is asked for today. The gate 2 plan:
 `~/.claude/plans/cuddly-sleeping-abelson.md`.
 
+## 2026-09-14, evening: session Q, the context-budget controls (tooling around the project, not the project)
+
+Mark: "pick up goldbox project." The status doc's item 0, set by Mark at
+the end of session P, was tooling: the ten-hour session had reached 57%
+of its context window, with screenshots at 28% of it and file reads at
+16%, and he had asked for controls rather than another reminder. Built
+in the working root, outside this repo: three PreToolUse hooks that deny
+a Chrome screenshot without a reduced scale, an unbounded Read of a long
+file or PDF, and a shell command that would print a long file whole; a
+shared helper; 34 tests, run green. Two decisions made without asking
+and flagged: the hooks fail open (a bug in a budget guard must never
+block every read, the lesson of the earlier attic hook), and they are
+wired in exec form straight to the Python interpreter, no shell wrapper,
+so the wrapper's Windows failure modes cannot recur. Verified through the
+real launcher, not a piped payload: all three denied their probe calls
+live, mid-session. The five usage rules went into the shared AGENTS.md
+under session hygiene. Left for Mark: switching off the two unused
+connectors, because the only per-server switch is an interactive menu and
+the settings key would switch off every connector for the root. Mark
+switched the two off in the claude.ai console himself and kept the global
+switch on.
+
+Then: "what could we do to limit the high token count from
+claude-in-chrome ... fix the present to fix the future." The answer was
+that the cost is pixels, not tool definitions: a full-HD screenshot is
+about 2,800 tokens, the same at half scale about 700, a 1280 by 800
+window at half scale about 340. Four levers proposed in order of size:
+browser verification through a subagent so the images never enter the
+main window; a smaller window before page checks; a per-session budget
+of twelve screenshots and zooms enforced by the hook, with an override
+only at Mark's word; a cap on the zoom region, since a zoom of most of
+the page costs as much as an unscaled screenshot. Two things considered
+and declined: silently rewriting a missing scale to 0.5 (the refusal is
+what makes the agent ask whether an image is needed at all), and turning
+the Chrome extension off per project (gbox needs it). Mark: "do the
+things as you recommended." All four done: two rules, two hook
+additions, both verified live. Then, at his word, the two things that had
+been offered and held back: a fourth hook for the PowerShell tool, whose
+`Get-Content` path the Bash hook could not see, and a cap on command
+output in the settings (12,000 characters, down from 30,000), which is
+the only guard for commands whose output size no text heuristic can
+predict. 67 tests; both verified through the launcher. No change to gbox;
+the miner was not touched; still 0.6.5 live. Gate 2 still waits for the
+SC5 Pro II capture.
+
