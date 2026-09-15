@@ -514,6 +514,61 @@ Nothing in the tool changed. 0.6.5 was live, with eighteen restarts and seven
 cycles counted from the last day, and gate 2 waiting on a capture from a
 friend's four-board unit.
 
+## The number the firmware never gave
+
+The evening of the fourteenth started with a worry, not a plan. "I'm troubled
+by that very high max chip temp," Mark wrote, having seen 93 degrees in a
+cgminer log line earlier that day. "Are we capturing the max chip temp ...
+where could we put that to make it obvious as a Danger flag ... bad thermal
+paste? ... recommend."
+
+The answer to the first question was no, and it took three log reads to say
+so with numbers. The service had been logging three temperature fields from
+the debug page since day one, and the tile and the chart called one of them
+"chip temperature." Over 8,635 samples it had never read above 75, and it
+was identical to its neighbor field in every one of them. The per-chip
+temperatures on the chip page read 0.0 for all sixteen chips; the stats
+port's maximum read 0. The hottest chip lived in exactly one place, a line
+the miner writes to its own log every five seconds, chip average and maximum
+with no chip index, in a file that also repeats the pool user on every
+reconnect and so could never be kept. Fifteen thousand of those lines across
+seventeen boots said the same thing from every angle: the hottest chip sat
+eleven degrees above the average, at steady state and right after a boot, at
+both clocks, on both power supplies. The field the page had been showing
+tracked the average plus three. It had been under-reporting the hottest
+silicon by ten to fifteen degrees the whole time.
+
+The paste question got the answer Mark did not expect. A failed thermal
+interface shows twenty degrees or more over its neighbors and drifts as it
+degrades; eleven and rock steady is a position on the board, the last chips
+in the airflow path running warmest. The readings at 90 and above were 74
+single five-second samples on a level that held at 81 or 82. Do not open a
+board whose power-up is already marginal for an eleven-degree spread. The
+larger fan and the new supply had already bought four degrees, more than any
+clock step on record.
+
+The one pushback went the other way. The obvious tile, "highest chip
+temperature since boot, with a time," would read 92 within an hour of every
+boot and stay there, because that is what a peak does at normal operation. A
+flag that is always on is no flag. So the number and the flag sit on the
+sustained level, the median of the five-second readings over each five-minute
+read, with the peak beside it as information and the since-boot highs beneath
+because he had asked for them. The chart got its third temperature line, and
+Mark's one design note was that the board trace should not be red beside the
+hottest chip: board blue, chip average amber, hottest chip red and thicker,
+every line named at its end so the identity never rests on color. He
+approved a mockup and went to bed: "Build it. Go as far as you can with my 80%
+remaining daily credits. Be frugal."
+
+The build ran unattended and shipped as 0.7.0, pulling that number forward
+from the gates that had held it. A fourth request every five minutes, one in
+ten cycles, reads the log; a parser keeps timestamps and two numbers from it
+and a test proves nothing else can get through, fed a fixture with a pool
+user in it. Three columns appended to the log, a migration proved on a copy
+of the live file before it touched the real one, thresholds in the config and
+served to the page. The first live row after the restart read peak 87, level
+76, chip average 66. The tile had been saying 65.
+
 ## What the numbers say
 
 | Clock | Chip 8 bad share | Board resets | Hashrate | Wall power |
@@ -531,7 +586,7 @@ What moves is the absolute spend, 18 percent lower, and on a unit with a
 marginal chip, whether it hashes at all.
 
 Between the tenth and the fourteenth of September the toolkit went from 0.3.0
-to 0.6.5 and the test count from 101 to 336. Two power cycles were proven on
+to 0.7.0 and the test count from 101 to 354. Two power cycles were proven on
 the first day of the module, one by hand and one provoked through the
 watchdog, and then the ladder ran unattended: four automatic recoveries in its
 first twelve hours, each within about a minute of the cut, and on the night of
@@ -557,7 +612,9 @@ and the one chip behind it, the dead fan field, the token race, the Save
 button that reverts the clock, the plaintext WiFi credentials nobody asked
 about, pool difficulty hiding inside shares per hour, errors lagging a clock
 change, a cycle that costs two restart slots, a hold that released on a
-controller with no board behind it. Each one was a fact read from the machine
+controller with no board behind it, the hottest chip in a log nobody was
+reading, eleven degrees above the field the page called chip temperature.
+Each one was a fact read from the machine
 or the vendor's own source, reported before it was acted on, and most of them
 changed what got built.
 

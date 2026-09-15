@@ -1492,3 +1492,68 @@ this session also found the essay had not been touched since the ninth
 (no rule required it), had its second half drafted from this log, and
 committed it with the README's summary paragraph.
 
+## 2026-09-14, night: session S (unattended): 0.7.0, the hottest chip captured
+
+Mark, after the plan and the mockup of session R: "mockup looks good
+including the revised colors. Build it. Go as far as you can with my 80%
+remaining daily credits. Be frugal and do all the good token-saving
+behaviors. See you in the AM." An unattended run, so the framing was
+restated up front and the stop-and-wait conditions written down: no push
+(that is at his word), no clock or settings change on the miner, no poll
+cadence beyond the plan's fourth request every five minutes; the
+pre-authorized list was the worktree, the branch commits, the
+fast-forward merge, the service restart and a subagent browser pass.
+Pre-mortem: the live log line not matching the fixture, a bad restart, and
+screenshot spend; the first two were covered by reading the row the
+service wrote after the restart and the health endpoint, the third by
+doing every page check through a subagent.
+
+Built test-first from the plan, in the order it gave. The parser
+(`parse_chiptemps`) matches the log line on the timestamp and the two
+temperatures and returns nothing else; the scrub test feeds it a fixture
+with a pool-user line and checks that only timestamps and floats come
+out. The poller keeps a cursor on the miner's own timestamp, takes only
+the last five minutes on the first read after a start, writes the peak,
+the median (the level) and the median average on the row that read the
+log, and counts a failed read instead of writing an error row. Config
+gained `syslog_interval` (300, floor 60, 0 off) and the two thresholds;
+health serves both. The page gained the Hottest chip tile, the badge on
+the sustained level, the three-line temperature panel with the
+level-to-peak band and the dashed serious line, a small layout pass so
+three end labels never sit on each other, and four new JS tests. The
+migration was proved on a copy of the live log: 23 to 26 columns across
+26,056 rows, the `.bak` written once, a second run a no-op.
+
+Two things found on the way, not in the plan. Every heredoc through the
+shell tool halves a double backslash, so `\\n` in a test string arrived
+as a real newline and broke the file; the fix was to write edit scripts to
+the scratchpad instead and to write files with explicit LF endings after
+`write_text` had turned four files to CRLF and made the diff unreadable.
+And one server test, the token endpoint's 415 answer, fails about one run
+in three on Windows with a connection reset, on main as much as on the
+branch; it is older than this change and was left alone and noted.
+
+Verified, in this order: 354 Python tests and 55 JS tests green on the
+branch; the migration on a copy of the live log (23 to 26 columns across
+26,056 rows, the `.bak` written once, a second run a no-op); a scratch
+service on the fake miner serving the thresholds in health and the three
+values in 48 of 289 buckets of the series; after the fast-forward merge and
+the restart, the live service up as 0.7.0 with the event line for the
+header update and a first row of peak 87, level 76, chip average 66 (the
+tile had been saying 65); then a subagent's browser pass in a fresh tab at
+1280 by 800 that read the tile ("76 °C", "peak 87 · chips avg 66 · 58.7 °C
+board sensor", the since-boot line), the badge "hashing", the five end
+labels, the red and amber paths, the band, the dashed serious line with its
+label and the four new key items, with no console errors. The red series
+was one bucket wide at that moment, so how it draws over hours is the
+morning's look. Two browser passes were needed: the first met the scratch
+page's login modal and would not type even the fixture password, a rule it
+holds without exception and was right to; the live page had its token in
+local storage, so the second pass needed no login. The security pass ran
+once at feature-complete, the policy default, with no findings: the new
+surface is a regex parser over a miner response, three numeric columns, two
+config integers and page code that renders numbers.
+
+Left out on purpose: the essay chapter for 0.7.0 (item 2 of the list,
+Mark's read first), the push and the tag on GitHub (his word), and the
+flaky token test. Gates 2 and 3 are 0.8.0 as the plan recommended.
