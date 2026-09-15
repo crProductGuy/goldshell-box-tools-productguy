@@ -1636,3 +1636,41 @@ hardware errors and their ratio, nonces, a temperature string, four fan
 speeds and the uptime. Nothing in gbox reads `devs` yet (the profile only
 names it), so gate 2 as planned around `/dbg/minerinfo` PGA blocks does not
 fit this unit; a revision around `devs` goes to Mark for a decision.
+
+## 2026-09-15 midday, session U: the owner's second batch, the token that is the same everywhere, port 4028
+
+Mark: "I have some more data for you from the SC5 Pro owner", a request-headers
+dump of `/dbg/minerinfo` from the stock debug page, two screenshots of that
+page, and a Grok transcript the owner had asked about calling the endpoint
+directly. The dump had no response body and no status code, so it could not
+answer the standing question (does `/dbg/` answer on that firmware once the
+page is open). The Grok page, read by a subagent, repeated what firmware-api.md
+already documents, with one lead: the classic cgminer socket API on port 4028.
+
+What the data did answer came from the token itself. The JWT's payload is
+fixed (audience, issuer, id 1, subject "minerd", no expiry) and RS256 is
+deterministic, so the agent logged in to the SC-BOX here and compared: the
+two units' tokens agree on every visible character. Every Goldshell on this
+key hands out the same token. Two consequences, one for the plan and one for
+owners. For the plan, the gate 2 revision had listed "a token that differs"
+among the causes of the 401; that cause is gone, leaving an unlock call the
+page makes, or the token race. For owners, the web password gates nothing
+the miner does over HTTP: anyone on the LAN with any Goldshell's token, which
+is in every helper repo on GitHub, can restart it or change its pools. The
+owner had masked the token's tail before sending it, a reasonable instinct
+that the finding makes moot. gbox's own password gate on the power buttons
+stays, since it protects the page rather than the miner.
+
+The port 4028 probe on the SC-BOX answered with no token at all: `devs`
+carries the same fields gbox reads from `/dbg/minerinfo`, board sensor,
+reboot count and overheat included, and the numbers matched the last logged
+row. Caveats recorded: the response is the malformed run-together JSON
+cgminer is known for, `stats` reports a max temperature of zero, and `pools`
+returns the pool user, so it must never be logged. It is a candidate third
+board source for the multi-board gate, and would outrank the HTTP `devs`
+if the SC5 Pro II answers on it, which nobody has checked.
+
+Mark asked the owner for four things (the status codes from devtools, the
+unlock request's path, the minerinfo response text, and the 4028 lines) and
+said hold. No code or documentation was changed; the findings sit in the
+status doc and this entry until the answer arrives.
