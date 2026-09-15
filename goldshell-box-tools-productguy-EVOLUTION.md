@@ -1609,3 +1609,30 @@ subagent's browser pass over this morning's window: the H at 15:30
 yesterday and the two Ps at 06:40 and 07:06 above the plot, the Ws and Ss
 inside it, 21 mark lines drawn as 12 letters, the axis labels clear, the
 legend right. Not pushed: at Mark's word.
+
+## 2026-09-15 late morning, session T continued: 0.7.2, the boot check; the SC5 Pro II capture read
+
+Mark: "1. push now. 2. Yes. 3." and the path to a friend's SC5 Pro II
+capture. 0.7.1 pushed with its tag. Then the boot check as its own gate,
+as recommended: after every plug cycle the watchdog books one meter read
+`boot_check_minutes` (2) later; under `boot_watts` (20) the controller
+never came up, and it cycles again at once, once, within the daily cap; a
+second dark result is logged and left to the ladder; a good sample clears
+the check; 0 minutes switches it off. The cycle action was pulled out of
+the rung into `_cycle` so both callers share it. Config validated, the
+ladder block and the page's ladder sentence name it, the power-cycle doc
+and the plan's decision row carry the reasoning. Three watchdog tests on
+the fake plug object (the dark repeat, the quiet pass and the clearing
+sample, the cap and the off switch), one config test, one page test; 361
+Python and 58 JS tests green; merged, service restarted 10:20 on 0.7.2
+with the ladder block serving the two numbers. Not pushed.
+
+The capture, read with the pool name masked: an SC5 Pro II on MCB_V3_3,
+firmware 2.2.0, hardware 30.50.SA, plan dialect millivolts with PV. With a
+token that answered every `/mcb/` request, both `/dbg/` endpoints answered
+401: the debug lock the SC Lite notes described, on a second firmware
+family. `devs` carries everything per board: hashrate and average, shares,
+hardware errors and their ratio, nonces, a temperature string, four fan
+speeds and the uptime. Nothing in gbox reads `devs` yet (the profile only
+names it), so gate 2 as planned around `/dbg/minerinfo` PGA blocks does not
+fit this unit; a revision around `devs` goes to Mark for a decision.
