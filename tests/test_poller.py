@@ -461,6 +461,16 @@ class ConfigTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             config.Config(temps={"hot_serious": 30}).validate()
 
+    def test_power_boot_check_defaults_and_validation(self):
+        cfg = config.Config(host="h", power={"host": "p"})
+        self.assertEqual((cfg.power["boot_watts"], cfg.power["boot_check_minutes"]), (20, 2))
+        cfg.validate()
+        with self.assertRaises(ValueError):
+            config.Config(host="h", power={"host": "p", "boot_watts": 100}).validate()      # not below idle_watts
+        with self.assertRaises(ValueError):
+            config.Config(host="h", power={"host": "p", "boot_check_minutes": 11}).validate()
+        config.Config(host="h", power={"host": "p", "boot_check_minutes": 0}).validate()
+
     def test_validate_rejects_fast_polling(self):
         with self.assertRaises(ValueError):
             config.Config(poll_interval=5).validate()

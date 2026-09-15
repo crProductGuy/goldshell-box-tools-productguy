@@ -40,6 +40,8 @@ DEFAULT_POWER = {
     "settle_minutes": 20,        # nothing judged this long after a cycle
     "max_cycles_per_day": 3,
     "idle_watts": 100,           # below this the miner is idle (hung draws about 34 W, hashing 180+)
+    "boot_watts": 20,            # 0.7.2: under this, boot_check_minutes after a cycle, the controller never came up
+    "boot_check_minutes": 2,     # (2026-09-15 06:40: 12 W for 25 min after a cycle); one repeat cycle at once. 0: no check
 }
 PLUG_DRIVERS = ("kasa",)
 
@@ -132,6 +134,10 @@ class Config:
                 raise ValueError("power.after_minutes must be at least watchdog.unreachable_minutes")
             if not 0 <= int(p["max_cycles_per_day"]) <= 10:
                 raise ValueError("power.max_cycles_per_day must be 0 to 10")
+            if not 0 <= int(p["boot_check_minutes"]) <= 10:
+                raise ValueError("power.boot_check_minutes must be 0 (no check) to 10")
+            if not 0 <= int(p["boot_watts"]) < int(p["idle_watts"]):
+                raise ValueError("power.boot_watts must be below power.idle_watts")
             if int(self.watchdog["max_restarts_per_day"]) < 2 * int(p["max_cycles_per_day"]):
                 raise ValueError("watchdog.max_restarts_per_day must be at least twice power.max_cycles_per_day: "
                                  "a cycle needs two failed soft restarts, and every attempt uses a restart slot")

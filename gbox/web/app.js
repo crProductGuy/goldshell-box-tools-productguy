@@ -572,7 +572,7 @@ function axisTicks(spanMin, now, wide) {
   }
   return { tickEvery: 60, labels: labels };
 }
-const VERSION = "0.7.1";
+const VERSION = "0.7.2";
 // The wall-clock time under a chart's "now" label: 24-hour, minutes only, so the last refresh reads at a glance.
 function clockLabel(t) { const d = new Date(t); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
 // The service log as the page shows it: newest line on top, like the interventions table, so a short window shows what matters.
@@ -584,7 +584,8 @@ function ladderLine(h) {
   if (!w.enabled) return "Watchdog off for this run (--no-watchdog, or \"enabled\": false in " + lad.config_path + ").";
   const plug = !!(h.power && h.power.configured);
   let s = "Ladder: soft restart after " + lad.unreachable_minutes + " min unreachable or " + lad.stall_minutes + " min of frozen shares, a second one " + lad.min_gap_minutes + " min later; ";
-  s += plug ? "power cycle after two failed restarts and " + lad.after_minutes + " min down, then " + lad.settle_minutes + " min to settle; caps " + lad.max_restarts_per_day + " restarts and " + lad.max_cycles_per_day + " cycles a day. "
+  const boot = plug && lad.boot_check_minutes ? " (under " + lad.boot_watts + " W " + lad.boot_check_minutes + " min after a cycle means it never booted: cycled again at once, once)" : "";
+  s += plug ? "power cycle after two failed restarts and " + lad.after_minutes + " min down, then " + lad.settle_minutes + " min to settle" + boot + "; caps " + lad.max_restarts_per_day + " restarts and " + lad.max_cycles_per_day + " cycles a day. "
     : "no plug, so no power cycle (docs/power-cycle.md); cap " + lad.max_restarts_per_day + " restarts a day. ";
   const sch = lad.schedule ? " Schedule: off " + lad.schedule.off + ", on " + lad.schedule.on + ", " +
     (lad.schedule.days && lad.schedule.days.length ? lad.schedule.days.join(", ") : "every day") + " (power.schedule in the same file)." : "";

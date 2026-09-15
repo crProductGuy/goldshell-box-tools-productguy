@@ -135,6 +135,15 @@ arm`, once per episode. Armed, the relay opens for `off_seconds` (default
 miner boots. If it is still dark after that, the whole ladder runs again
 before a second cycle, up to the daily cap.
 
+One exception, since 0.7.2: `boot_check_minutes` (default 2) after a cycle
+the watchdog reads the meter once. Under `boot_watts` (default 20) the
+controller never came up at all: on 2026-09-15 06:40 a cycle left the unit
+at 12 W, below even a hung controller's 34 W, and the ladder waited out its
+settle gap, 25 minutes, before the cycle that worked. Now it cycles again at
+once, once, within the daily cap; a second dark result is logged and left to
+the ladder. A good sample before the check clears it. Set
+`boot_check_minutes` to 0 to switch the check off.
+
 The meter reading in the line is evidence, not a gate. About 34 W says
 the hashboard is idle and the controller hung. A reading near normal
 draw with the miner off the network is the rarer case seen on
@@ -170,7 +179,9 @@ clock it was on. Then set `"cycle": true` in the `power` block of
   "off_seconds": 15,
   "settle_minutes": 20,
   "max_cycles_per_day": 3,
-  "idle_watts": 100
+  "idle_watts": 100,
+  "boot_watts": 20,
+  "boot_check_minutes": 2
 }
 ```
 
