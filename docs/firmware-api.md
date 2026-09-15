@@ -39,10 +39,10 @@ No Goldshell code is reproduced here, only observed behavior.
 | `/mcb/uploadimage` | POST | firmware upload; never called |
 | `/mcb/tutorial`, `/mcb/resultpool`, `/mcb/wifiresult` | GET | stock UI helpers |
 | `/cpb/hshistory` | GET | JSON array, 288 samples, one per minute, MH/s, newest last, zeros before first sample |
-| `/dbg/minerinfo` | GET | cgminer-style text: `[key] => value` lines. Keys used: `Device Elapsed`, `MHS av`, `MHS 20s`, `Accepted`, `Rejected`, `Hardware Errors`, `Device Hardware%`, `clock`, `fan0`, `fan1`, `tstemp-0` (chip temp), `tstemp-2` (board sensor), `rebootcnt`, `overheat` |
+| `/dbg/minerinfo` | GET | cgminer-style text: `[key] => value` lines. Keys used: `Device Elapsed`, `MHS av`, `MHS 20s`, `Accepted`, `Rejected`, `Hardware Errors`, `Device Hardware%`, `clock`, `fan0`, `fan1`, `tstemp-0` (chip temperature: the board's chip average plus about 3 C on the SC-BOX, never the hottest chip; see the hashboard section), `tstemp-2` (board sensor), `rebootcnt`, `overheat` |
 | `/dbg/icinfo` | GET | JSON `{body: "<json string>"}`; `drawdata` is an array of boards, each an array of chips with `chipindex`, `perf` (good nonces), `hwerr` (bad nonces). Chips are numbered from 1. Since 0.6.0 the service logs every chip's counts each poll (`chips` column, `board.chip:good/bad`); the counters restart at every board reinit, so per-chip rates are sums of increments |
 | `/dbg/fanctrllog` | GET | fan daemon log, grows to ~1 MB; lines like `Fans Change (fan0: 62 ==> 61) ... reason(t:64.2 acc:0.0 target_temp:65)` |
-| `/dbg/minersyslog` | GET | cgminer log, truncates at ~3 MB |
+| `/dbg/minersyslog` | GET | cgminer log as text, about 2 MB and 31k lines for a day, truncates near 3 MB. The only place the hottest chip's temperature is reported: one line every 5 s, ` [YYYY-MM-DD HH:MM:SS] C0: Chip Avgtemp 69.000000'C, MaxTemp 79.000000'C` (leading space, no chip index; the miner's clock ran 12 h ahead of local time on this unit, so use its timestamps for ordering only). Also carries the `SCBOX Init sucessed. 16 chips` boot lines and `Write Chip0 Reg 4 Failed`. It repeats the pool user, so it must never be persisted or logged; `gbox serve` reads it every `syslog_interval` seconds (300 by default) and keeps three numbers from it |
 | `/dbg/syslog` | GET | web backend log; `Check Token Error`, `Minerd start !!!`, `Restart Miner` live here |
 | `/dbg/kmsg`, `/dbg/meminfo`, `/dbg/psinfo`, `/dbg/monitorlog`, `/dbg/minerhistory` | GET | |
 | `/dbg/vsinfo` | GET | 500 on this unit |
@@ -149,6 +149,22 @@ Verified 2026-09-08 on the SC-BOX, from the gbox log:
   chip kept producing bad nonces for about half an hour (2.9 percent of its
   nonces in the first 29 minutes), then settled to 0.1 percent over the
   next twelve hours. Judge a clock after an hour, not after ten minutes.
+- The hottest chip is not in any API field. `/dbg/icinfo` reports `temp` 0.0
+  for every chip, port 4028's `temp_max` is 0, and `tstemp-0` tracks the
+  chip average plus about 3 C (identical to `tstemp-1` in 8,635 samples over
+  three days, never above 75 C). The cgminer log's `MaxTemp` is the hottest
+  chip. Over 15,333 log lines and 17 boots on 2026-09-13 and 14 it sat a
+  fixed 11 C above `Avgtemp` (p5 7, p50 11, p95 16) at steady state and
+  right after a boot, at 550 and 575 MHz, on both power supplies: the
+  position on the board, not a failed thermal interface, which shows 20 C
+  or more and drifts. Readings of 90 C and above were 74 of 15,333 (0.5
+  percent), single 5-second samples on a level of 81 to 82 with p95 at 86;
+  the top was 93. The firmware's overheat flag never set. A larger external
+  fan and a 360 W supply dropped the average from 71 to 67 and the hottest
+  chip from 82 to 78 or 79, more than any 25 MHz step on record. Since
+  0.7.0 the service logs the hottest chip's 5-minute median (`hot_level`),
+  its peak (`hot_peak`) and the chip average (`chip_avg`), and the flags sit
+  on the level, not the peak.
 - The fan controller steers on the board sensor, so a small drop there buys
   a large fan-speed drop. An external fan pulling air off the outlet side
   lowered the board sensor 2.4 C (64.7 to 62.3) and the internal fans fell

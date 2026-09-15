@@ -11,9 +11,18 @@ miner sample (never concurrently with it) and the watts go in the last
 column, empty when the plug has no meter or did not answer. A plug outage
 never fails a sample; it is one event line on the way out and one on the
 way back.
+
+Every `syslog_interval` seconds (0.7.0) the cycle makes one more serialized
+request after the sample: the cgminer log, where the hottest chip's
+temperature lives (no other endpoint carries it). From the lines newer than
+the last read it writes the hottest chip's peak, its sustained level (the
+median of the 5-second readings) and the chip average as the last three
+columns; every other row leaves them blank, like `watts` without a plug. The
+log text itself is never stored or logged: it repeats the pool user.
 """
 import datetime
 import shutil
+import statistics
 import threading
 import time
 from pathlib import Path
@@ -23,7 +32,9 @@ from . import api
 COLUMNS = ["time", "http", "elapsed", "mhs_av", "mhs_20s", "hwerr", "hwerr_pct", "accepted",
            "rejected", "clock", "fan0", "fan1", "tstemp0", "tstemp1", "tstemp2", "rebootcnt",
            "weak_chips", "nonces_good", "nonces_bad", "temp_target", "overheat", "watts",
-           "chips"]        # 0.6.0: every chip's cumulative good/bad as board.chip:g/b;... (docs/charts-proposal.md)
+           "chips",        # 0.6.0: every chip's cumulative good/bad as board.chip:g/b;... (docs/charts-proposal.md)
+           "hot_peak", "hot_level", "chip_avg"]   # 0.7.0: from the cgminer log, on the rows where it was read
+FIRST_READ_MINUTES = 5        # the first log read after a service start looks back this far only, by the miner's clock
 
 
 def sample(miner):
@@ -44,6 +55,15 @@ def sample(miner):
         "temp_target": setting.get("temp_target"), "overheat": info["overheat"],
         "chips": api.format_chips(boards),
     }
+
+
+def summarize_chiptemps(readings):
+    """The three log columns from (miner_ts, avg, max) tuples: the peak, the median max (the sustained level),
+    the median average. None everywhere when there are no readings."""
+    if not readings:
+        return None, None, None
+    maxes = [r[2] for r in readings]
+    return max(maxes), float(statistics.median(maxes)), float(statistics.median(r[1] for r in readings))
 
 
 def migrate_columns(csv_path):
@@ -87,9 +107,14 @@ def error_row(exc):
 
 
 class Poller(threading.Thread):
-    def __init__(self, miner, csv_path, interval, watchdog=None, events=None, clock=time.time, plug=None, scheduler=None):
+    def __init__(self, miner, csv_path, interval, watchdog=None, events=None, clock=time.time, plug=None, scheduler=None,
+                 syslog_interval=0):
         super().__init__(name="gbox-poller", daemon=True)
         self.miner = miner
+        self.syslog_interval = float(syslog_interval or 0)   # 0: never read the cgminer log
+        self.syslog_errors = 0
+        self._syslog_next = None    # clock time of the next log read; None means at the next good sample
+        self._syslog_cursor = None  # the newest miner timestamp seen, so a read takes only newer lines
         self.scheduler = scheduler  # gbox.power.Scheduler: ticked once per sample, after the watchdog
         self.csv_path = Path(csv_path)
         self.interval = float(interval)
@@ -129,6 +154,27 @@ class Poller(threading.Thread):
                 if self.events:
                     self.events.write("power: plug unreachable (%s); the watchdog cannot cycle until it answers" % e)
 
+    def read_chiptemps(self):
+        """The hottest-chip columns for this row: (peak, level, chip_avg) from one log read when one is due,
+        else (None, None, None). A failed read is a blank and a count, never an error row."""
+        now = self._clock()
+        if self.syslog_interval <= 0 or (self._syslog_next is not None and now < self._syslog_next):
+            return None, None, None
+        self._syslog_next = now + self.syslog_interval
+        try:
+            readings = api.parse_chiptemps(self.miner.syslog(), after=self._syslog_cursor)
+        except Exception:
+            self.syslog_errors += 1
+            return None, None, None
+        if not readings:
+            return None, None, None
+        if self._syslog_cursor is None:     # first read: the last few minutes only, by the miner's own clock
+            last = datetime.datetime.strptime(readings[-1][0], "%Y-%m-%d %H:%M:%S")
+            floor = (last - datetime.timedelta(minutes=FIRST_READ_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
+            readings = [r for r in readings if r[0] >= floor]
+        self._syslog_cursor = readings[-1][0]
+        return summarize_chiptemps(readings)
+
     def stop(self):
         self._stop.set()
 
@@ -144,6 +190,7 @@ class Poller(threading.Thread):
                     self.miner_status = self.miner.status()
                 except Exception:
                     pass
+            row["hot_peak"], row["hot_level"], row["chip_avg"] = self.read_chiptemps()   # a fourth request, when due
         except api.NoCredentials:
             row = {"http": "ERR:NoCredentials:waiting for a token from the dashboard"}
             self.errors += 1

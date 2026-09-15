@@ -1,4 +1,5 @@
 """The serialized session against the fake miner."""
+import os
 import threading
 import unittest
 
@@ -120,6 +121,47 @@ class SessionTest(unittest.TestCase):
             m.status()
         self.assertNotIn("http://", str(cm.exception))
         self.assertNotIn(self.fm.password_hex, str(cm.exception))
+
+
+class ChipTempsTest(unittest.TestCase):
+    """The cgminer log's Avgtemp/MaxTemp lines become numbers and timestamps; nothing else leaves the parser."""
+
+    def setUp(self):
+        with open(os.path.join(os.path.dirname(__file__), "fixtures", "dbg_minersyslog.txt"), encoding="utf-8") as f:
+            self.text = f.read()
+
+    def test_every_temperature_line_is_a_tuple_in_log_order(self):
+        rows = api.parse_chiptemps(self.text)
+        self.assertEqual(len(rows), 6)
+        self.assertEqual(rows[0], ("2026-09-15 07:36:01", 54.0, 65.0))
+        self.assertEqual(rows[-1], ("2026-09-15 07:36:31", 70.0, 82.0))
+        self.assertEqual(max(r[2] for r in rows), 93.0)
+
+    def test_after_keeps_only_newer_lines(self):
+        rows = api.parse_chiptemps(self.text, after="2026-09-15 07:36:16")
+        self.assertEqual([r[0] for r in rows], ["2026-09-15 07:36:21", "2026-09-15 07:36:26", "2026-09-15 07:36:31"])
+        self.assertEqual(api.parse_chiptemps(self.text, after="2026-09-15 07:36:31"), [])
+
+    def test_output_holds_numbers_and_timestamps_only(self):
+        # the log repeats the pool user; the parser's output must never be able to carry it
+        self.assertIn("example.worker1", self.text)
+        for ts, avg, mx in api.parse_chiptemps(self.text):
+            self.assertRegex(ts, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+            self.assertIsInstance(avg, float)
+            self.assertIsInstance(mx, float)
+
+    def test_garbage_and_empty_text_parse_to_nothing(self):
+        self.assertEqual(api.parse_chiptemps(""), [])
+        self.assertEqual(api.parse_chiptemps("Chip Avgtemp nope'C, MaxTemp 'C\n[bad] C0: Chip Avgtemp 1'C"), [])
+
+    def test_miner_syslog_is_one_get_of_text(self):
+        fm = FakeMiner().start()
+        self.addCleanup(fm.stop)
+        m = api.Miner(fm.address, password="password")
+        text = m.syslog()
+        self.assertIn("MaxTemp", text)
+        self.assertEqual(fm.requests[-1], ("GET", "/dbg/minersyslog"))
+        self.assertGreaterEqual(len(api.parse_chiptemps(text)), 1)
 
 
 if __name__ == "__main__":

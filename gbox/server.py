@@ -126,6 +126,8 @@ class ServiceState:
             },
             "power": self.power_health(),
             "ladder": self.ladder(),
+            "temps": dict(self.cfg.temps),           # 0.7.0: the hottest-chip thresholds on the sustained level
+            "syslog_interval": self.cfg.syslog_interval,
             "hold": w.hold_info() if w else None,
         }
 

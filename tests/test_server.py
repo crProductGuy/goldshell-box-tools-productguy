@@ -225,6 +225,14 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.post("/api/event", json.dumps({"message": "fan target set to 70 C"}).encode()), 204)
         self.assertEqual(self.state.watchdog.told, 1)
 
+    def test_health_carries_the_hottest_chip_thresholds_and_the_log_read_cadence(self):
+        h = json.loads(self.get("/api/health")[2])
+        self.assertEqual(h["temps"], {"hot_serious": 85, "hot_critical": 90})
+        self.assertEqual(h["syslog_interval"], config.DEFAULT_SYSLOG_INTERVAL)
+        self.state.cfg = config.Config(host=self.fm.address, port=0, temps={"hot_serious": 80}, syslog_interval=120)
+        h = json.loads(self.get("/api/health")[2])
+        self.assertEqual((h["temps"]["hot_serious"], h["temps"]["hot_critical"], h["syslog_interval"]), (80, 90, 120))
+
     def test_health_power_block_when_no_plug(self):
         p = json.loads(self.get("/api/health")[2])["power"]
         self.assertFalse(p["configured"])

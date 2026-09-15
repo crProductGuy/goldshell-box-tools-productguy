@@ -27,7 +27,7 @@ MIN_HOURS, MAX_HOURS = 1, 168
 MIN_BUCKET, MAX_BUCKET = 5, 120
 NO_READING = -100.0     # a board-sensor value at or below this is the firmware saying "no sensor", not a temperature
 STAMP = "%Y-%m-%d %H:%M:%S"
-_FLOATS = ("mhs_20s", "clock", "watts", "fan0", "fan1", "tstemp0", "tstemp2")
+_FLOATS = ("mhs_20s", "clock", "watts", "fan0", "fan1", "tstemp0", "tstemp2", "hot_peak", "hot_level", "chip_avg")
 _INTS = ("nonces_good", "nonces_bad", "rebootcnt", "hwerr", "accepted", "elapsed")
 _WEAK_RE = re.compile(r"(\d+):(\d+)/(\d+)")
 _EVENT_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) ((?:dashboard|watchdog|power|hold): .*|service: started .*)$")
@@ -150,7 +150,8 @@ def buckets(rows, hours, bucket_minutes, now=None, events=()):
         rec = {"t": e.strftime("%Y-%m-%d %H:%M"), "samples": len(a["ok"]), "errors": a["errors"]}
         if not a["ok"]:
             rec.update({"hashrate": None, "fan0": None, "fan1": None, "chip_temp": None, "board_temp": None, "watts": None,
-                        "clock": None, "good": None, "bad": None, "share": None, "resets": None, "worst": None})
+                        "clock": None, "good": None, "bad": None, "share": None, "resets": None, "worst": None,
+                        "hot_peak": None, "hot_level": None, "chip_avg": None})
             out.append(rec)
             continue
         ok = a["ok"]
@@ -160,6 +161,12 @@ def buckets(rows, hours, bucket_minutes, now=None, events=()):
         rec["chip_temp"] = _mean(r["tstemp0"] for r in ok)
         rec["board_temp"] = _mean(r["tstemp2"] for r in ok)
         rec["watts"] = _mean(r["watts"] for r in ok)
+        # 0.7.0, from the cgminer log on the rows that read it (most rows are blank): the bucket's highest peak,
+        # its mean sustained level, its mean chip average
+        peaks = [r.get("hot_peak") for r in ok if r.get("hot_peak") is not None]
+        rec["hot_peak"] = max(peaks) if peaks else None
+        rec["hot_level"] = _mean(r.get("hot_level") for r in ok)
+        rec["chip_avg"] = _mean(r.get("chip_avg") for r in ok)
         rec["clock"] = ok[-1]["clock"]
         if a["counted"]:
             rec["good"], rec["bad"], rec["resets"] = a["good"], a["bad"], a["resets"]

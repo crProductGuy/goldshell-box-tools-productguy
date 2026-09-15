@@ -76,7 +76,7 @@ class PollerTest(unittest.TestCase):
         with open(self.csv, encoding="utf-8") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
-        self.assertEqual(lines[1], "2026-09-05 21:05:52,ok,1,2,3,4,0.4,5,0,600.0,3000,3000,70,70,63,0,8:1/1,,,,,,")
+        self.assertEqual(lines[1], "2026-09-05 21:05:52,ok,1,2,3,4,0.4,5,0,600.0,3000,3000,70,70,63,0,8:1/1,,,,,,,,,")
         self.assertEqual(lines[2].count(","), len(poller.COLUMNS) - 1)
         self.assertTrue((self.csv.parent / "log.csv.bak").exists())
         rows = self.rows()
@@ -113,7 +113,7 @@ class PollerTest(unittest.TestCase):
         with open(self.csv, encoding="utf-8") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
-        self.assertTrue(lines[1].endswith(",65,0,,"))          # watts and chips padded
+        self.assertTrue(lines[1].endswith(",65,0,,,,,"))       # watts, chips and the three 0.7.0 log columns padded
 
     def test_migration_note_says_whether_the_backup_is_new(self):
         """The first migration writes log.csv.bak; a later one keeps the older backup and says so."""
@@ -148,8 +148,8 @@ class ChipsColumnPollerTest(unittest.TestCase):
             return list(csv.DictReader(f))
 
     def test_chips_is_the_last_column_with_every_chip(self):
-        self.assertEqual(poller.COLUMNS[-1], "chips")
-        self.assertEqual(poller.COLUMNS[-2], "watts")
+        self.assertEqual(poller.COLUMNS[22], "chips")         # last until 0.7.0 added the cgminer-log columns after it
+        self.assertEqual(poller.COLUMNS[21], "watts")
         poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30).poll_once()
         row = self.rows()[0]
         parts = row["chips"].split(";")
@@ -167,8 +167,104 @@ class ChipsColumnPollerTest(unittest.TestCase):
         with open(self.csv, encoding="utf-8") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
-        self.assertTrue(lines[1].endswith(",174.476037,"))
+        self.assertTrue(lines[1].endswith(",174.476037,,,,"))
         self.assertEqual(self.rows()[0]["chips"], "")
+        self.assertTrue((self.csv.parent / "log.csv.bak").exists())
+
+
+class HottestChipPollerTest(unittest.TestCase):
+    """0.7.0: every syslog_interval seconds the cycle reads the cgminer log once more and writes the hottest chip's\npeak, its sustained level (median) and the chip average as the last three columns; other rows leave them blank."""
+
+    def setUp(self):
+        self.fm = FakeMiner().start()
+        self.addCleanup(self.fm.stop)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.csv = Path(self.tmp.name) / "log.csv"
+        self.now = 1_000_000.0
+
+    def clock(self):
+        return self.now
+
+    def rows(self):
+        with open(self.csv, newline="", encoding="utf-8") as f:
+            return list(csv.DictReader(f))
+
+    def syslog_reads(self):
+        return sum(1 for m, path in self.fm.requests if path == "/dbg/minersyslog")
+
+    def test_columns_end_with_the_three_chip_temperature_fields(self):
+        self.assertEqual(poller.COLUMNS[-4:], ["chips", "hot_peak", "hot_level", "chip_avg"])
+
+    def test_first_cycle_reads_the_log_and_writes_peak_level_and_average(self):
+        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, clock=self.clock, syslog_interval=300)
+        row = p.poll_once()
+        self.assertEqual(row["http"], "ok")
+        self.assertEqual(self.syslog_reads(), 1)
+        r = self.rows()[0]
+        self.assertEqual(r["hot_peak"], "93.0")           # the fixture's one spike
+        self.assertEqual(r["hot_level"], "80.0")          # median of 65, 66, 79, 93, 81, 82
+        self.assertEqual(r["chip_avg"], "69.0")           # median of 54, 55, 69, 69, 70, 70
+        self.assertEqual(list(r.keys()), poller.COLUMNS)
+
+    def test_between_reads_the_fields_are_blank_and_the_log_is_not_requested(self):
+        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, clock=self.clock, syslog_interval=300)
+        p.poll_once()
+        self.now += 30
+        p.poll_once()
+        self.assertEqual(self.syslog_reads(), 1)
+        self.assertEqual((self.rows()[1]["hot_peak"], self.rows()[1]["hot_level"], self.rows()[1]["chip_avg"]), ("", "", ""))
+
+    def test_the_next_read_takes_only_lines_newer_than_the_cursor(self):
+        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, clock=self.clock, syslog_interval=300)
+        p.poll_once()
+        self.now += 300
+        p.poll_once()                                     # nothing new in the fake log: blank, not a repeat
+        self.assertEqual(self.syslog_reads(), 2)
+        self.assertEqual(self.rows()[1]["hot_peak"], "")
+        self.fm.syslog += " [2026-09-15 07:41:31] C0: Chip Avgtemp 71.000000'C, MaxTemp 84.000000'C\n"
+        self.now += 300
+        p.poll_once()
+        r = self.rows()[2]
+        self.assertEqual((r["hot_peak"], r["hot_level"], r["chip_avg"]), ("84.0", "84.0", "71.0"))
+
+    def test_first_read_after_start_keeps_the_last_five_minutes_only(self):
+        self.fm.syslog = (" [2026-09-15 07:00:00] C0: Chip Avgtemp 50.000000'C, MaxTemp 60.000000'C\n"
+                          " [2026-09-15 07:30:00] C0: Chip Avgtemp 70.000000'C, MaxTemp 80.000000'C\n"
+                          " [2026-09-15 07:34:00] C0: Chip Avgtemp 70.000000'C, MaxTemp 82.000000'C\n")
+        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, clock=self.clock, syslog_interval=300)
+        p.poll_once()
+        r = self.rows()[0]
+        self.assertEqual((r["hot_peak"], r["hot_level"], r["chip_avg"]), ("82.0", "81.0", "70.0"))
+
+    def test_a_failed_log_read_is_a_blank_not_an_error_row(self):
+        class NoLog(api.Miner):
+            def syslog(self):
+                raise api.MinerError("GET dbg/minersyslog: HTTP 500")
+        p = poller.Poller(NoLog(self.fm.address, password="password"), self.csv, 30, clock=self.clock, syslog_interval=300)
+        row = p.poll_once()
+        self.assertEqual(row["http"], "ok")
+        self.assertEqual(self.rows()[0]["hot_peak"], "")
+        self.assertEqual(p.errors, 0)
+        self.assertEqual(p.syslog_errors, 1)
+
+    def test_interval_zero_never_reads_the_log(self):
+        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, clock=self.clock, syslog_interval=0)
+        p.poll_once()
+        self.assertEqual(self.syslog_reads(), 0)
+
+    def test_23_column_header_from_0_6_x_is_migrated(self):
+        old = poller.COLUMNS[:23]
+        self.assertEqual(old[-1], "chips")
+        with open(self.csv, "w", encoding="utf-8", newline="") as f:
+            f.write(",".join(old) + "\n")
+            f.write("2026-09-14 15:52:32,ok,5,13015.584,13015.584,0,0.0,1,0,550.0,2880,2880,34.0,34.0,24.63,0,,10,0,65,0,174.476037,0.1:5/0\n")
+        self.assertTrue(poller.migrate_columns(self.csv))
+        with open(self.csv, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(lines[0], ",".join(poller.COLUMNS))
+        self.assertTrue(lines[1].endswith(",0.1:5/0,,,"))
+        self.assertEqual(self.rows()[0]["hot_level"], "")
         self.assertTrue((self.csv.parent / "log.csv.bak").exists())
 
 
@@ -253,7 +349,7 @@ class PollerPlugTest(unittest.TestCase):
             return list(csv.DictReader(f))
 
     def test_watts_is_the_last_column_and_empty_without_a_plug(self):
-        self.assertEqual(poller.COLUMNS[-2], "watts")          # chips followed it in 0.6.0
+        self.assertEqual(poller.COLUMNS[21], "watts")          # chips followed it in 0.6.0, the log columns in 0.7.0
         p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30)
         p.poll_once()
         self.assertEqual(self.rows()[0]["watts"], "")
@@ -327,6 +423,21 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.load(self.tmp.name).password_hex, "00" * 16)
         if os.name == "posix":
             self.assertEqual(os.stat(Path(self.tmp.name) / "config.json").st_mode & 0o777, 0o600)
+
+    def test_syslog_interval_and_temps_default_round_trip_and_validate(self):
+        cfg = config.load(self.tmp.name)
+        self.assertEqual(cfg.syslog_interval, 300)
+        self.assertEqual(cfg.temps, {"hot_serious": 85, "hot_critical": 90})
+        config.save(config.Config(host="h", syslog_interval=0, temps={"hot_critical": 95}), self.tmp.name)
+        back = config.load(self.tmp.name)
+        self.assertEqual((back.syslog_interval, back.temps["hot_serious"], back.temps["hot_critical"]), (0, 85, 95))
+        back.validate()
+        with self.assertRaises(ValueError):
+            config.Config(syslog_interval=30).validate()               # under the 60 s floor and not off
+        with self.assertRaises(ValueError):
+            config.Config(temps={"hot_serious": 90, "hot_critical": 85}).validate()
+        with self.assertRaises(ValueError):
+            config.Config(temps={"hot_serious": 30}).validate()
 
     def test_validate_rejects_fast_polling(self):
         with self.assertRaises(ValueError):
