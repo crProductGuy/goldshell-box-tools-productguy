@@ -1674,3 +1674,40 @@ Mark asked the owner for four things (the status codes from devtools, the
 unlock request's path, the minerinfo response text, and the 4028 lines) and
 said hold. No code or documentation was changed; the findings sit in the
 status doc and this entry until the answer arrives.
+
+## 2026-09-15 afternoon, session U continued: the owner answers everything; gate 2 planned a third time
+
+Three more batches from the owner, in the order they arrived. First the
+browser's full exchange for the debug endpoint: 200, four PGA blocks, each
+with its own chip and board temperatures, the unit's four fans repeated in
+every block, and a status block with voltage and current that the SC-BOX
+does not report. Then port 4028's `devs` and `summary`, run on Ubuntu with
+the lines from the capture request: valid JSON, four boards, the same field
+names as the PGA blocks, no token asked. Then a curl retest the agent had
+written for him: the debug endpoint answered 200 with a Referer, without
+one, and twice in a rapid pair. The two 401s from his first capture were
+one-offs. There is no debug lock on his firmware.
+
+Mark also sent Goldshell's spec sheet, which corrected the plan: the SC5
+Pro II is rated 14 TH/s at 3300 W, not the 17 the previous revision had
+carried. The owner's unit reads 13.99 TH/s, and volts times amps from the
+firmware comes to about 3040 W, which is the DC side of a 3300 W wall
+figure at a typical supply efficiency. The unit of the current field is
+inferred from that arithmetic and the plan says so. A screenshot of the
+stock UI gave the plan names, Hashrate, Low-power and Idle, for levels 0,
+2 and 3.
+
+The recommendation changed with the evidence and Mark took it in two words:
+one parser for the PGA-block shape, fed by either transport, since the
+field names are identical; the service reads port 4028 first, because it
+needs no token and cannot hit the token race, and falls back to the debug
+endpoint; the page, which cannot open a socket, keeps reading the debug
+endpoint. Fixtures credit "a friend's unit". The plan was written as the
+third revision of gate 2, with the parser signatures, the totals rule
+(hottest board's temperatures stand for the unit, so today's columns keep
+their meaning), a `boards.csv` beside the log, a firmware-watts figure
+labelled DC and inferred, the two model rows, the fixture list with what to
+strip from each file, and eight test-first tasks. One item is deferred to
+Mark: the page's fallback to the HTTP `devs` endpoint, a third parser for a
+lock no unit has shown. The API notes got the constant-token finding and a
+port 4028 section the same afternoon. The build goes to a fresh session.
