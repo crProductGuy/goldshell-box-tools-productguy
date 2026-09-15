@@ -175,10 +175,11 @@ so gbox can learn your unit without one on the bench.
 
 ## How this was built
 
-An owner with one tired miner and an AI coding agent, over five days in
+An owner with one tired miner and an AI coding agent, over ten days in
 September 2026. `docs/how-this-project-evolved.md` is the story, from the
-first "why is it hashing at 30 percent" to the unattended clock trial that
-reproduced two days of observation in 34 minutes.
+first "why is it hashing at 30 percent" through the clock trial that
+reproduced two days of observation in 34 minutes, to the smart plug that
+brought the miner back seven times in one night.
 `goldshell-box-tools-productguy-EVOLUTION.md` is the session-by-session record behind
 it: the prompts, the questions, the decisions and why.
 

@@ -1,7 +1,7 @@
 # One marginal chip: how this project was built
 
 This is the story of goldshell-box-tools-productguy, written from the session log,
-the git history, and the docs. It covers five days in September 2026, one
+the git history, and the docs. It covers ten days in September 2026, one
 old SC-BOX miner, its owner, and an AI coding agent. The owner is Mark, a
 product manager with an engineering past who does not write production code
 any more. The agent is Claude, running in Claude Code on a Windows PC on the
@@ -264,6 +264,256 @@ showed 2.9 percent bad, far above the earlier runs. By morning the row read
 0.11 percent over twelve hours. Errors lag a clock change by about half an
 hour; that went into the guide as a reading tip.
 
+## The plug that wasn't the miner's
+
+The evening after the second freeze, Mark sent the agent into research and
+planning mode overnight. He wanted an optional module to power-cycle a hung
+miner through a smart plug. He had TP-Link Kasa plugs around the house, one of
+them "already inline with this miner power plug."
+
+The session ran unattended, so every question went into the proposal with the
+assumed answer beside it. The plug probe stayed read-only, because the miner
+was believed to hang off it. It did not. The plug Mark had named reported its
+relay off while the miner hashed. LAN discovery found a second Kasa plug with
+an energy meter reading a steady 188 W, matching the wall meter. Two commands
+came out of that: `init`, which records the plug's device id and refuses to
+cycle any other device, and `discover`, because the owner's recollection of
+which plug was where had been wrong.
+
+Four minutes into the trace the miner froze for the third time, 34 minutes
+after the previous power cycle, and the metering plug's reading fell from 188
+W to 38 W in the same minute. The identity question was answered by the
+failure the module was meant to fix. At 23:27 Mark wrote, "recheck miner, I
+think it's hashing now, 183W ... I don't think it needs a power cycle.
+confirm." It had come back at 23:13 with the relay closed the whole time. "I
+like the 15 min power cycle if apparently dead. What do you need from me to
+build to the plan?"
+
+It was built that night, test-first, from 101 tests to 165, in a worktree that
+stopped short of the merge. At noon he authorized the real thing: "I authorize
+you to power-cycle the Kasa when you get to that."
+
+The next session deployed 0.3.0 and recorded the plug. `gbox power cycle`
+needs the typed word CYCLE at a terminal, and the agent's shell refused piped
+input, so it could not confirm the command itself. Rather than work around its
+own guard, it opened a visible PowerShell window at the prompt and waited.
+Mark saw it ("I saw this modal over this terminal") and typed the word. At
+12:11:07 the relay opened for 15 seconds. The miner answered a good sample 66
+seconds after the cut, at 575 MHz with zero board resets. Then a second
+instance of the service, pointed at a LAN address that answers nothing, drove
+the ladder on the clock the guide predicts: failed soft restarts at 12:18:27
+and 12:32:58, the plug at 12:33:13 with the episode 17 minutes old. The live
+service saw the miner back 60 seconds later. Two cycles, both authorized, both
+survived at the manual clock.
+
+## A password, a rename, and what was holding the door
+
+The night of the research session Mark had sent a screenshot: "check the
+miner. Report looks funny. Fans full but doesn't seem to be hashing. maybe
+needs a soft reset?" The agent read the service's log rather than the miner.
+Shares were climbing and the fans were already falling: a fresh boot, not a
+fault, and a soft restart would only have wiped the firmware's history buffer.
+But the agent also said "something power-cycled it at 23:13", inferred from a
+42-second uptime. The research session running at the same time had the plug's
+meter and knew the relay had never opened. The guess was wrong because the
+other session had better evidence, and it was restated to Mark the next day.
+
+The next afternoon he asked whether the read-out had been saved. It had not.
+The raw rows were in the service's files, but the reading of them existed only
+in the session. It went into the status document.
+
+Then two chores that three sessions had deferred, each because it had started
+inside the directory it was meant to rename: "do the directory rename ...
+scrub the transcript." The scrub found the miner's password ten more times in
+one transcript, in three encodings, and replaced them all. The rename failed
+twice more, "being used by another process," with the service stopped and the
+session's own shells parked outside the folder. Rather than kill processes by
+guesswork, the agent wrote a short script that reads each process's working
+directory and named what was standing in the door: two idle Claude Code
+sessions, the console the clock trial had run in, three orphaned log monitors,
+two Explorer windows, and two leftovers of the previous session's own tests.
+Windows does not rename a directory while any process calls it home, and idle
+agent sessions and file-manager windows count. The harness would not let the
+agent end the two Claude sessions, so it asked, and Mark closed them himself.
+
+That evening he sent another screenshot: "check out the 6-minute visible gap
+in the fan speed and 2 temp traces on the graphs, from 16:22 - 16.28." The log
+settled it. The gap was the service stopped for the rename attempt, and a
+shorter one at 17:27 was the rename itself. The hashrate chart had no hole
+because it draws from the miner's own buffer. The agent said the chart could
+not tell a service outage from a miner outage and offered a marker at each
+service start. "yes, please. add that," he wrote. The S glyph joined the
+marker set that night, along with a boot-time promise of two to three minutes
+corrected to the measured 60 to 66 seconds.
+
+## Keep smacking it so it runs
+
+Late on the tenth Mark asked for a plan: watts and GH/s per watt in the trials
+table, a watts chart, a power tile. The next day he added a rolling log of
+every intervention the software had made, right-hand percent-of-maximum axes,
+and said he wanted to generalize to Goldshell's SC Lite models. "Advise and
+ask me if there are any reasons to split this work." The advice was to split,
+since nothing on this LAN could test another model.
+
+While the plan was being written the watchdog ran its acceptance test three
+times. Freezes at 23:43, 05:40 and 06:25, each followed by two failed soft
+restarts and a power cycle, each cycle bringing the miner back in about a
+minute. A fourth freeze at 10:25 met the daily cap of three cycles and the
+miner stayed hung. Four freezes in eleven hours, against three in the week
+before. The 0.4.0 restart then exposed a gap: the caps were in-memory
+counters, so restarting the service handed the watchdog three fresh cycles on
+a still-hung miner. It recovered the unit at 11:46, but a restart should not
+reset a safety cap.
+
+On the twelfth Mark swapped the 360 W power brick for a 1600 W Bitmain supply.
+Ten minutes after power-on the board reset twice, the first resets at 575 MHz
+since the clock trials ended. He thought the resets were noise from powering
+up; the log put them ten minutes after, and he conceded: "I wasn't touching
+anything at 14:55, those resets count." The draw stepped from about 182 W to
+197 W at the same clock, for a cause nobody could see, because core voltage is
+not in the API.
+
+Then the instruction that names this chapter: "Make sure that the daily cap is
+high enough to accommodate these controller-going-AWOL events that are now
+more frequent. Uptime of hashrate is more important to me than capping
+interventions. I'd be OK with 8 power-control restarts a day if needed. Keep
+smacking it so it runs." Reading the ladder before raising the cap turned up
+the thing that mattered. A cycle needs two failed soft restarts, and each
+attempt takes a restart slot, so every cycle costs two of the watchdog's own
+daily restarts. The config now refuses a restart cap under twice the cycle
+cap, the caps are read back from the event log at start, and Mark's went to 20
+and 8.
+
+"0.4.1 is very good," he wrote, and asked for the ladder cut. The plug had
+been moving about 17 minutes into a freeze; with both gaps at 5 minutes it
+moves at about 7. 187 tests by evening.
+
+## Power on purpose
+
+The next session was meant to start the other-models plan. Mark's next message
+redirected everything: "since manual power cycling by me or some user causes
+loss of the board reset counter, what can we do to preserve that? Is there any
+reason to want to put a 'cycle power now' button on the UI? ... The question
+behind the question is how to keep that while enabling low-operator-friction
+hard power off / on as part of normal daily operations, not just recovery from
+'hung'."
+
+The premise was wrong in a useful way. The counter was not lost by a cycle;
+the service logged it every poll and summed increments across boots; only the
+firmware's own since-boot figure dropped to zero. What was missing was
+different. A planned outage looked exactly like a freeze to the watchdog: two
+minutes unreachable, two failed restarts, and a cycle that would turn a
+deliberately-off miner back on. And a cycle at the wall switch was invisible
+to the log. So the case for a button was not convenience. It was that every
+power event should pass through the one place that records it as the owner's
+and tells the watchdog to stand down.
+
+Mark raised the shutdown case himself, "a 'shut down now' button that informs
+the software of an impending power-down ... so we don't want to have the
+service reacting to an unreachable device that's unreachable for physical
+reasons." That became the hold, with the buttons and a schedule as three ways
+into one state. On how a hold should end he chose the miner's own return over
+an explicit release, "Less user planning and cognitive load," and floated a
+20-minute expiry; the agent argued that under auto-release shorter is not
+safer, and proposed an hour. "Looks good, build it," he wrote. "See you in the
+AM."
+
+It was built overnight, 260 Python and 39 JavaScript tests, and deliberately
+not deployed. The watchdog was the thing recovering the miner that night, five
+freezes that day, and new watchdog code should not take over that duty while
+nobody is watching.
+
+Mark deployed it the next afternoon and ran the live checks with his own
+hands. Then: "The unit is acting weird: low wattage, both red LEDs on, not
+hashing." From the LAN the controller was up and answering, with clock 0, the
+board sensor at minus 150 and 9 W at the wall: the hashboard had never come
+up. The hold had released on two HTTP answers, because the rule said
+"answers." "fix the release rule so it needs hashing." 0.5.1 changed that word
+everywhere. The same evening, "I really want to get the Linux version out
+tonight," for a friend: 0.5.2.
+
+## So the operator can see when it went bad
+
+The evening of the Linux installer Mark also asked for a new chart: the
+average error rate and the worst chip's error rate against clock, over about
+three days. "Argue with me or ask questions." The agent argued for bad share
+over bad count, since a faster clock attempts more nonces; for board resets on
+the same chart, since an error chart alone stays flat through a burst of
+resets; and for logging every chip every poll. He took all of it, extended the
+other charts to 24 hours, and said what it was for: "for the human operator to
+see when things really went bad on a graph, so she/he can do something."
+
+0.6.0 was built in that order. His first look asked for bold axis titles and
+tooltips that grow left; a design pass gave three directions, and "I accept
+Main." A patch the same night fixed a chart reading minus 131 degrees, the
+firmware's reading for a board that was not there, and met a constraint: "I
+have mediocre eyes with some cataracts, so I think the density should be
+increased by 50%." Later that night the ladder's second rung was fixed: the
+plug had been reaching a frozen controller at about 12 minutes where the guide
+promised 7. Mark said 7.
+
+The next morning: "have a look at the overnight run ... 7-8 adverse events
+over 4 hours." The logs gave seven controller hangs between 00:42 and 04:07,
+each with no log line, six of the seven within thirty minutes of a
+boot. The ladder did what it now promised, the plug about seven and a half
+minutes after the last good sample every time. Software explained none of the
+hangs. The evidence pointed at the power path, and Mark swapped back to the
+360 W supply. While the agent was reading, the board dropped off with the
+controller alive and came back through a 64-reset cold start. After the swap
+the board failed to start at all until a soft restart, the third time for that
+signature across two supplies: the board's power-up was what was marginal, not
+one PSU.
+
+"the 64 restarts shown on the 3-day graph don't show in the 13.00-14.00
+timeframe in the 24-hour graphs. This is misleading." True; the 24-hour charts
+had no resets series. Then: "Shouldn't we define a Reset?" The project agreed
+its vocabulary that afternoon. A board reset is the miner reinitializing its
+own hashboard, counted and drawn as bars. A soft restart is the watchdog's or
+the owner's. A power cycle is the plug. And one fact closed a request: the
+firmware exposes no per-chip temperature anywhere, so the column Mark had
+asked for cannot be filled.
+
+## Another lab's notes, and the cost of looking
+
+The other-models work started the night of the thirteenth, unattended, with a
+warning said out loud: all of it was built against another developer's notes
+for the SC Lite, not a unit. Mark's answer set two tasks. "what would I need
+to tell a dev with an SC Lite about what to capture for Devs and Minerinfo,
+and how to capture it? Write an MD file about that ... Go ahead and start with
+Gate 1 overnight. I'm off to bed."
+
+The capture request was written for a stranger's machine: seven read-only
+requests, one at a time with a pause because of the token race, with pools,
+WiFi settings, syslogs and the MAC address left out. Gate 1 gave every model a
+capability profile, with an unknown model taking the SC-BOX's path and every
+optional capability off, and parsed the power plan from the string the unit
+itself wrote rather than from a table copied out of notes. 336 tests. It was
+not merged overnight, because nothing in it was worth a night-time restart of
+the watchdog that Mark had not asked for. It went in the next afternoon.
+
+That day ran ten hours and reached 57 percent of its context window.
+Screenshots were 28 percent of it and file reads 16 percent. Mark asked for
+controls rather than another reminder. What followed was built outside this
+repo: hooks that deny an unscaled screenshot, an unbounded read of a long
+file, or a shell command that prints a long file whole. They fail open,
+because a bug in a budget guard must never block every read. Then: "what could
+we do to limit the high token count from claude-in-chrome ... fix the present
+to fix the future." The answer was that the cost is pixels. A full-HD
+screenshot is about 2,800 tokens, the same at half scale about 700, a 1280 by
+800 window at half scale about 340. Browser checks now go to a subagent; a
+session gets twelve screenshots; a zoom region is capped. "do the things as
+you recommended."
+
+The last session was an experiment on the controls: a cold start of the
+project under them. The load cost 85k of a million-token window, about 51k of
+it fixed before the first message. The session-hygiene thresholds had been
+percentages, 50 and 70, which on this window meant 500k and 700k, past the
+point where the previous night's session had visibly drifted. "use 250k as the
+first checkpoint threshold," then "update the 2nd threshold too": 350k.
+Nothing in the tool changed. 0.6.5 was live, with eighteen restarts and seven
+cycles counted from the last day, and gate 2 waiting on a capture from a
+friend's four-board unit.
+
 ## What the numbers say
 
 | Clock | Chip 8 bad share | Board resets | Hashrate | Wall power |
@@ -280,39 +530,68 @@ between a healthy factory clock and 575 MHz, 4.1 against 4.0 GH/s per watt.
 What moves is the absolute spend, 18 percent lower, and on a unit with a
 marginal chip, whether it hashes at all.
 
+Between the tenth and the fourteenth of September the toolkit went from 0.3.0
+to 0.6.5 and the test count from 101 to 336. Two power cycles were proven on
+the first day of the module, one by hand and one provoked through the
+watchdog, and then the ladder ran unattended: four automatic recoveries in its
+first twelve hours, each within about a minute of the cut, and on the night of
+the thirteenth seven controller hangs in four hours, every one recovered by
+the plug about seven and a half minutes after the last good sample. The last
+day on record counted eighteen soft restarts and seven cycles. What the
+numbers did not settle: why the controller hangs, which by then looked like
+the power path and not the software, and whether the board's cold start, 64
+resets one afternoon and 34 another morning, would get worse.
+
 ## What made it work
 
-Mark set the rules first, every time, and they got looser as they held:
-from "do nothing till I approve" on day one to "run the runner against the
-real miner" on day four, which was a single sentence because the runner's
-guards, its end clock, and its visible console had all been designed for
-that sentence.
+Mark set the rules first, every time, and they got looser as they held: from
+"do nothing till I approve" on day one to "run the runner against the real
+miner" on day four, which was a single sentence because the runner's guards,
+its end clock, and its visible console had all been designed for that
+sentence. By the second week the sentence was "I authorize you to power-cycle
+the Kasa when you get to that," and the guard it met was a typed word in a
+window the agent opened rather than bypassed.
 
-The agent's most useful contributions were findings, not code: the reset
-loop and the one chip behind it, the dead fan field, the token race, the
-Save button that reverts the clock, the plaintext WiFi credentials nobody
-asked about, pool difficulty hiding inside shares per hour, errors lagging
-a clock change. Each one was a fact read from the machine or the vendor's
-own source, reported before it was acted on, and most of them changed what
-got built.
+The agent's most useful contributions were findings, not code: the reset loop
+and the one chip behind it, the dead fan field, the token race, the Save
+button that reverts the clock, the plaintext WiFi credentials nobody asked
+about, pool difficulty hiding inside shares per hour, errors lagging a clock
+change, a cycle that costs two restart slots, a hold that released on a
+controller with no board behind it. Each one was a fact read from the machine
+or the vendor's own source, reported before it was acted on, and most of them
+changed what got built.
 
-Mark's most useful contributions were the questions that changed scope.
-"Is there any way to build a better web page?" "What license for
-cypherpunks?" "What is safe for users to press?" "I want to optimize
-clean nonce rate." "Build the lessons into the app." The power reading.
-None of these was a feature request in the usual sense. Each redefined
-what the project was for.
+Mark's most useful contributions were the questions that changed scope. "Is
+there any way to build a better web page?" "What license for cypherpunks?"
+"What is safe for users to press?" "I want to optimize clean nonce rate."
+"Build the lessons into the app." The power reading. None of these was a
+feature request in the usual sense. Each redefined what the project was for.
 
-Disagreement was cheap and both sides used it. The agent recommended
-waiting to push and Mark pushed anyway, for a specific person, and was
-right. The agent declined to change a privacy setting and offered the
-evidence instead. Mark rejected a fiddly login box, a scary dialog, and the
-wrong shell, each in a sentence.
+Disagreement was cheap and both sides used it. The agent recommended waiting
+to push and Mark pushed anyway, for a specific person, and was right. The
+agent declined to change a privacy setting and offered the evidence instead.
+Mark rejected a fiddly login box, a scary dialog, and the wrong shell, each in
+a sentence.
 
-And the state lived in files. Every day ended with the status document
-updated and everything committed green. Every build session started from a
-four-line brief. Five sessions, one controller freeze, one power cycle, and
-nothing was lost. The session log that this
-essay was written from is now a required file in every project Mark builds
-with an agent, because reconstructing it after the fact took a morning and
-writing it as they went would have taken minutes.
+The second half adds a fifth thing. The hardware kept being wrong in ways the
+software had to record before anyone could explain them: the plug that was not
+the miner's, a power supply that raised the draw by 15 W and set the board
+resetting, a hashboard that failed its own power-up on two supplies, a
+firmware that reports minus 150 degrees for a board that is not there. None of
+these was fixed in code. Each was logged, charted, or given a name, and the
+explaining came after, sometimes from Mark. His questions kept redefining
+scope the way they had in the first week: "the question behind the question"
+turned a button into a hold, and "shouldn't we define a Reset?" turned a chart
+into a vocabulary. And the cost of looking became a rule. One ten-hour session
+spent more than a quarter of its window on pictures of a page, so the pictures
+now go to a subagent, the reads are bounded by hooks, and the thresholds are
+numbers rather than percentages.
+
+And the state lived in files. Every day ended with the status document updated
+and everything committed green. Every build session started from a four-line
+brief. Five sessions, one controller freeze, one power cycle, and nothing was
+lost in the first week; twenty-three controller hangs and nothing lost in the
+second. The session log that this essay was written from is now a required
+file in every project Mark builds with an agent, because reconstructing it
+after the fact took a morning and writing it as they went would have taken
+minutes.
