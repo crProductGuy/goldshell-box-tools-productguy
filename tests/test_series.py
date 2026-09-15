@@ -94,6 +94,17 @@ class BucketsTest(unittest.TestCase):
         for k in ("hashrate", "fan0", "chip_temp", "watts", "clock", "good", "bad", "share", "resets", "worst"):
             self.assertIsNone(e[k], k)
 
+    def test_hottest_chip_columns_peak_is_the_max_and_level_and_average_are_means(self):
+        t0 = dt.datetime(2026, 9, 15, 10, 0)
+        rows = [row(t0 + dt.timedelta(minutes=m)) for m in range(0, 10)]
+        rows[2].update({"hot_peak": 91.0, "hot_level": 82.0, "chip_avg": 70.0})
+        rows[7].update({"hot_peak": 88.0, "hot_level": 80.0, "chip_avg": 68.0})
+        b = {x["t"][-5:]: x for x in series.buckets(rows, 1, 5, now=t0 + dt.timedelta(minutes=10))["buckets"]}
+        self.assertEqual((b["10:00"]["hot_peak"], b["10:00"]["hot_level"], b["10:00"]["chip_avg"]), (91.0, 82.0, 70.0))
+        self.assertEqual((b["10:05"]["hot_peak"], b["10:05"]["hot_level"], b["10:05"]["chip_avg"]), (88.0, 80.0, 68.0))
+        empty = series.buckets(rows[:1], 1, 5, now=t0 + dt.timedelta(minutes=10))["buckets"][0]
+        self.assertEqual((empty["hot_peak"], empty["hot_level"], empty["chip_avg"]), (None, None, None))
+
     def test_means_and_clock(self):
         b = {x["t"][11:]: x for x in series.buckets(self.rows(), 2, 30, now=T(12, 7))["buckets"]}
         self.assertAlmostEqual(b["10:30"]["hashrate"], 700000.0)

@@ -1,3 +1,3 @@
 """goldshell-box-tools: dashboard, logger, watchdog and CLI for Goldshell Box-series miners."""
 
-__version__ = "0.6.5"
+__version__ = "0.7.0"

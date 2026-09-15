@@ -37,6 +37,42 @@ const tests = {
     const r = app.envRowsFrom(csv)[0];
     assert.deepStrictEqual([r.hwerr, r.accepted, r.rebootcnt], [7, 5000, 2]);
   },
+  "envRowsFrom: the cgminer-log columns are numbers on the rows that read the log, null when blank or absent"() {
+    const head = "time,http,elapsed,mhs_av,mhs_20s,hwerr,hwerr_pct,accepted,rejected,clock,fan0,fan1,tstemp0,tstemp1,tstemp2,rebootcnt,weak_chips,nonces_good,nonces_bad,temp_target,overheat,watts,chips,hot_peak,hot_level,chip_avg\n";
+    const rows = app.envRowsFrom(head + "2026-09-15 08:00:00,ok,100,1,1,7,0.1,5000,3,550,1200,1200,70,70,62,2,,1,0,65,0,160.5,0.1:5/0,91.0,82.0,70.0\n" +
+                                        "2026-09-15 08:00:30,ok,130,1,1,7,0.1,5000,3,550,1200,1200,70,70,62,2,,1,0,65,0,160.5,0.1:5/0,,,\n");
+    assert.deepStrictEqual([rows[0].hot_peak, rows[0].hot_level, rows[0].chip_avg, rows[0].elapsed], [91, 82, 70, 100]);
+    assert.deepStrictEqual([rows[1].hot_peak, rows[1].hot_level, rows[1].chip_avg], [null, null, null]);
+    const old = app.envRowsFrom("time,http,elapsed,mhs_av,mhs_20s,hwerr,hwerr_pct,accepted,rejected,clock,fan0,fan1,tstemp0,tstemp1,tstemp2,rebootcnt\n2026-09-12 15:00:00,ok,100,1,1,7,0.1,5000,3,575,1200,1200,70,70,62,2\n")[0];
+    assert.deepStrictEqual([old.hot_peak, old.hot_level, old.chip_avg], [null, null, null]);
+  },
+  "hottestChip: the flag sits on the sustained level, the highs are since the boot, and an old read is stale"() {
+    const t0 = new Date(2026, 8, 15, 8, 0, 0).getTime(), m = 60000;
+    const row = (min, level, peak, avg) => ({ t: t0 + min * m, ok: true, elapsed: 0, hot_level: level, hot_peak: peak, chip_avg: avg });
+    const blank = min => ({ t: t0 + min * m, ok: true, elapsed: 0, hot_level: null, hot_peak: null, chip_avg: null });
+    const rows = [row(-40, 86, 93, 74), blank(-39), row(-35, 84, 92, 72), row(-30, 80, 88, 69), row(-25, 81, 90, 70), row(-20, 82, 91, 70), blank(-19)];
+    const now = t0 - 17 * m, h = app.hottestChip(rows, now, { hot_serious: 85, hot_critical: 90 }, t0 - 33 * m);
+    assert.deepStrictEqual([h.level, h.peak, h.chipAvg, h.cls, h.stale], [82, 91, 70, "", false]);
+    assert.deepStrictEqual([h.levelHigh.v, h.levelHigh.t, h.peakHigh.v, h.peakHigh.t], [82, t0 - 20 * m, 91, t0 - 20 * m]);   // after the boot only
+    const all = app.hottestChip(rows, now, null, null);                                                                     // no boot known: every row
+    assert.deepStrictEqual([all.levelHigh.v, all.peakHigh.v, all.serious, all.critical], [86, 93, 85, 90]);
+    assert.strictEqual(app.hottestChip(rows, now, { hot_serious: 82, hot_critical: 90 }, null).cls, "serious");
+    assert.strictEqual(app.hottestChip(rows, now, { hot_serious: 80, hot_critical: 82 }, null).cls, "critical");
+    assert.strictEqual(app.hottestChip([row(-20, 95, 99, 80)], now, null, null).cls, "critical");
+    const stale = app.hottestChip(rows, t0, null, null);                                                                   // 20 min after the last read
+    assert.deepStrictEqual([stale.stale, stale.cls, stale.level], [true, "", 82]);
+    assert.strictEqual(app.hottestChip([blank(-1)], now, null, null), null);
+    assert.strictEqual(app.hottestChip(null, now, null, null), null);
+  },
+  "seriesRows carries the cgminer-log columns of a served bucket"() {
+    const r = app.seriesRows({ bucket_minutes: 5, buckets: [{ t: "2026-09-15 08:00", samples: 10, errors: 0, hot_peak: 91, hot_level: 82, chip_avg: 70 }] })[0];
+    assert.deepStrictEqual([r.hot_peak, r.hot_level, r.chip_avg], [91, 82, 70]);
+  },
+  "chartKey with temps lists the chip-temperature series and the serious line after the band"() {
+    const items = app.chartKey({ band: true, temps: 85 }).map(i => i.swatch);
+    assert.deepStrictEqual(items.slice(-4), ["amber", "hot", "hotband", "guide"]);
+    assert.ok(app.chartKey({ band: true, temps: 85 }).slice(-1)[0].text.includes("85"));
+  },
   "newestFirst: the service log reversed, newest line on top, blank lines dropped"() {
     assert.strictEqual(app.newestFirst("2026-09-12 10:00:00 a\n2026-09-12 11:00:00 b\n2026-09-12 12:00:00 c\n"),
       "2026-09-12 12:00:00 c\n2026-09-12 11:00:00 b\n2026-09-12 10:00:00 a");
@@ -270,7 +306,7 @@ const tests = {
       "not a row\n";
     const rows = app.envRowsFrom(csv);
     assert.strictEqual(rows.length, 3);
-    assert.deepStrictEqual(rows[0], { t: new Date(2026, 8, 10, 16, 20, 16).getTime(), ok: true, fan0: 1200, fan1: 1210, chip: 71, board: 63.5, hwerr: 3, accepted: 5, rebootcnt: 0, watts: 187.2 });
+    assert.deepStrictEqual(rows[0], { t: new Date(2026, 8, 10, 16, 20, 16).getTime(), ok: true, fan0: 1200, fan1: 1210, chip: 71, board: 63.5, elapsed: 100, hwerr: 3, accepted: 5, rebootcnt: 0, watts: 187.2, hot_peak: null, hot_level: null, chip_avg: null });
     assert.strictEqual(rows[1].watts, null);
     assert.strictEqual(rows[2].ok, false);
     assert.strictEqual(rows[2].watts, 38.7);                 // the plug still answers while the miner is down

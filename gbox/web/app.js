@@ -221,6 +221,12 @@ function chartKey(opts) {
   else MARKER_KEY.forEach(k => items.push({ glyph: k[0], text: k[1] }));
   if (o.bars) items.push({ swatch: "bar", text: "board resets: the miner reinitializing its own hashboard; nothing gbox did" });
   if (o.band) items.push({ swatch: "band", text: "alarm: a board reset, or bad share over 1%, in that bucket" });
+  if (o.temps) {      // the temperature panel's three series and its guide line, hottest last, as the plan's colour table
+    items.push({ swatch: "amber", text: "chips avg: the board's mean chip temperature, from the cgminer log" });
+    items.push({ swatch: "hot", text: "hottest chip: sustained level, the 5-minute median of 5-second readings" });
+    items.push({ swatch: "hotband", text: "up to that bucket's peak reading" });
+    items.push({ swatch: "guide", text: "serious at " + o.temps + " °C sustained" });
+  }
   return items;
 }
 // The plug, as /api/health reports it: appended to the service line. Empty without a plug.
@@ -296,14 +302,37 @@ function envRowsFrom(text) {
   if (lines.length < 2) return [];
   const head = lines[0].split(","), ix = k => head.indexOf(k);
   const it = ix("time"), ih = ix("http"), if0 = ix("fan0"), if1 = ix("fan1"), ic = ix("tstemp0"), ib = ix("tstemp2"), iw = ix("watts");
-  const ie = ix("hwerr"), ia = ix("accepted"), ir = ix("rebootcnt");
+  const ie = ix("hwerr"), ia = ix("accepted"), ir = ix("rebootcnt"), iel = ix("elapsed");
+  const ihp = ix("hot_peak"), ihl = ix("hot_level"), ica = ix("chip_avg");   // 0.7.0: set on the rows that read the cgminer log
   const num = s => (s === "" || s === undefined) ? NaN : +s;
+  const opt = (r, i) => (i < 0 || r.length <= i || r[i] === "") ? null : +r[i];
   return lines.slice(1).map(l => l.split(",")).filter(r => r.length > ib && r[it])
     .map(r => ({ t: new Date(r[it].replace(" ", "T")).getTime(), ok: r[ih] === "ok",
-      fan0: num(r[if0]), fan1: num(r[if1]), chip: num(r[ic]), board: num(r[ib]),
+      fan0: num(r[if0]), fan1: num(r[if1]), chip: num(r[ic]), board: num(r[ib]), elapsed: num(r[iel]),
       hwerr: num(r[ie]), accepted: num(r[ia]), rebootcnt: num(r[ir]),
-      watts: (iw < 0 || r.length <= iw || r[iw] === "") ? null : +r[iw] }))
+      watts: opt(r, iw), hot_peak: opt(r, ihp), hot_level: opt(r, ihl), chip_avg: opt(r, ica) }))
     .filter(r => !isNaN(r.t));
+}
+// The Hottest chip tile (0.7.0), from the service log's cgminer-log columns. The flag sits on the sustained level (the
+// median of the miner's 5-second readings over one read), never on the peak: on the unit this was built against the
+// peak reads 90+ a few times an hour at normal operation while the level sits at 81 to 82, so a flag on the peak would
+// never go out. Highs are over the rows since `bootT` (the miner's boot, from its uptime), or over every served row
+// without one. null when no row carries the columns; stale when the newest read is over 15 minutes old.
+const HOT_STALE_MS = 15 * 60000;
+function hottestChip(rows, now, temps, bootT) {
+  const read = (rows || []).filter(r => r.ok && r.hot_level !== null && r.hot_level !== undefined).sort((a, b) => a.t - b.t);
+  if (!read.length) return null;
+  const last = read[read.length - 1], t = temps || {};
+  const serious = t.hot_serious == null ? 85 : t.hot_serious, critical = t.hot_critical == null ? 90 : t.hot_critical;
+  let levelHigh = null, peakHigh = null;
+  read.filter(r => bootT == null || r.t >= bootT).forEach(r => {
+    if (levelHigh === null || r.hot_level > levelHigh.v) levelHigh = { v: r.hot_level, t: r.t };
+    if (r.hot_peak !== null && (peakHigh === null || r.hot_peak > peakHigh.v)) peakHigh = { v: r.hot_peak, t: r.t };
+  });
+  const stale = now - last.t > HOT_STALE_MS;
+  return { level: last.hot_level, peak: last.hot_peak, chipAvg: last.chip_avg, t: last.t, stale: stale,
+    cls: stale ? "" : last.hot_level >= critical ? "critical" : last.hot_level >= serious ? "serious" : "",
+    levelHigh: levelHigh, peakHigh: peakHigh, serious: serious, critical: critical };
 }
 // The last hour from the service log, for the tiles: board resets, bad nonces and accepted shares as sums of the
 // row-to-row increments (a boot restarts every counter at zero, so a plain difference would go negative). The last ok
@@ -447,6 +476,7 @@ function seriesRows(s) {
     t: parseStamp(b.t) + half, label: b.t, ok: b.samples > 0, samples: b.samples, errors: b.errors,
     hashrate: b.hashrate, fan0: b.fan0, fan1: b.fan1, chip: b.chip_temp, board: b.board_temp, watts: b.watts, clock: b.clock,
     share: b.share, worst_share: b.worst ? b.worst.share : null, worst: b.worst, resets: b.resets, good: b.good, bad: b.bad,
+    hot_peak: b.hot_peak, hot_level: b.hot_level, chip_avg: b.chip_avg,       // 0.7.0; undefined from an older service
   }));
 }
 const nfmt = (v, d) => (v === null || v === undefined || isNaN(v)) ? "—" : v.toLocaleString("en-US", { minimumFractionDigits: d || 0, maximumFractionDigits: d || 0 });
@@ -528,7 +558,7 @@ function axisTicks(spanMin, now, wide) {
   }
   return { tickEvery: 60, labels: labels };
 }
-const VERSION = "0.6.5";
+const VERSION = "0.7.0";
 // The wall-clock time under a chart's "now" label: 24-hour, minutes only, so the last refresh reads at a glance.
 function clockLabel(t) { const d = new Date(t); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
 // The service log as the page shows it: newest line on top, like the interventions table, so a short window shows what matters.
@@ -555,7 +585,7 @@ function holdLine(h) {
   const twice = "the miner hashes twice in a row" + (hold.ok_streak ? " (" + hold.ok_streak + " so far)" : "");
   return head + ": nothing is judged until " + twice + ", or " + (hold.until ? hold.minutes_left + " min pass" : "you press Release") + ".";
 }
-if (typeof module !== "undefined") module.exports = { VERSION, clockLabel, newestFirst, ladderLine, encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
+if (typeof module !== "undefined") module.exports = { VERSION, hottestChip, clockLabel, newestFirst, ladderLine, encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, withMhz, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
   powerActionRequest, holdRequest, holdReleaseRequest, holdLine, seriesRows, errorTip, resetsTip, clockTip, axisTicks, parseStamp, errorFacts, markerWords,
   markerGlyph, markerKind, markerTitle, chartKey, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf, alarmBucket, resetsSuffix, profileFor, modelNote,
@@ -713,17 +743,37 @@ async function refresh() {
   }
 }
 
+// The Hottest chip tile: the sustained level as the number and the flag, the peak and the chip average beside it, the
+// since-boot highs beneath. Without a log read yet (or as a file, with no service), the firmware's own chip field
+// stands in on the second line, named for what it is: the average, not the hottest.
+function renderHottest(info, hot, booted) {
+  const b = v => "<b class=\"v2\">" + v + "</b>", board = b(fmt(info.boardTemp, 1) + " °C") + " board sensor";
+  if (!hot) {
+    $("hottest").textContent = "—";
+    $("hotsub").innerHTML = "chips avg " + b(fmt(info.chipTemp) + " °C") + " · " + board;
+    $("hotboot").textContent = service ? "hottest chip: waiting for the first cgminer-log read" : "hottest chip needs the gbox service";
+    $("t_temp").className = "tile"; return;
+  }
+  $("hottest").textContent = hot.stale ? "—" : fmt(hot.level) + " °C";
+  $("hotsub").innerHTML = (hot.stale ? "log read overdue since " + clockLabel(hot.t) + " · "
+    : "peak " + b(fmt(hot.peak)) + " · chips avg " + b(fmt(hot.chipAvg)) + " · ") + board;
+  $("hotboot").textContent = (booted ? "since boot" : "in the served log") + ": level high " + fmt(hot.levelHigh.v) + " °C at " + clockLabel(hot.levelHigh.t) +
+    (hot.peakHigh ? ", peak " + fmt(hot.peakHigh.v) + " at " + clockLabel(hot.peakHigh.t) : "");
+  $("t_temp").className = "tile" + (hot.cls ? " " + hot.cls : "");
+}
 function render(d) {
   const info = d.info, chips = d.boards.flat(), setting = d.setting, status = d.status, now = Date.now();
   if (!baseline) baseline = { t: now, rebootcnt: info.rebootcnt, hwErrors: info.hwErrors, accepted: info.accepted, chips: Object.fromEntries(chips.map(c => [c.chip, c])) };
   if (info.accepted !== lastAccepted) { lastAccepted = info.accepted; lastAcceptedChange = now; }
   const stalledMin = (now - lastAcceptedChange) / 60000, minutes = Math.max((now - baseline.t) / 60000, 0.01);
   const rbd = info.rebootcnt - baseline.rebootcnt;
+  const hot = envRows ? hottestChip(envRows, now, service && service.temps, info.elapsed ? now - info.elapsed * 1000 : null) : null;
 
   // status badge: state always carries a word, never color alone
   if (stalledMin >= 5) setBadge("bad", "STALLED · no new shares for " + Math.floor(stalledMin) + " min");
   else if (rbd > 0 && rbd / minutes > 0.5) setBadge("warn", "RESET LOOP · board resetting repeatedly");
-  else if (info.chipTemp >= 85) setBadge("warn", "HOT · chips " + fmt(info.chipTemp) + " °C");
+  else if (hot && hot.cls === "critical") setBadge("bad", "HOT · hottest chip " + fmt(hot.level) + " °C sustained");
+  else if (hot && hot.cls === "serious") setBadge("warn", "HOT · hottest chip " + fmt(hot.level) + " °C sustained");
   else setBadge("ok", "hashing");
 
   // Every window is named with a clock time the viewer can see: the boot (from uptime), the last hour (from the
@@ -744,8 +794,7 @@ function render(d) {
   $("rbdelta").textContent = sinceBoot + " · " + (hour ? fmt(hour.resets) + " in the last hour" : "+" + fmt(rbd) + " since " + opened + " (page opened)");
   $("t_rb").className = "tile" + ((hour ? hour.resets > 0 : rbd > 0) ? " critical" : "");
   $("chipsub").textContent = "good and bad nonces " + sinceBoot + "; bad/min since " + opened + " (page opened)";
-  $("chiptemp").textContent = fmt(info.chipTemp) + " °C"; $("boardtemp").innerHTML = "<b class=\"v2\">" + fmt(info.boardTemp, 1) + " °C</b> board sensor (what the stock UI shows)";
-  $("t_temp").className = "tile" + (info.chipTemp >= 85 ? " critical" : info.chipTemp >= 78 ? " serious" : "");
+  renderHottest(info, hot, !!info.elapsed);
   $("fans").textContent = (fanPct === null ? "" : fmt(fanPct) + " % · ") + fmt(info.fan0) + " / " + fmt(info.fan1);
   $("fansub").innerHTML = (fanPct === null ? "" : "% · ") + "RPM fan0 / fan1 · target <b class=\"v2\">" + Number(setting.temp_target) + " °C</b>";
   $("accepted").textContent = fmt(info.accepted); $("rejected").textContent = "rejected " + fmt(info.rejected);
@@ -957,6 +1006,25 @@ function drawPanels(box, panels, rows, spanMin, now, tipText, aria, opts) {
     s += "<rect class=\"panelhl\" id=\"" + box.id + "-hl" + i + "\" x=\"" + L + "\" y=\"" + (top - 14) + "\" width=\"" + (xR - L) + "\" height=\"" + (PH + 14) + "\" style=\"display:none\"/>";
     if (i > 0) s += "<line class=\"sep\" x1=\"" + (L - 40) + "\" x2=\"" + (W - R) + "\" y1=\"" + (top - GAP / 2) + "\" y2=\"" + (top - GAP / 2) + "\"/>";
     s += "<text class=\"axis\" x=\"" + (L - 6) + "\" y=\"" + (top - 10) + "\" text-anchor=\"end\">" + p.label + "</text>";
+    if (p.range) {
+      // a band between two series (the hottest chip's sustained level and its peak): one filled path per contiguous run
+      const [lo, hi, rcls] = p.range; let up = "", down = [], prevT = null, d = "";
+      const flush = () => { if (up && down.length) d += up + down.reverse().map(pt => "L" + pt).join("") + "Z"; up = ""; down = []; };
+      rows.forEach(r => {
+        if (!has(r[lo]) || !has(r[hi])) { flush(); prevT = null; return; }
+        const X = xOf(r.t).toFixed(1), Yhi = y(r[hi]).toFixed(1);
+        if (prevT === null || r.t - prevT >= gapMs) { flush(); up = "M" + X + " " + Yhi; } else up += "L" + X + " " + Yhi;
+        down.push(X + " " + y(r[lo]).toFixed(1)); prevT = r.t;
+      });
+      flush();
+      if (d) s += "<path class=\"" + rcls + "\" d=\"" + d + "\"/>";
+    }
+    (p.guides || []).forEach(g => {
+      const gy = y(g.value).toFixed(1);
+      s += "<line class=\"" + g.cls + "\" x1=\"" + L + "\" x2=\"" + xR + "\" y1=\"" + gy + "\" y2=\"" + gy + "\"/>";
+      if (g.text) s += "<text class=\"guidelbl\" x=\"" + (L + 4) + "\" y=\"" + (y(g.value) - 4).toFixed(1) + "\">" + g.text + "</text>";
+    });
+    const labels = [];
     (p.series || []).forEach(([key, cls, name, style], idx) => {
       let d = "", area = "", prev = null, last = null, yPrev = null, runStart = null, base = y(p.min).toFixed(1);
       const closeRun = () => { if (runStart !== null && last) area += "L" + xOf(last.t).toFixed(1) + " " + base + "L" + runStart + " " + base + "Z"; runStart = null; };
@@ -970,8 +1038,12 @@ function drawPanels(box, panels, rows, spanMin, now, tipText, aria, opts) {
       closeRun();
       if (!last) return;
       if (style && style.fill) s += "<path class=\"area\" d=\"" + area + "\"/>";   // the clock as a block: each contiguous run filled to the baseline
-      s += "<path class=\"line " + cls + "\" d=\"" + d + "\"/><text class=\"lbl\" x=\"" + (xOf(last.t) - 4) + "\" y=\"" + (y(last[key]) + (idx ? 15 : -6)) + "\" text-anchor=\"end\">" + name + " " + fmt(last[key], p.step < 1 ? 2 : 0) + "</text>";
+      s += "<path class=\"line " + cls + "\" d=\"" + d + "\"/>";
+      labels.push({ x: xOf(last.t) - 4, y: y(last[key]) + (idx ? 15 : -6), text: name + " " + fmt(last[key], p.step < 1 ? 2 : 0) });
     });
+    // every line is named at its right end; with three lines close together the names are pushed apart, not stacked
+    labels.sort((a, b) => a.y - b.y).forEach((l, i) => { if (i && l.y - labels[i - 1].y < 13) l.y = labels[i - 1].y + 13; });
+    labels.forEach(l => { s += "<text class=\"lbl\" x=\"" + l.x + "\" y=\"" + l.y.toFixed(1) + "\" text-anchor=\"end\">" + l.text + "</text>"; });
     if (p.bars) {
       // one bar per bucket from the baseline, the tallest labeled with its count
       const bw = Math.max(2, (xR - L) * (o.bucketMin || 5) / spanMin * 0.7);
@@ -1031,14 +1103,22 @@ function renderEnv() {
   if (long) $("envsub").textContent = "last 24 hours from the gbox service log, 5-minute means; board resets per 5 minutes below";
   const rated = ratedFor(lastModel), maxRpm = rated && rated.fan_max_rpm;
   const fanMax = niceMax(Math.max(Math.max.apply(null, rows.map(r => Math.max(r.fan0, r.fan1))) * 1.05, maxRpm ? maxRpm * 1.1 : 0)) || 5000;
+  // 0.7.0: with cgminer-log columns in the served buckets, the panel shows board, chips average and hottest chip (heat
+  // order), a band from the sustained level up to the peak, and the serious line; otherwise the firmware's two fields
+  const hotRows = !!long && rows.some(r => r.hot_level !== null && r.hot_level !== undefined);
+  const temps = (service && service.temps) || {}, serious = temps.hot_serious == null ? 85 : temps.hot_serious;
+  const hotSuffix = r => (!hotRows || r.hot_level == null) ? "" : " · chips avg " + fmt(r.chip_avg) + " · hottest " + fmt(r.hot_level) + " (peak " + fmt(r.hot_peak) + ")";
   const panels = [
     { label: "RPM", min: 0, max: fanMax, step: fanMax / 5, series: [["fan0", "", "fan0"], ["fan1", "s2", "fan1"]], rated: maxRpm ? { value: maxRpm, title: "% of max RPM" } : null },
-    { label: "°C", min: 20, max: 100, step: 20, series: [["chip", "", "chip"], ["board", "s2", "board"]], rated: null } ];
+    hotRows
+      ? { label: "°C", min: 20, max: 100, step: 20, series: [["board", "", "board"], ["chip_avg", "amber", "chips avg"], ["hot_level", "hot", "hottest"]],
+          range: ["hot_level", "hot_peak", "hotband"], guides: [{ value: serious, cls: "guide", text: "serious " + serious }], rated: null }
+      : { label: "°C", min: 20, max: 100, step: 20, series: [["chip", "", "chip"], ["board", "s2", "board"]], rated: null } ];
   if (long) panels.push(resetsPanel(rows));      // board resets per 5 minutes, next to the fans and temperatures they disturb
   drawPanels(box, panels, rows, spanMin, now, best => (long ? clockLabel(best.t) : new Date(best.t).toLocaleTimeString()) + (best.ok === false ? " · no samples" : " · fans " + fmt(best.fan0) + " / " + fmt(best.fan1) + " RPM" +
-    (maxRpm ? " (" + fmt(100 * Math.max(best.fan0, best.fan1) / maxRpm) + "% of max)" : "") + " · chip " + fmt(best.chip) + " °C · board " + fmt(best.board, 1) + " °C" + (long ? resetsSuffix(best) : "")),
+    (maxRpm ? " (" + fmt(100 * Math.max(best.fan0, best.fan1) / maxRpm) + "% of max)" : "") + " · chip " + fmt(best.chip) + " °C · board " + fmt(best.board, 1) + " °C" + hotSuffix(best) + (long ? resetsSuffix(best) : "")),
     "fan speed and temperature history", long ? servedOpts(box, spanMin, series24.bucket_minutes) : null);
-  if (long) renderKey("envkey", { bars: true, band: true }); else $("envkey").hidden = true;
+  if (long) renderKey("envkey", { bars: true, band: true, temps: hotRows ? serious : null }); else $("envkey").hidden = true;
   $("fanpctnote").textContent = maxRpm ? "Right axis: RPM as a share of " + fmt(maxRpm) + " RPM, the " + rated.name + "'s maximum (observed, not the duty cycle the Fans tile shows)."
     : (lastModel ? "No maximum fan speed on record for " + lastModel + ", so no percent axis." : "");
 }

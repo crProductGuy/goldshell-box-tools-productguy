@@ -39,6 +39,7 @@ class FakeMiner:
         self.minerinfo = _read("dbg_minerinfo.txt")
         self.icinfo = _read("dbg_icinfo.json")
         self.history = _read("cpb_hshistory.json")
+        self.syslog = _read("dbg_minersyslog.txt")     # the cgminer log: Avgtemp/MaxTemp lines, a boot line, a pool-user line
         self.restarts = 0
         self.logins = 0
         self.requests = []                      # (method, path) in arrival order
@@ -111,6 +112,7 @@ class FakeMiner:
                         "/dbg/minerinfo": lambda: outer.minerinfo,
                         "/dbg/icinfo": lambda: outer.icinfo,
                         "/cpb/hshistory": lambda: outer.history,
+                        "/dbg/minersyslog": lambda: outer.syslog,
                         "/dbg/fanctrllog": lambda: "Fans Change (fan0: 62 ==> 61) reason(t:64.2 acc:0.0 target_temp:65)\n",
                     }
                     if url.path in routes:

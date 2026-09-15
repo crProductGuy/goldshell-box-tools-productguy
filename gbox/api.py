@@ -65,6 +65,29 @@ def parse_minerinfo(text):
     return {name: _num(kv(text, key)) for name, key in _MINERINFO_FIELDS.items()}
 
 
+_CHIPTEMP_RE = re.compile(r"^\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\].*?Chip Avgtemp (-?\d+(?:\.\d+)?)'C, MaxTemp (-?\d+(?:\.\d+)?)'C")
+
+
+def parse_chiptemps(text, after=None):
+    """The `/dbg/minersyslog` temperature lines as (miner_timestamp, chip_avg, chip_max) tuples, in log order.
+
+    One line every 5 s: ` [2026-09-15 07:36:21] C0: Chip Avgtemp 69.000000'C, MaxTemp 79.000000'C`.
+    The timestamp is the miner's own clock (only good for ordering); `after` keeps lines newer than
+    that timestamp. Nothing but numbers and timestamps leaves this function: the log repeats the
+    pool user, so its text is never stored or logged by anything that calls it.
+    """
+    out = []
+    for line in text.splitlines():
+        m = _CHIPTEMP_RE.match(line)
+        if not m:
+            continue
+        ts = m.group(1)
+        if after is not None and ts <= after:
+            continue
+        out.append((ts, float(m.group(2)), float(m.group(3))))
+    return out
+
+
 def parse_icinfo(text):
     """`/dbg/icinfo` -> list of boards, each a list of {chip, good, bad}."""
     body = json.loads(json.loads(text)["body"])
@@ -336,6 +359,10 @@ class Miner:
 
     def history(self):
         return json.loads(self.get("cpb/hshistory"))
+
+    def syslog(self):
+        """The cgminer log as text (about 2 MB; the firmware truncates it near 3 MB). Never persist it."""
+        return self.get("dbg/minersyslog")
 
     # -- writes
 

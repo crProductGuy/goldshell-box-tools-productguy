@@ -513,7 +513,8 @@ def cmd_serve(args, cfg, data_dir):
     if control is not None and cfg.power.get("schedule"):
         scheduler = Scheduler(cfg.power["schedule"], control, events)
         events.write("service: schedule %s" % scheduler.describe())
-    poller = Poller(miner, data_dir / "log.csv", cfg.poll_interval, watchdog=wd, events=events, plug=plug, scheduler=scheduler)
+    poller = Poller(miner, data_dir / "log.csv", cfg.poll_interval, watchdog=wd, events=events, plug=plug, scheduler=scheduler,
+                    syslog_interval=cfg.syslog_interval)
     state.poller, state.watchdog, state.power_control = poller, wd, control
 
     url = "http://%s:%d/" % ("127.0.0.1" if cfg.bind in ("0.0.0.0", "") else cfg.bind, cfg.port)

@@ -17,6 +17,7 @@ from pathlib import Path
 
 CONFIG_NAME = "config.json"
 MIN_POLL_INTERVAL = 10          # seconds; faster polling crashes the miner's web backend
+MIN_SYSLOG_INTERVAL = 60        # seconds between cgminer-log reads (about 2 MB each); 0 turns the read off
 
 DEFAULT_WATCHDOG = {
     "enabled": True,
@@ -41,6 +42,16 @@ DEFAULT_POWER = {
     "idle_watts": 100,           # below this the miner is idle (hung draws about 34 W, hashing 180+)
 }
 PLUG_DRIVERS = ("kasa",)
+
+# 0.7.0: the hottest chip, read from the cgminer log every syslog_interval seconds (0 turns the read off).
+# The flags sit on the sustained level (the 5-minute median of the 5-second readings), not on the peak:
+# on the unit this was built against the peak reads 90+ a few times an hour at normal operation while the
+# level sits at 81 to 82. Thresholds from that unit's record (steady p50 81, p95 86); not sourced beyond it.
+DEFAULT_SYSLOG_INTERVAL = 300
+DEFAULT_TEMPS = {
+    "hot_serious": 85,           # sustained level at or above this: the tile and the header badge turn serious
+    "hot_critical": 90,          # and critical
+}
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 
@@ -73,9 +84,12 @@ def validate_schedule(sched):
 
 class Config:
     def __init__(self, host="", poll_interval=30, bind="127.0.0.1", port=8765,
-                 password_hex=None, watchdog=None, power=None):
+                 password_hex=None, watchdog=None, power=None, syslog_interval=DEFAULT_SYSLOG_INTERVAL, temps=None):
         self.host = host
         self.poll_interval = int(poll_interval)
+        self.syslog_interval = int(syslog_interval)
+        self.temps = dict(DEFAULT_TEMPS)
+        self.temps.update(temps or {})
         self.bind = bind
         self.port = int(port)
         self.password_hex = password_hex
@@ -101,6 +115,11 @@ class Config:
             raise ValueError("poll_interval must be at least %d seconds" % MIN_POLL_INTERVAL)
         if not 1 <= self.port <= 65535:
             raise ValueError("port out of range")
+        if self.syslog_interval != 0 and self.syslog_interval < MIN_SYSLOG_INTERVAL:
+            raise ValueError("syslog_interval must be 0 (off) or at least %d seconds" % MIN_SYSLOG_INTERVAL)
+        serious, critical = int(self.temps["hot_serious"]), int(self.temps["hot_critical"])
+        if not 40 <= serious < critical <= 120:
+            raise ValueError("temps.hot_serious must be below temps.hot_critical, both between 40 and 120")
         if self.power is not None:
             p = self.power
             if p.get("driver") not in PLUG_DRIVERS:
@@ -122,7 +141,7 @@ class Config:
 
     def to_dict(self, include_secret=True):
         d = {"host": self.host, "poll_interval": self.poll_interval, "bind": self.bind,
-             "port": self.port, "watchdog": self.watchdog}
+             "port": self.port, "watchdog": self.watchdog, "syslog_interval": self.syslog_interval, "temps": self.temps}
         if self.power is not None:
             d["power"] = self.power
         if include_secret and self.password_hex:
@@ -131,7 +150,8 @@ class Config:
 
     @classmethod
     def from_dict(cls, d):
-        known = {k: d[k] for k in ("host", "poll_interval", "bind", "port", "password_hex", "watchdog", "power") if k in d}
+        known = {k: d[k] for k in ("host", "poll_interval", "bind", "port", "password_hex", "watchdog", "power",
+                                   "syslog_interval", "temps") if k in d}
         return cls(**known)
 
 

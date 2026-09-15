@@ -5,8 +5,10 @@ Status: pre-release, under construction. See `STATUS.md` and `docs/plan.md`.
 A small, dependency-free toolkit for Goldshell Box-series miners (SC-BOX,
 KD-BOX, HS-BOX, LT-BOX and relatives running the "cloud-box" MCB_V5 firmware):
 
-- a status dashboard that shows what the stock web UI hides: real chip
-  temperature, per-chip health, the board reset counter, fan duty, hashrate,
+- a status dashboard that shows what the stock web UI hides: the hottest
+  chip's temperature (the firmware's own chip field is the board average,
+  and the hottest chip sits 10 C or more above it), per-chip health, the
+  board reset counter, fan duty, hashrate,
   fan and temperature history, power at the wall from a metering smart
   plug, right-hand axes in percent of the model's rated figures, and a
   table of every intervention the software (or you) made, with how long
