@@ -1557,3 +1557,55 @@ config integers and page code that renders numbers.
 Left out on purpose: the essay chapter for 0.7.0 (item 2 of the list,
 Mark's read first), the push and the tag on GitHub (his word), and the
 flaky token test. Gates 2 and 3 are 0.8.0 as the plan recommended.
+
+## 2026-09-15 morning, session T: the night's incident read, the P and H row, 0.7.1
+
+Mark, on waking: "We had freezes & 2 power cycles and a reset storm between
+06.45 and 07.45 today. See what you can learn." And: "would you add a P and
+H row (powerplug codes) _above_ the 24-hour graphs? The graph tops only
+currently seem to show W and S, but not P or Hold ... Plan it."
+
+The incident, read by a subagent from the two logs and returned as
+conclusions: one real freeze at 06:31 (37 W, the hung-controller
+signature, nothing unusual before it); the first plug cycle at 06:40 did
+not boot the controller at all (12 W for 25 minutes, below even the hung
+level) and the ladder waited out its settle gap before the second cycle
+at 07:06 worked; a storm of 61 board resets eight minutes after that boot,
+then the board taking work without hashing it for 17 minutes until the
+watchdog's stall rule sent the soft restart that fixed it. Two things
+checked on purpose: the new five-minute log read is not the cause (every
+freeze onset all night was 210 to 240 s after a read, never within 60, and
+126 of 126 reads succeeded while the miner answered), and the hottest chip
+showed nothing before the freeze. One thing the incident exposed: the
+miner's log survives a power cycle, so the first read after the 07:07 boot
+reported the run before the freeze (level 77 with the board at 38 C).
+
+The chart request, planned from the code: P and H were already drawn, on
+the one glyph row inside the plot's top edge, and were buried under the
+string of "restart attempt failed" Ws a freeze produces (46 in the log
+against 15 cycles). Design: a second row above the plot for P and H, one
+letter per run of close marks on each row with the lines kept, the first
+panel's unit label and right-axis title moved up with the headroom, and
+the legend above the fans chart corrected (it still said chip temperature
+and board sensor in the pre-0.7.0 colours; HTML above the SVG, so it
+needed correcting, not raising). Three choices put to Mark with
+recommendations, all accepted: no glyph for a hold's release, a page-driven
+switch counts as P, the three-day chart keeps its rotated words. Mark:
+"include the stale-read fix and start the build now."
+
+Also answered from one bounded live read of the log (3.5 MB, 50,857 lines,
+0.8 s, only line shapes printed): `C0` on the temperature line is the
+chain, and no line in the log names a chip's temperature, so which chip is
+hottest is never reported. Mark's idea for a "did the cycle boot?" check on
+wall power was sized from the watchdog code as about thirty lines plus
+tests; recommended as its own 0.7.2, not bundled, because it changes when
+the plug fires. He has an SC5 Pro capture from a friend for gate 2.
+
+Built as 0.7.1 on a worktree branch: `markerRow` and `dropClose` pure and
+tested, the two rows in `drawPanels`, `last_boot_ts` in the parser and the
+poller dropping readings older than the newest boot line, 357 Python and
+57 JS tests green, merged fast-forward, service restarted 09:53, then a
+subagent's browser pass over this morning's window: the H at 15:30
+yesterday and the two Ps at 06:40 and 07:06 above the plot, the Ws and Ss
+inside it, 21 mark lines drawn as 12 letters, the axis labels clear, the
+legend right. Not pushed: at Mark's word.
