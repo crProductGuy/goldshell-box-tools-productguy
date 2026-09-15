@@ -1587,7 +1587,7 @@ against 15 cycles). Design: a second row above the plot for P and H, one
 letter per run of close marks on each row with the lines kept, the first
 panel's unit label and right-axis title moved up with the headroom, and
 the legend above the fans chart corrected (it still said chip temperature
-and board sensor in the pre-0.7.0 colours; HTML above the SVG, so it
+and board sensor in the pre-0.7.0 colors; HTML above the SVG, so it
 needed correcting, not raising). Three choices put to Mark with
 recommendations, all accepted: no glyph for a hold's release, a page-driven
 switch counts as P, the three-day chart keeps its rotated words. Mark:
