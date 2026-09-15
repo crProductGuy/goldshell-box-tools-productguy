@@ -1450,3 +1450,45 @@ the status doc updated. Nothing in gbox changed; 0.6.5 live, 212
 samples, one error, eighteen restarts and seven cycles counted from the
 last day, no hold. Gate 2 still waits for the SC5 Pro II capture.
 
+Then the session's real question. Mark: "I'm troubled by that very high
+max chip temp that you saw early this morning of around 90-93C. Are we
+capturing the max chip temp ... where could we put that to make it
+obvious as a Danger flag ... do you think that very high chip temp is
+maybe chip 8 with bad thermal paste? ... Reason this out, recommend."
+Two read-only passes over the code and the data first. Finding one: the
+service captures no hottest-chip figure at all. The field the tile calls
+chip temperature is identical to its twin in every sample of three days,
+quantized to whole degrees, never above 75, and the per-chip temperature
+fields the firmware exposes read zero for all sixteen chips. The 93 lived
+only in the miner's cgminer log, read by hand overnight and never saved.
+With Mark's word, three reads of that log between the service's polls
+(the second wasted by a parser anchored on a bracket the lines do not
+start with; owned and recorded). The line, every five seconds: chip
+average and hottest chip, no chip index. Over 15,333 lines and 17 boots:
+the hottest chip sits a fixed 11 degrees above the average, the same
+after boots and at steady state, at both clocks, on both supplies; the
+readings at 90 and above are 74 single five-second samples on a level
+that holds at 81 to 82; the PSU and fan change bought about 4 degrees.
+Recommendation, with the reasoning written into the plan: do not
+re-paste. A failed thermal interface shows twenty degrees or more and
+drifts; eleven and steady is the position on the board. The trigger for
+hardware work is the capture below showing the offset drifting up or the
+sustained level above 90, neither visible now. The one pushback on the
+ask: a since-boot peak as the danger flag would read 92 within an hour
+of every boot, so the flag sits on the sustained level (median over five
+minutes) with the peak beside it and the since-boot highs kept as he
+asked. Design: a log read every five minutes as a fourth serialized
+request, three appended columns (peak, level, chip average), thresholds
+85 and 90 on the level from this unit's own distribution, the tile
+renamed Hottest chip, a red series with a peaks band on the temperature
+panel. Mockup as a design canvas with two tile directions and the panel,
+in the dashboard's own colours. Mark: "I accept A," then asked that the
+board trace not be red beside the hottest chip and that accessibility
+principles apply. The triplet was run through the palette checker on
+both surfaces: board blue, chips average amber, hottest chip red and
+thicker, every line named at its end so identity never rests on colour.
+The build is a full gate and goes to a fresh session from the plan;
+this session also found the essay had not been touched since the ninth
+(no rule required it), had its second half drafted from this log, and
+committed it with the README's summary paragraph.
+
