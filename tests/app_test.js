@@ -78,6 +78,12 @@ const tests = {
       "2026-09-12 12:00:00 c\n2026-09-12 11:00:00 b\n2026-09-12 10:00:00 a");
     assert.strictEqual(app.newestFirst(""), "");
   },
+  "ladderLine names the boot check when the ladder serves it"() {
+    const lad = { stall_minutes: 5, unreachable_minutes: 2, min_gap_minutes: 5, max_restarts_per_day: 12, after_minutes: 5, settle_minutes: 20, max_cycles_per_day: 3, boot_watts: 20, boot_check_minutes: 2, config_path: "c" };
+    const s = app.ladderLine({ watchdog: { enabled: true }, power: { configured: true }, ladder: lad });
+    assert.ok(s.includes("20 min to settle (under 20 W 2 min after a cycle means it never booted: cycled again at once, once); caps"), s);
+    assert.ok(!app.ladderLine({ watchdog: { enabled: true }, power: { configured: true }, ladder: Object.assign({}, lad, { boot_check_minutes: 0 }) }).includes("never booted"));
+  },
   "ladderLine: the watchdog's timings and caps in one sentence, and where to change them"() {
     const lad = { stall_minutes: 5, unreachable_minutes: 2, min_gap_minutes: 5, max_restarts_per_day: 20,
       after_minutes: 5, settle_minutes: 20, max_cycles_per_day: 8, config_path: "C:\\u\\.gbox\\config.json" };

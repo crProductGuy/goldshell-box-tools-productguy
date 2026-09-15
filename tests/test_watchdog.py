@@ -336,6 +336,59 @@ class PowerCycleTest(unittest.TestCase):
         self.assertEqual(self.plug.calls, ["off", "on", "off", "on"])
         self.assertEqual(self.wd.cycles_today(), 2)
 
+    def test_a_cycle_that_leaves_the_wall_dark_is_repeated_once_at_once(self):
+        """2026-09-15 06:40: the plug cycled, the controller never came up (12 W for 25 min), and the ladder waited
+        out its settle gap before the cycle that worked. Now: under boot_watts two minutes after a cycle, cycle
+        again at once; if that one fails too, say so and leave it to the ladder."""
+        self.freeze(12)
+        self.feed(1, ok=False)                                      # 12 min: two failed restarts, cycle #1
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.plug.watts_value = 12.0                                # the controller did not come up
+        self.feed(3, ok=False)                                      # 13.5 min: the check is not due yet
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.feed(1, ok=False)                                      # 14 min: two minutes after the cycle
+        self.assertEqual(self.plug.calls, ["off", "on", "off", "on"])
+        self.assertEqual(self.wd.cycles_today(), 2)
+        line = [l for l in self.power_lines() if l.startswith("power: cycled #2")][0]
+        self.assertIn("controller did not come up after cycle #1: 12 W after 2 min", line)
+        self.plug.watts_value = 12.0                                # still dark after the repeat
+        self.feed(4, ok=False)                                      # 16 min: the second check
+        self.assertEqual(self.plug.calls, ["off", "on", "off", "on"])          # no third cycle from the check
+        self.assertTrue(any("already cycled again once" in l for l in self.power_lines()))
+
+    def test_a_cycle_that_boots_passes_the_check_quietly(self):
+        self.freeze(12)
+        self.feed(1, ok=False)                                      # cycle #1
+        self.plug.watts_value = 36.0                                # the controller is up, the board not yet hashing
+        self.feed(4, ok=False)                                      # 14 min: the check passes
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.assertFalse(any("did not come up" in l for l in self.lines))
+        # a good sample before the check clears it
+        self.wd = self.make()
+        self.plug.calls.clear()
+        self.freeze(12)
+        self.feed(1, ok=False)
+        self.plug.watts_value = 12.0
+        self.feed(1, ok=True)                                       # it answered: no check, whatever the meter says
+        self.feed(3, ok=True)
+        self.assertEqual(self.plug.calls, ["off", "on"])
+
+    def test_the_boot_check_honours_the_daily_cap_and_can_be_switched_off(self):
+        self.wd = self.make(max_cycles_per_day=1)
+        self.freeze(12)
+        self.feed(1, ok=False)                                      # cycle #1, the cap
+        self.plug.watts_value = 12.0
+        self.feed(4, ok=False)
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.assertTrue(any("is the cap; not cycling" in l and "did not come up" in l for l in self.power_lines()))
+        self.wd = self.make(boot_check_minutes=0)
+        self.plug.calls.clear()
+        self.freeze(12)
+        self.feed(1, ok=False)
+        self.plug.watts_value = 12.0
+        self.feed(10, ok=False)
+        self.assertEqual(self.plug.calls, ["off", "on"])
+
     def test_a_refused_rung_is_not_retried_on_every_sample(self):
         """The plug is asked once per rung, not every 30 s for the rest of the outage: after a refusal the
         next try waits for the next restart's turn (12 min: refused; 22.5 min: asked again)."""

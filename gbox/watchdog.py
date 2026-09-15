@@ -90,6 +90,7 @@ class Watchdog:
         self._cycle_times = deque()
         self.power_gap_until = None
         self._power_logged = False          # one "would cycle" / refusal / cap line per episode
+        self._boot_check = None             # {at, cycle, retry} after a cycle: did the controller come up at all?
         self.last_power_reason = None
         self.hold = None                    # None, or {since, until (None: no expiry), reason, source, ok_streak}
 
@@ -104,6 +105,7 @@ class Watchdog:
             self.episode_start = None
             self.episode_failed_restarts = 0
             self._power_logged = False
+            self._boot_check = None         # it answered: it booted
         elif self.episode_start is None:
             self.episode_start = t
         if self.hold is not None:
@@ -271,6 +273,7 @@ class Watchdog:
             if self.hold["until"] is not None and self._clock() >= self.hold["until"]:
                 self.hold_release("expired")
             return None
+        self._check_boot()
         reason = self.diagnose()
         self.last_reason = reason
         if not reason:
@@ -337,14 +340,51 @@ class Watchdog:
             self._power_once("power: would cycle now (%s; %s); dry run, set \"cycle\": true in config.json to arm"
                              % (reason, before))
             return
+        self._cycle(reason, before)
+
+    def _cycle(self, reason, before, retry=False):
+        """Open the relay and close it, start the settle gap, and book the boot check."""
+        now = self._clock()
         self.last_power_reason = reason
         self._cycle_times.append(now)
         self.power_gap_until = now + float(self.power["settle_minutes"]) * 60
         self.episode_failed_restarts = 0
         self._power_logged = False
+        self._boot_check = None
         try:
             self.plug.cycle(int(self.power["off_seconds"]), sleep=self._sleep)
             self._events.write("power: cycled #%d today: off %d s, on (%s; %s)"
                                % (self.cycles_today(), int(self.power["off_seconds"]), reason, before))
         except Exception as e:
             self._events.write("power: cycle failed: %s (%s; %s)" % (e, reason, before))
+            return
+        minutes = int(self.power.get("boot_check_minutes", 0) or 0)
+        if minutes > 0:
+            self._boot_check = {"at": self._clock() + minutes * 60, "cycle": self.cycles_today(), "retry": retry}
+
+    def _check_boot(self):
+        """`boot_check_minutes` after a cycle: is the controller drawing power at all? A cycle that leaves the
+        wall under `boot_watts` never booted (2026-09-15 06:40: 12 W for 25 minutes, below even the hung
+        controller's 34 W, until the ladder's next cycle). One repeat cycle, at once, within the daily cap; a
+        second failure is logged and left to the ladder."""
+        bc = self._boot_check
+        if bc is None or self._clock() < bc["at"] or self.plug is None:
+            return
+        self._boot_check = None
+        try:
+            info = self.plug.identify()
+            w = self.plug.watts() if info.get("meter") else None
+        except Exception as e:
+            self._events.write("power: boot check after cycle #%d skipped: plug did not answer (%s)" % (bc["cycle"], e))
+            return
+        if w is None or w >= float(self.power.get("boot_watts", 0)):
+            return
+        why = "controller did not come up after cycle #%d: %.0f W after %d min" % (bc["cycle"], w, int(self.power["boot_check_minutes"]))
+        if bc["retry"]:
+            self._events.write("power: %s; already cycled again once, leaving it to the ladder" % why)
+            return
+        cap = int(self.power["max_cycles_per_day"])
+        if self.cycles_today() >= cap:
+            self._events.write("power: %s, but %d cycles in 24 h is the cap; not cycling" % (why, cap))
+            return
+        self._cycle(why, "%.0f W before" % w, retry=True)
