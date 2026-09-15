@@ -14,7 +14,15 @@ No Goldshell code is reproduced here, only observed behavior.
   block, the CBC chain is identical up to there.
 - Response: `{"JWT Token": "<RS256 JWT>"}`. The payload has no expiry and no
   nonce, so every login returns the identical token and it never expires.
-  Treat the token as password-equivalent.
+  It is the same token on every unit: the payload is fixed and RS256 is
+  deterministic, and on 2026-09-15 the SC-BOX's token matched an SC5 Pro II's
+  on every one of 458 compared characters (payload: audience "yotta mc",
+  issuer intchains.com, id 1, subject "minerd"). So the web password gates
+  nothing the miner does over HTTP: anyone on the network holding any
+  Goldshell's token, and the helper repos on GitHub carry it, can read
+  settings, change pools or restart the unit. Treat the miner as an
+  unauthenticated device on a trusted LAN; gbox's own password prompt on
+  the power buttons guards the page, not the miner.
 - Every other request: header `Authorization: Bearer <token>`.
 - CORS: `Access-Control-Allow-Origin: *`. A preflight `OPTIONS` on
   `/mcb/setting` and `/mcb/restart` answers 200 with
@@ -39,7 +47,7 @@ No Goldshell code is reproduced here, only observed behavior.
 | `/mcb/uploadimage` | POST | firmware upload; never called |
 | `/mcb/tutorial`, `/mcb/resultpool`, `/mcb/wifiresult` | GET | stock UI helpers |
 | `/cpb/hshistory` | GET | JSON array, 288 samples, one per minute, MH/s, newest last, zeros before first sample |
-| `/dbg/minerinfo` | GET | cgminer-style text: `[key] => value` lines. Keys used: `Device Elapsed`, `MHS av`, `MHS 20s`, `Accepted`, `Rejected`, `Hardware Errors`, `Device Hardware%`, `clock`, `fan0`, `fan1`, `tstemp-0` (chip temperature: the board's chip average plus about 3 C on the SC-BOX, never the hottest chip; see the hashboard section), `tstemp-2` (board sensor), `rebootcnt`, `overheat` |
+| `/dbg/minerinfo` | GET | cgminer-style text: a `[STATUS]` block, then one `[PGAn] =>` block per hashboard (one on the SC-BOX; four on the SC5 Pro II, whose `[STATUS]` also carries `voltage` in mV, `current` (unit-level, mA by the arithmetic against the 3300 W rating, unverified) and `powerid`). Answered 200 on an SC5 Pro II (MCB_V3_3, fw 2.2.0) on 2026-09-15 with and without a Referer, so the "debug lock" the SC Lite notes describe is not on that firmware. Keys used: `Device Elapsed`, `MHS av`, `MHS 20s`, `Accepted`, `Rejected`, `Hardware Errors`, `Device Hardware%`, `clock`, `fan0`, `fan1`, `tstemp-0` (chip temperature: the board's chip average plus about 3 C on the SC-BOX, never the hottest chip; see the hashboard section), `tstemp-2` (board sensor), `rebootcnt`, `overheat` |
 | `/dbg/icinfo` | GET | JSON `{body: "<json string>"}`; `drawdata` is an array of boards, each an array of chips with `chipindex`, `perf` (good nonces), `hwerr` (bad nonces). Chips are numbered from 1. Since 0.6.0 the service logs every chip's counts each poll (`chips` column, `board.chip:good/bad`); the counters restart at every board reinit, so per-chip rates are sums of increments |
 | `/dbg/fanctrllog` | GET | fan daemon log, grows to ~1 MB; lines like `Fans Change (fan0: 62 ==> 61) ... reason(t:64.2 acc:0.0 target_temp:65)` |
 | `/dbg/minersyslog` | GET | cgminer log as text, 2 to 3.5 MB and 31k to 51k lines for a day (a 3.47 MB read on 2026-09-15 took 0.8 s). It survives a power cycle. The only place the hottest chip's temperature is reported: one line every 5 s, ` [YYYY-MM-DD HH:MM:SS] C0: Chip Avgtemp 69.000000'C, MaxTemp 79.000000'C` (leading space; `C0` is the chain, and no line anywhere in the log names a chip's temperature, so which chip is hottest is never reported; the miner's clock ran 12 h ahead of local time on this unit, so use its timestamps for ordering only). Also carries the `SCBOX Init sucessed. 16 chips` boot lines and `Write Chip0 Reg 4 Failed`. It repeats the pool user, so it must never be persisted or logged; `gbox serve` reads it every `syslog_interval` seconds (300 by default) and keeps three numbers from it |
@@ -48,6 +56,24 @@ No Goldshell code is reproduced here, only observed behavior.
 | `/dbg/vsinfo` | GET | 500 on this unit |
 
 The hidden page `/#/debug` in the stock UI renders most of the `/dbg/` data.
+
+## Port 4028 (no token)
+
+cgminer's classic socket API, `intminer 5.4.2`, answers on TCP 4028 with no
+token on the SC-BOX and on an SC5 Pro II (both checked 2026-09-15). Send one
+JSON object, read until the miner closes the connection; the reply ends in
+one NUL byte.
+
+| command | answer |
+|---|---|
+| `{"command":"devs"}` | `DEVS`: one object per hashboard with the same keys as the `[PGAn]` blocks of `/dbg/minerinfo` (`Device Elapsed`, `MHS av`, `MHS 20s`, `Nonced`, `Accepted`, `Rejected`, `Hardware Errors`, `Device Hardware%`, `clock`, `fan0..fanN`, `tstemp-0/1/2`, `overheat`, `rebootcnt`, `hwerr-ration`; plus `voltage`, `current`, `powerid` on the SC5 Pro II). Valid JSON. The values matched the HTTP read within a poll |
+| `{"command":"summary"}` | unit totals: `Elapsed`, `MHS av`, `MHS 20s`, `Accepted`, `Rejected`, `Hardware Errors`, `Device Hardware%`, pool percentages. No temperatures or fans |
+| `{"command":"stats"}` | malformed JSON (objects run together, `}{`); `temp_max` reads 0. Not used |
+| `{"command":"pools"}` | the pool URL and user. Never sent by gbox |
+
+It bypasses the web backend, so it has neither the token race nor the burst
+crash below, and it needs no login. A browser cannot open it, so the page
+still reads `/dbg/minerinfo`; the service reads 4028 first (gate 2, 0.8.0).
 
 ## Settings object
 
