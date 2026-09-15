@@ -162,10 +162,18 @@ class Poller(threading.Thread):
             return None, None, None
         self._syslog_next = now + self.syslog_interval
         try:
-            readings = api.parse_chiptemps(self.miner.syslog(), after=self._syslog_cursor)
+            text = self.miner.syslog()
+            readings = api.parse_chiptemps(text, after=self._syslog_cursor)
+            boot = api.last_boot_ts(text)
         except Exception:
             self.syslog_errors += 1
             return None, None, None
+        if boot is not None and (self._syslog_cursor is None or boot > self._syslog_cursor):
+            # the log survives a power cycle (2026-09-15 07:07: a row 18 s after a boot carried the run before the
+            # freeze); readings written before the newest boot line are the old run's, not this one's
+            readings = [r for r in readings if r[0] > boot]
+            if not readings:
+                self._syslog_cursor = boot
         if not readings:
             return None, None, None
         if self._syslog_cursor is None:     # first read: the last few minutes only, by the miner's own clock

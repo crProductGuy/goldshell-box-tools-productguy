@@ -154,6 +154,12 @@ class ChipTempsTest(unittest.TestCase):
         self.assertEqual(api.parse_chiptemps(""), [])
         self.assertEqual(api.parse_chiptemps("Chip Avgtemp nope'C, MaxTemp 'C\n[bad] C0: Chip Avgtemp 1'C"), [])
 
+    def test_last_boot_ts_is_the_newest_init_line(self):
+        self.assertEqual(api.last_boot_ts(self.text), "2026-09-15 07:35:50")
+        two = self.text + " [2026-09-15 08:00:00] C0: SCBOX Init sucessed. 16 chips, 256 Total goodcores. Wait 5s!!!\n"
+        self.assertEqual(api.last_boot_ts(two), "2026-09-15 08:00:00")
+        self.assertIsNone(api.last_boot_ts("no boot here\n"))
+
     def test_miner_syslog_is_one_get_of_text(self):
         fm = FakeMiner().start()
         self.addCleanup(fm.stop)

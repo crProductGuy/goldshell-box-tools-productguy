@@ -205,6 +205,20 @@ function eventMarkers(text) {
   });
   return out;
 }
+// Which glyph row an event line sits on, on the 24-hour charts: "top" (above the plot: P for a plug cycle or a
+// deliberate switch from the page, H for a hold's start), "in" (inside the top edge: ▼ W S), or null for a line
+// that gets no mark at all (plug back or unreachable, a hold's release: they stay in the interventions table).
+function markerRow(label) {
+  if (label.startsWith("power: ")) return /^power: (cycled|switched)/.test(label) ? "top" : null;
+  if (label.startsWith("hold: ")) return label.startsWith("hold: started") ? "top" : null;
+  return "in";
+}
+// Glyphs closer than minGap px to the previous kept glyph are dropped (their lines stay), so a storm reads as one
+// letter over a comb of lines. Returns one boolean per x, in order.
+function dropClose(xs, minGap) {
+  let last = -Infinity;
+  return xs.map(x => { if (x - last < minGap) return false; last = x; return true; });
+}
 function markerGlyph(label) {
   return label.startsWith("service") ? "S" : label.startsWith("power") ? "P" : label.startsWith("watchdog") ? "W" : label.startsWith("hold") ? "H" : "▼";
 }
@@ -218,7 +232,7 @@ function markerTitle(t, label) { return new Date(t).toLocaleTimeString() + " · 
 function chartKey(opts) {
   const o = opts || {}, items = [];
   if (o.words) items.push({ text: "labels: what you or the plug did, by name" });
-  else MARKER_KEY.forEach(k => items.push({ glyph: k[0], text: k[1] }));
+  else { MARKER_KEY.forEach(k => items.push({ glyph: k[0], text: k[1] })); items.push({ text: "P and H sit above the plot, ▼ W S inside its top edge; a run of the same mark shows one letter" }); }
   if (o.bars) items.push({ swatch: "bar", text: "board resets: the miner reinitializing its own hashboard; nothing gbox did" });
   if (o.band) items.push({ swatch: "band", text: "alarm: a board reset, or bad share over 1%, in that bucket" });
   if (o.temps) {      // the temperature panel's three series and its guide line, hottest last, as the plan's colour table
@@ -558,7 +572,7 @@ function axisTicks(spanMin, now, wide) {
   }
   return { tickEvery: 60, labels: labels };
 }
-const VERSION = "0.7.0";
+const VERSION = "0.7.1";
 // The wall-clock time under a chart's "now" label: 24-hour, minutes only, so the last refresh reads at a glance.
 function clockLabel(t) { const d = new Date(t); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
 // The service log as the page shows it: newest line on top, like the interventions table, so a short window shows what matters.
@@ -588,7 +602,7 @@ function holdLine(h) {
 if (typeof module !== "undefined") module.exports = { VERSION, hottestChip, clockLabel, newestFirst, ladderLine, encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, withMhz, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
   powerActionRequest, holdRequest, holdReleaseRequest, holdLine, seriesRows, errorTip, resetsTip, clockTip, axisTicks, parseStamp, errorFacts, markerWords,
-  markerGlyph, markerKind, markerTitle, chartKey, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf, alarmBucket, resetsSuffix, profileFor, modelNote,
+  markerGlyph, markerRow, dropClose, markerKind, markerTitle, chartKey, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf, alarmBucket, resetsSuffix, profileFor, modelNote,
   powerTile, envRowsFrom, lastHour, recentHashrate, interventions, interventionCounts };
 
 // ---- presentation (skipped under Node, where the data layer above is unit-tested) ----
@@ -836,7 +850,7 @@ function renderChips(boards, minutes) {
 
 function niceMax(v) { const p = Math.pow(10, Math.floor(Math.log10(Math.max(v, 1)))); return Math.ceil(v / p * 2) / 2 * p; }
 // Right-hand axis in percent of a rated figure: ticks at 0/25/50/75/100 that fall inside the panel, and a title.
-function rightAxis(xR, y, top, max, rated, title) {
+function rightAxis(xR, y, titleY, max, rated, title) {
   let s = "";
   [0, 25, 50, 75, 100].forEach(p => {
     const v = p / 100 * rated;
@@ -844,7 +858,7 @@ function rightAxis(xR, y, top, max, rated, title) {
     s += "<line class=\"raxis\" x1=\"" + xR + "\" x2=\"" + (xR + 4) + "\" y1=\"" + y(v).toFixed(1) + "\" y2=\"" + y(v).toFixed(1) + "\"/>" +
       "<text class=\"rlbl\" x=\"" + (xR + 7) + "\" y=\"" + (y(v) + 4).toFixed(1) + "\">" + p + "%</text>";
   });
-  return s + "<text class=\"rlbl axis\" x=\"" + (xR + 46) + "\" y=\"" + (top - 10) + "\" text-anchor=\"end\">" + title + "</text>";
+  return s + "<text class=\"rlbl axis\" x=\"" + (xR + 46) + "\" y=\"" + titleY + "\" text-anchor=\"end\">" + title + "</text>";
 }
 // Tooltip placement: to the right of the cursor, or to its left when the text would run off the chart's right edge.
 function placeTip(tip, xPx, yPx, boxWidth) {
@@ -990,7 +1004,7 @@ function logSpanMin() { return Math.max(lastHistory.filter(v => v > 0).length * 
 // { label, min, max, step, series: [[rowKey, cssClass, name]...], rated: { value, title } | null }.
 function drawPanels(box, panels, rows, spanMin, now, tipText, aria, opts) {
   const o = opts || {}, gapMs = o.gapMs || 180000, tk = o.ticks || null;
-  const W = Math.max(box.clientWidth, 320), L = 44, R = 12, PH = 130, GAP = 34, T = o.words ? 92 : 24, B = 48, n = panels.length;
+  const W = Math.max(box.clientWidth, 320), L = 44, R = 12, PH = 130, GAP = 34, T = o.words ? 92 : 40, B = 48, n = panels.length;   // T 40: room for the P/H row above the plot (24 until 0.7.1)
   const H = T + n * PH + (n - 1) * GAP + B, RW = panels.some(p => p.rated) ? 44 : 0, xR = W - R - RW, y0 = T + n * PH + (n - 1) * GAP;
   const xOf = t => L + (xR - L) * (1 - (now - t) / (spanMin * 60000));
   const has = v => v !== null && v !== undefined && !isNaN(v);
@@ -1005,7 +1019,8 @@ function drawPanels(box, panels, rows, spanMin, now, tipText, aria, opts) {
     for (let g = p.min; g <= p.max + 1e-9; g += p.step) s += "<line class=\"grid\" x1=\"" + L + "\" x2=\"" + xR + "\" y1=\"" + y(g) + "\" y2=\"" + y(g) + "\"/><text x=\"" + (L - 6) + "\" y=\"" + (y(g) + 4) + "\" text-anchor=\"end\">" + fmt(g, p.step < 1 ? 1 : 0) + "</text>";
     s += "<rect class=\"panelhl\" id=\"" + box.id + "-hl" + i + "\" x=\"" + L + "\" y=\"" + (top - 14) + "\" width=\"" + (xR - L) + "\" height=\"" + (PH + 14) + "\" style=\"display:none\"/>";
     if (i > 0) s += "<line class=\"sep\" x1=\"" + (L - 40) + "\" x2=\"" + (W - R) + "\" y1=\"" + (top - GAP / 2) + "\" y2=\"" + (top - GAP / 2) + "\"/>";
-    s += "<text class=\"axis\" x=\"" + (L - 6) + "\" y=\"" + (top - 10) + "\" text-anchor=\"end\">" + p.label + "</text>";
+    const ly = i ? top - 10 : top - 26;         // the first panel's labels sit above the P/H row; later panels' in the gap between panels
+    s += "<text class=\"axis\" x=\"" + (L - 6) + "\" y=\"" + ly + "\" text-anchor=\"end\">" + p.label + "</text>";
     if (p.range) {
       // a band between two series (the hottest chip's sustained level and its peak): one filled path per contiguous run
       const [lo, hi, rcls] = p.range; let up = "", down = [], prevT = null, d = "";
@@ -1052,7 +1067,7 @@ function drawPanels(box, panels, rows, spanMin, now, tipText, aria, opts) {
         s += "<rect class=\"bar\" x=\"" + (xOf(r.t) - bw / 2).toFixed(1) + "\" y=\"" + y(v).toFixed(1) + "\" width=\"" + bw.toFixed(1) + "\" height=\"" + (y(0) - y(v)).toFixed(1) + "\"/>"; });
       if (tallest) s += "<text class=\"barlbl\" x=\"" + xOf(tallest.t).toFixed(1) + "\" y=\"" + (y(tallest[p.bars]) - 4).toFixed(1) + "\" text-anchor=\"middle\">" + fmt(tallest[p.bars]) + "</text>";
     }
-    if (p.rated) s += rightAxis(xR, y, top, p.max, p.rated.value, p.rated.title);
+    if (p.rated) s += rightAxis(xR, y, ly, p.max, p.rated.value, p.rated.title);
   });
   const xAtMin = m => L + (xR - L) * (1 - m / spanMin), labelEvery = W < 700 ? 120 : 60;
   const tickEvery = tk ? tk.tickEvery : 5, majorEvery = tickEvery >= 60 ? 360 : 60, midEvery = tickEvery >= 60 ? 180 : 15;
@@ -1067,15 +1082,23 @@ function drawPanels(box, panels, rows, spanMin, now, tipText, aria, opts) {
   // markers: what the buttons, the watchdog and the plug did, and each service start (S); hover for the event text
   const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
   let lastMarkX = -999;
-  eventMarks.filter(m => now - m.t <= spanMin * 60000 && m.t <= now).forEach(m => {
-    const xx = xOf(m.t), words = o.words ? markerWords(m.label) : null;
+  const marks = eventMarks.filter(m => now - m.t <= spanMin * 60000 && m.t <= now).sort((a, b) => a.t - b.t);
+  // two glyph rows on the 24-hour charts (0.7.1): P and H above the plot, ▼ W S inside its top edge, each row
+  // keeping one letter per run of close marks (dropClose); the worded chart keeps its rotated words
+  const rowOf = marks.map(m => o.words ? "words" : markerRow(m.label));
+  const keep = {};
+  ["top", "in"].forEach(row => { const idx = marks.map((m, i) => i).filter(i => rowOf[i] === row); dropClose(idx.map(i => xOf(marks[i].t)), 6).forEach((k, j) => { keep[idx[j]] = k; }); });
+  marks.forEach((m, i) => {
+    const xx = xOf(m.t), row = rowOf[i], words = o.words ? markerWords(m.label) : null;
+    if (!row) return;                                   // a line that gets no mark on this chart
     if (o.words && !words) return;                      // on the worded chart, lines not worth a marker get none
     if (o.words && xx - lastMarkX < 6) return;          // and a second marker inside the same few pixels is dropped
-    s += "<line class=\"mark\" x1=\"" + xx.toFixed(1) + "\" x2=\"" + xx.toFixed(1) + "\" y1=\"" + (T - 4) + "\" y2=\"" + y0 + "\"><title>" + esc(markerTitle(m.t, m.label)) + "</title></line>";
+    const y1 = row === "top" ? T - 20 : T - 4;
+    s += "<line class=\"mark\" x1=\"" + xx.toFixed(1) + "\" x2=\"" + xx.toFixed(1) + "\" y1=\"" + y1 + "\" y2=\"" + y0 + "\"><title>" + esc(markerTitle(m.t, m.label)) + "</title></line>";
     if (o.words) {                                      // words, rotated, on the side away from a close neighbour
       const side = xx - lastMarkX < 14 ? 11 : -3; lastMarkX = xx;
       s += "<text class=\"marklbl words\" x=\"" + (xx + side).toFixed(1) + "\" y=\"" + (T - 6) + "\" text-anchor=\"end\" transform=\"rotate(-90 " + (xx + side).toFixed(1) + " " + (T - 6) + ")\">" + esc(words) + "</text>";
-    } else s += "<text class=\"marklbl\" x=\"" + (xx + 3).toFixed(1) + "\" y=\"" + (T + 4) + "\">" + markerGlyph(m.label) + "</text>";
+    } else if (keep[i]) s += "<text class=\"marklbl\" x=\"" + (xx + 3).toFixed(1) + "\" y=\"" + (row === "top" ? T - 12 : T + 4) + "\">" + markerGlyph(m.label) + "</text>";
   });
   const id = box.id;
   s += "<line class=\"cross\" id=\"" + id + "-cx\" y1=\"" + T + "\" y2=\"" + y0 + "\" style=\"display:none\"/></svg><div class=\"tip\" id=\"" + id + "-tip\"></div>";

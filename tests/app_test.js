@@ -567,6 +567,23 @@ const tests = {
     assert.strictEqual(app.resetsSuffix({ resets: 1 }), " · 1 board reset");
     assert.strictEqual(app.resetsSuffix({ resets: 42 }), " · 42 board resets");
   },
+  "markerRow: P and H above the plot for cycles, page switches and hold starts; nothing for plug noise and releases; the rest inside"() {
+    assert.strictEqual(app.markerRow("power: cycled #8 today: off 120 s, on (miner unreachable for 9 min; 37 W before)"), "top");
+    assert.strictEqual(app.markerRow("power: switched off by you (page; 180 W before)"), "top");
+    assert.strictEqual(app.markerRow("power: switched on by you (page)"), "top");
+    assert.strictEqual(app.markerRow("power: plug back"), null);
+    assert.strictEqual(app.markerRow("power: plug unreachable (plug at 192.0.2.9 did not answer)"), null);
+    assert.strictEqual(app.markerRow("hold: started by you until 2026-09-14 16:05:00 (switched on, booting)"), "top");
+    assert.strictEqual(app.markerRow("hold: released, miner back after 3 min"), null);
+    assert.strictEqual(app.markerRow("watchdog: restart attempt failed: PUT mcb/restart: timed out (miner unreachable for 2 min)"), "in");
+    assert.strictEqual(app.markerRow("service: started v0.7.1, miner 192.0.2.1"), "in");
+    assert.strictEqual(app.markerRow("dashboard: clock set to 550 MHz"), "in");
+  },
+  "dropClose: one glyph per run of close marks, the first of each run kept"() {
+    assert.deepStrictEqual(app.dropClose([10, 12, 15, 30, 33, 60], 6), [true, false, false, true, false, true]);
+    assert.deepStrictEqual(app.dropClose([], 6), []);
+    assert.deepStrictEqual(app.dropClose([5], 6), [true]);
+  },
   "chartKey, markerKind, markerTitle: one vocabulary for what the miner did to itself and what gbox did to the miner"() {
     const glyphs = app.chartKey({ bars: true, band: true });
     assert.deepStrictEqual(glyphs.filter(i => i.glyph).map(i => i.glyph), ["▼", "W", "P", "S", "H"]);

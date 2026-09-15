@@ -59,7 +59,7 @@
 
   <section>
     <h2>Fans and temperature<span id="envsub">from the gbox service log, same time scale as above</span></h2>
-    <div class="legend"><span><i></i>fan0</span><span><i class="s2"></i>fan1</span><span style="margin-left:auto"><i></i>chip temperature</span><span><i class="s2"></i>board sensor (what the fan controller and the stock UI use)</span></div>
+    <div class="legend"><span><i></i>fan0</span><span><i class="s2"></i>fan1</span><span style="margin-left:auto"><i></i>board sensor (what the fan controller and the stock UI use)</span><span><i class="amber"></i>chips avg</span><span><i class="hot"></i>hottest chip</span></div>
     <div class="chart" id="envchart"></div>
     <div class="legend key" id="envkey" hidden></div>
     <p class="note">The hottest chip is the one to watch: it is what the warmest silicon sees, and the firmware's own chip-temperature field is the board's average, not its hottest (on the unit this was built against the hottest chip ran a steady 11 °C above that average). The red band runs from the sustained level up to the peak reading in each bucket; the dashed line is the serious threshold. The board sensor reads lower and is shown because the fan controller steers on it. Hover a marker for the event text; a gap after an <b>S</b> means the service was down, not the miner. When served, the third panel counts board resets per 5 minutes, and the shaded band marks a bucket worth a look, the same marks the three-day chart uses. <span id="fanpctnote"></span></p>

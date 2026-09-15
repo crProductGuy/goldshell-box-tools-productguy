@@ -68,6 +68,20 @@ def parse_minerinfo(text):
 _CHIPTEMP_RE = re.compile(r"^\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\].*?Chip Avgtemp (-?\d+(?:\.\d+)?)'C, MaxTemp (-?\d+(?:\.\d+)?)'C")
 
 
+_BOOT_RE = re.compile(r"^\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\].*Init sucessed")
+
+
+def last_boot_ts(text):
+    """The miner timestamp of the newest `SCBOX Init sucessed` line in the log, or None. The log survives a
+    power cycle, so readings older than this line belong to the run before the boot."""
+    last = None
+    for line in text.splitlines():
+        m = _BOOT_RE.match(line)
+        if m:
+            last = m.group(1)
+    return last
+
+
 def parse_chiptemps(text, after=None):
     """The `/dbg/minersyslog` temperature lines as (miner_timestamp, chip_avg, chip_max) tuples, in log order.
 

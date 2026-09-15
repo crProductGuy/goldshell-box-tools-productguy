@@ -237,6 +237,28 @@ class HottestChipPollerTest(unittest.TestCase):
         r = self.rows()[0]
         self.assertEqual((r["hot_peak"], r["hot_level"], r["chip_avg"]), ("82.0", "81.0", "70.0"))
 
+    def test_readings_from_before_the_newest_boot_are_dropped(self):
+        # the log survives a power cycle: the first read after a boot must not report the run before it
+        self.fm.syslog += (" [2026-09-15 07:40:00] C0: SCBOX Init sucessed. 16 chips, 256 Total goodcores. Wait 5s!!!\n"
+                           " [2026-09-15 07:40:05] C0: Chip Avgtemp 30.000000'C, MaxTemp 38.000000'C\n"
+                           " [2026-09-15 07:40:10] C0: Chip Avgtemp 31.000000'C, MaxTemp 40.000000'C\n")
+        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, clock=self.clock, syslog_interval=300)
+        p.poll_once()
+        r = self.rows()[0]
+        self.assertEqual((r["hot_peak"], r["hot_level"], r["chip_avg"]), ("40.0", "39.0", "30.5"))
+
+    def test_a_boot_with_no_reading_after_it_yet_is_a_blank_and_moves_the_cursor(self):
+        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, clock=self.clock, syslog_interval=300)
+        p.poll_once()                                     # the fixture: readings up to 07:36:31
+        self.fm.syslog += " [2026-09-15 07:40:00] C0: SCBOX Init sucessed. 16 chips, 256 Total goodcores. Wait 5s!!!\n"
+        self.now += 300
+        p.poll_once()
+        self.assertEqual(self.rows()[1]["hot_level"], "")
+        self.fm.syslog += " [2026-09-15 07:40:05] C0: Chip Avgtemp 30.000000'C, MaxTemp 38.000000'C\n"
+        self.now += 300
+        p.poll_once()
+        self.assertEqual((self.rows()[2]["hot_peak"], self.rows()[2]["hot_level"]), ("38.0", "38.0"))
+
     def test_a_failed_log_read_is_a_blank_not_an_error_row(self):
         class NoLog(api.Miner):
             def syslog(self):
