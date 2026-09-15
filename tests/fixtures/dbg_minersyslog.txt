@@ -1,4 +1,4 @@
- [2026-09-15 07:35:50] SCBOX Init sucessed. 16 chips found
+ [2026-09-15 07:35:50] C0: SCBOX Init sucessed. 16 chips, 256 Total goodcores. Wait 5s!!!
  [2026-09-15 07:35:55] Pool 0 stratum+tcp://pool.example:3333 user example.worker1
  [2026-09-15 07:36:01] C0: Chip Avgtemp 54.000000'C, MaxTemp 65.000000'C
  [2026-09-15 07:36:06] C0: Chip Avgtemp 55.000000'C, MaxTemp 66.000000'C

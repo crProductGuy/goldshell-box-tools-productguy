@@ -43,6 +43,7 @@ svg .band { fill:var(--critbg); opacity:.7 } svg .marklbl.words { font-size:11px
    with the level-to-peak band in the same hue and the dashed serious line */
 svg .amber { stroke:var(--amber) } svg .hot { stroke:var(--hot); stroke-width:2.5 } svg .hotband { fill:var(--hot); opacity:.18 }
 svg .guide { stroke:var(--hot); stroke-width:1; stroke-dasharray:6 4 } svg .guidelbl { fill:var(--hot); font-size:11px; font-weight:600 }
+.legend i.amber { background:var(--amber) } .legend i.hot { background:var(--hot); height:4px }
 .legend i.swamber { background:var(--amber) } .legend i.swhot { background:var(--hot); height:4px }
 .legend i.swhotband { background:var(--hot); opacity:.25; width:10px; height:12px; border-radius:1px }
 .legend i.swguide { background:none; height:0; border-top:2px dashed var(--hot); border-radius:0 }
