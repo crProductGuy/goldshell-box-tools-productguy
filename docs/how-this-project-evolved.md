@@ -569,6 +569,52 @@ of the live file before it touched the real one, thresholds in the config and
 served to the page. The first live row after the restart read peak 87, level
 76, chip average 66. The tile had been saying 65.
 
+## The token that is the same everywhere
+
+The owner of the four-board unit sent a second batch on the fifteenth: the
+request his browser makes when the stock debug page loads its miner tab, two
+screenshots of that page, and a transcript of him asking another model how
+to call the endpoint by hand. "Not sure how helpful this actually is," he
+wrote, and on its face it was not. The file was request headers with no
+response and no status code, so it could not answer the question the last
+capture had left open, which was whether the debug endpoints answer on that
+firmware once the page has been through its unlock. The other model's
+answer repeated what the project's own API notes already said.
+
+The headers carried the token, though, with its tail masked out of caution,
+and the token answered a different question. Its payload is fixed: an
+audience, an issuer, an id of one, a subject, no expiry, nothing naming the
+unit or the user. The signature scheme is deterministic, so the same key and
+the same payload always produce the same string. The agent logged in to the
+SC-BOX and compared. Every visible character matched. Every Goldshell on
+this firmware key hands out the same token to anyone who knows any
+Goldshell's password, and the token is in every helper repo on GitHub.
+
+Two things followed. The gate 2 revision had listed "a token that differs"
+among the possible reasons the friend's unit refused the debug endpoints
+while its own page read them fine; that reason is gone, and what is left is
+an unlock request the page makes, or the token race the project has known
+since its first week. And the web password protects nothing the miner does
+over HTTP. Anyone on the network can restart it or change its pools without
+it. The mask on the token's tail was the right instinct and it made no
+difference. The password gate on gbox's own power buttons stays, because it
+guards the page, not the miner.
+
+The transcript had one lead worth the read: the old cgminer socket on port
+4028, which the capture request already asked strangers to try and which the
+0.7.0 night had queried once, for a per-chip maximum that read zero. Nobody
+had looked at its `devs`. On the SC-BOX it answers with no token and
+carries every field gbox reads from the locked debug endpoint, the board
+sensor, the reboot count and the overheat flag included, and the numbers
+matched the last logged row. Its JSON is the run-together kind cgminer is
+known for, and its pool listing returns the pool user, so it can never be
+logged. If the four-board unit answers on it, it is a board source that
+walks around the debug lock rather than through it.
+
+Mark sent the owner four requests, the status codes from his browser's
+network tab, the path of whatever the page calls when it opens, the response
+text itself, and the two port 4028 lines, and said hold. Nothing was built.
+
 ## What the numbers say
 
 | Clock | Chip 8 bad share | Board resets | Hashrate | Wall power |
