@@ -189,3 +189,51 @@ class SCLiteFixtureTest(unittest.TestCase):
         self.assertEqual(api.parse_plan(st["manualPowerplan"])["dialect"], "mv_pv")
         self.assertEqual(api.max_preset_mhz(st), 625)
         self.assertNotIn("temp_targets", st)          # no fan-target range on this firmware, per the notes
+
+
+class SC5ProIIFixtureTest(unittest.TestCase):
+    """The captured SC5 Pro II fixtures (tests/fixtures/sc5proii, a friend's unit, gate2-pga-0.8.0 section E): every
+    file parses or loads, and none of them carries a pool string or a credential."""
+
+    DIR = os.path.join(FIX, "sc5proii")
+    NAMES = [n for n in sorted(os.listdir(DIR)) if n != "README.md"]
+
+    def test_every_file_parses_or_loads(self):
+        for name in self.NAMES:
+            text = fixture(os.path.join("sc5proii", name))
+            if name.endswith(".json"):
+                json.loads(text)                        # every *.json fixture is valid JSON on its own
+            else:
+                self.assertIsNotNone(api.parse_minerinfo(text), name)   # dbg_minerinfo.txt: today's kv parser still works
+
+    def test_no_pool_string_or_credential(self):
+        for name in self.NAMES:
+            text = fixture(os.path.join("sc5proii", name))
+            self.assertNotIn("stratum", text, name)
+            self.assertNotIn("@", text, name)
+
+    def test_fake_miner_serves_the_sc5proii_fixtures(self):
+        from tests.fake_miner import FakeMiner
+        with FakeMiner(fixtures="sc5proii", port4028=True, dbg_locked_icinfo=True) as fm:
+            self.assertEqual(fm.status["model"], "Goldshell-SC5ProⅡ")
+            self.assertIsNone(fm.icinfo)             # no dbg_icinfo.json capture for this unit
+            self.assertIsNotNone(fm.devs4028_port)
+            import socket
+            with socket.create_connection((fm.host, fm.devs4028_port), timeout=5) as s:
+                s.sendall(b'{"command":"devs"}')
+                s.shutdown(socket.SHUT_WR)
+                chunks = []
+                while True:
+                    chunk = s.recv(4096)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                raw = b"".join(chunks)
+            self.assertTrue(raw.endswith(b"\x00"), raw[-10:])
+            parsed = json.loads(raw.rstrip(b"\x00").decode("utf-8"))
+            self.assertEqual(len(parsed["DEVS"]), 4)
+
+    def test_fake_miner_port4028_false_means_refused(self):
+        from tests.fake_miner import FakeMiner
+        with FakeMiner(fixtures="sc5proii") as fm:
+            self.assertIsNone(fm.devs4028_port)

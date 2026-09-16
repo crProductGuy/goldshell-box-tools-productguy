@@ -14,6 +14,7 @@ and count concurrent requests.
 import argparse
 import json
 import os
+import socketserver
 import threading
 import time
 import urllib.parse
@@ -25,21 +26,47 @@ FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 TOKEN = "eyJhbGciOiJSUzI1NiJ9.eyJ1c2VyIjoiYWRtaW4ifQ.ZmFrZS1zaWduYXR1cmU"
 
 
-def _read(name):
-    with open(os.path.join(FIX, name), encoding="utf-8") as f:
+def _read(base, name):
+    with open(os.path.join(base, name), encoding="utf-8") as f:
         return f.read()
 
 
+def _read_opt(base, name):
+    """`_read`, or None when the fixture doesn't have this file (e.g. sc5proii has no dbg_icinfo.json)."""
+    path = os.path.join(base, name)
+    return _read(base, name) if os.path.exists(path) else None
+
+
+class _Devs4028Handler(socketserver.BaseRequestHandler):
+    """Answers the one `{"command":"devs"}` request cgminer-style port 4028 gets, with the fixture's captured
+    reply (NUL-terminated, as the firmware sends it), then closes."""
+
+    def handle(self):
+        try:
+            self.request.recv(4096)
+        except OSError:
+            pass
+        self.request.sendall(self.server.payload)
+
+
+class _Devs4028Server(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
 class FakeMiner:
-    def __init__(self, host="127.0.0.1", port=0, password="password", delay=0.0):
+    def __init__(self, host="127.0.0.1", port=0, password="password", delay=0.0,
+                 fixtures=None, port4028=False, dbg_locked_icinfo=False):
+        self.dir = os.path.join(FIX, fixtures) if fixtures else FIX
         self.password_hex = aes.encrypt_password(password)
         self.delay = delay                      # seconds each request takes; makes overlaps visible
-        self.setting = json.loads(_read("mcb_setting.json"))
-        self.status = json.loads(_read("mcb_status.json"))
-        self.minerinfo = _read("dbg_minerinfo.txt")
-        self.icinfo = _read("dbg_icinfo.json")
-        self.history = _read("cpb_hshistory.json")
-        self.syslog = _read("dbg_minersyslog.txt")     # the cgminer log: Avgtemp/MaxTemp lines, a boot line, a pool-user line
+        self.setting = json.loads(_read(self.dir, "mcb_setting.json"))
+        self.status = json.loads(_read(self.dir, "mcb_status.json"))
+        self.minerinfo = _read(self.dir, "dbg_minerinfo.txt")
+        self.icinfo = _read_opt(self.dir, "dbg_icinfo.json")
+        self.history = _read(self.dir, "cpb_hshistory.json")
+        self.syslog = _read_opt(self.dir, "dbg_minersyslog.txt")     # the cgminer log; absent on some captures
+        self.dbg_locked_icinfo = dbg_locked_icinfo   # True: /dbg/icinfo always 401s "Debug access is locked"
         self.restarts = 0
         self.logins = 0
         self.requests = []                      # (method, path) in arrival order
@@ -48,6 +75,15 @@ class FakeMiner:
         self.max_in_flight = 0
         self._lock = threading.Lock()
         outer = self
+
+        self._devs4028 = None
+        self._devs4028_thread = None
+        self.devs4028_port = None
+        if port4028:
+            payload = (_read_opt(self.dir, "api4028_devs.json") or "{}").encode("utf-8") + b"\x00"
+            self._devs4028 = _Devs4028Server((host, 0), _Devs4028Handler)
+            self._devs4028.payload = payload
+            self.devs4028_port = self._devs4028.server_address[1]
 
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
@@ -104,6 +140,8 @@ class FakeMiner:
                         if q.get("password", [""])[0] == outer.password_hex and q.get("cipher") == ["true"]:
                             return self._reply(200, json.dumps({"JWT Token": TOKEN}))
                         return self._reply(200, json.dumps({"code": 1, "msg": "password error"}))
+                    if url.path == "/dbg/icinfo" and outer.dbg_locked_icinfo:
+                        return self._reply(401, "Debug access is locked", "text/plain")
                     if not self._authed():
                         return self._reply(401, "Check Token Error", "text/plain")
                     routes = {
@@ -116,7 +154,10 @@ class FakeMiner:
                         "/dbg/fanctrllog": lambda: "Fans Change (fan0: 62 ==> 61) reason(t:64.2 acc:0.0 target_temp:65)\n",
                     }
                     if url.path in routes:
-                        return self._reply(200, routes[url.path](), "text/plain" if url.path.startswith("/dbg") else "application/json")
+                        data = routes[url.path]()
+                        if data is None:
+                            return self._reply(404, "not found", "text/plain")
+                        return self._reply(200, data, "text/plain" if url.path.startswith("/dbg") else "application/json")
                     return self._reply(404, "not found", "text/plain")
                 finally:
                     self._leave()
@@ -151,11 +192,17 @@ class FakeMiner:
     def start(self):
         self._thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self._thread.start()
+        if self._devs4028 is not None:
+            self._devs4028_thread = threading.Thread(target=self._devs4028.serve_forever, daemon=True)
+            self._devs4028_thread.start()
         return self
 
     def stop(self):
         self.server.shutdown()
         self.server.server_close()
+        if self._devs4028 is not None:
+            self._devs4028.shutdown()
+            self._devs4028.server_close()
 
     def __enter__(self):
         return self.start()

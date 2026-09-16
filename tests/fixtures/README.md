@@ -14,6 +14,13 @@ firmware 2.2.5) taken 2026-09-05, one request at a time.
 `/mcb/pools` is deliberately absent: it carries the pool URL, wallet and
 worker password.
 
+## `sc5proii/`: captured, a friend's unit
+
+Captured 2026-09-15 from a friend's SC5 Pro II (hardware 30.50.SA, MCB_V3_3,
+firmware 2.2.0). Adds the `[PGAn]` multi-board form of `/dbg/minerinfo` and
+the port-4028 `devs`/`summary` JSON alongside the usual `/mcb/` and `/cpb/`
+captures. See `sc5proii/README.md` for the file-by-file detail.
+
 ## `sclite/`: synthetic, not captured
 
 Built 2026-09-13 from the other developer's notes on an SC Lite, firmware
