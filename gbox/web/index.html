@@ -83,6 +83,11 @@
     <button type="button" class="why" aria-expanded="false" aria-controls="why-resets2">what are board resets, soft restarts and power cycles?</button><div class="whyx" id="why-resets2" hidden><b>Board reset</b>: the miner's own doing. Its firmware reinitializes the hashboard when a chip stops answering; gbox only counts what the firmware reports. Never commanded by anyone, so it has no marker: it is drawn as bars. <b>Soft restart</b>: an action. The controller rebooted through its API, by the watchdog when shares freeze or the miner goes unreachable (the <b>W</b> marker), or by you from Controls (<b>▼</b>). <b>Power cycle</b>: an action. The plug cutting power, by the watchdog when two soft restarts have failed, or by you (<b>P</b>). A reset is what the miner does to itself when a chip misbehaves; a restart is what gbox does to the miner when it stops working; a cycle is what gbox does when a restart cannot reach it. That order is the ladder.</div>
   </section>
 
+  <section id="boardssec" hidden>
+    <h2>Boards<span>one row per hashboard, from /dbg/minerinfo (or the service's /api/boards); the hottest board is marked</span></h2>
+    <table id="boardstab"><thead><tr><th>board</th><th>hashrate 20s</th><th>avg</th><th>accepted</th><th>rejected</th><th>hw %</th><th>chip &deg;C</th><th>board &deg;C</th><th>reboots</th></tr></thead><tbody></tbody></table>
+  </section>
+
   <div class="two">
     <section>
       <h2>Chips<span id="chipsub">good and bad nonces since the miner booted; bad/min since this page opened</span></h2>
