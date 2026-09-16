@@ -12,6 +12,7 @@ Nothing here logs a URL: the login URL carries the encrypted password.
 """
 import json
 import re
+import socket
 import threading
 import time
 import urllib.error
@@ -61,8 +62,122 @@ def _num(s):
 
 
 def parse_minerinfo(text):
-    """The `/dbg/minerinfo` fields the tools use, as numbers (None when absent)."""
-    return {name: _num(kv(text, key)) for name, key in _MINERINFO_FIELDS.items()}
+    """The `/dbg/minerinfo` totals the tools use, as numbers (None when absent). One board: that board's
+    fields, unchanged from every earlier release. Several: `board_totals` over every `[PGAn]` block."""
+    return board_totals(parse_minerinfo_boards(text))
+
+
+_PGA_RE = re.compile(r"^\[PGA(\d+)\] =>", re.M)
+
+
+def _fan_list(read):
+    """`read(n)` for fan0, fan1, ... until the first gap (fan0..fan7 at most)."""
+    fans = []
+    for n in range(8):
+        v = read(n)
+        if v is None:
+            break
+        fans.append(v)
+    return fans
+
+
+def _board_from_kv(block, unit_text, index):
+    """One per-board record from a `[PGAn] =>` block (or, for a firmware that writes none, the whole text).
+    `voltage`/`current` are unit-level: on the text transport they appear once, in `[STATUS]`, outside any
+    `[PGAn]` block, so they are read from `unit_text` (the whole response) rather than from `block`."""
+    b = {name: _num(kv(block, key)) for name, key in _MINERINFO_FIELDS.items()}
+    b["board"] = index
+    b["nonced"] = _num(kv(block, "Nonced"))
+    b["fans"] = _fan_list(lambda n: _num(kv(block, "fan%d" % n)))
+    b["voltage_mv"] = _num(kv(unit_text, "voltage"))
+    b["current_ma"] = _num(kv(unit_text, "current"))
+    return b
+
+
+def parse_minerinfo_boards(text):
+    """One dict per `[PGAn] =>` block of `/dbg/minerinfo`, in order. No block: one dict from the whole text
+    (a firmware that writes no PGA headers still gets today's behaviour)."""
+    heads = list(_PGA_RE.finditer(text))
+    if not heads:
+        return [_board_from_kv(text, text, 0)]
+    out = []
+    for i, m in enumerate(heads):
+        end = heads[i + 1].start() if i + 1 < len(heads) else len(text)
+        out.append(_board_from_kv(text[m.start():end], text, int(m.group(1))))
+    return out
+
+
+def parse_devs4028(text):
+    """The `devs` reply on port 4028 -> the same per-board list. Strips cgminer's trailing NUL. Unlike the
+    text transport, `voltage`/`current` are repeated per board here, so each is read straight off its own
+    DEVS entry."""
+    j = json.loads(text.rstrip("\x00"))
+    out = []
+    for d in j.get("DEVS", []):
+        g = lambda k: _num(None if d.get(k) is None else str(d.get(k)))
+        b = {name: g(key) for name, key in _MINERINFO_FIELDS.items()}
+        b["board"] = int(d.get("PGA", len(out)))
+        b["nonced"] = g("Nonced")
+        b["fans"] = _fan_list(lambda n: g("fan%d" % n))
+        b["voltage_mv"] = g("voltage")
+        b["current_ma"] = g("current")
+        out.append(b)
+    return out
+
+
+def _hottest_index(boards):
+    """Index of the board with the highest `chip_temp` (ties keep the earlier board); 0 when none is known."""
+    best_i, best_t = 0, None
+    for i, b in enumerate(boards):
+        t = b["chip_temp"]
+        if t is not None and (best_t is None or t > best_t):
+            best_i, best_t = i, t
+    return best_i
+
+
+def board_totals(boards):
+    """The dict every caller of `parse_minerinfo` uses. One board: that board's fields, unchanged. Several:
+    sums for hashrates, shares and errors; `hw_pct` as errors over nonces (percent) when every board's nonce
+    count is known, else the mean of the boards' own percentages; `elapsed` the max; `clock` the first
+    non-None; `rebootcnt` and `overheat` the max; `chip_temp`, `chip_temp1` and `board_temp` from the
+    HOTTEST board (max `chip_temp`), so the watchdog, the charts and log.csv's tstemp columns mean "the
+    hottest board" on a big unit and exactly what they mean today on the SC-BOX; `fan0`/`fan1` the first two
+    of the unit's fans. New keys: `fans` (list), `nboards`, `hot_board` (index), `watts_dc` (mV*mA/1e6, or
+    None when either is unknown)."""
+    if len(boards) == 1:
+        out = {name: boards[0][name] for name in _MINERINFO_FIELDS}
+    else:
+        out = {}
+        elapsed = [b["elapsed"] for b in boards if b["elapsed"] is not None]
+        out["elapsed"] = max(elapsed) if elapsed else None
+        for key in ("mhs_av", "mhs_20s", "accepted", "rejected", "hw_errors"):
+            vals = [b[key] for b in boards if b[key] is not None]
+            out[key] = sum(vals) if vals else None
+        nonced = [b["nonced"] for b in boards]
+        if all(n is not None for n in nonced) and sum(nonced) > 0 and \
+                all(b["hw_errors"] is not None for b in boards):
+            out["hw_pct"] = 100.0 * sum(b["hw_errors"] for b in boards) / sum(nonced)
+        else:
+            pcts = [b["hw_pct"] for b in boards if b["hw_pct"] is not None]
+            out["hw_pct"] = (sum(pcts) / len(pcts)) if pcts else None
+        out["clock"] = next((b["clock"] for b in boards if b["clock"] is not None), None)
+        rebootcnt = [b["rebootcnt"] for b in boards if b["rebootcnt"] is not None]
+        out["rebootcnt"] = max(rebootcnt) if rebootcnt else None
+        overheat = [b["overheat"] for b in boards if b["overheat"] is not None]
+        out["overheat"] = max(overheat) if overheat else None
+        hot = boards[_hottest_index(boards)]
+        out["chip_temp"] = hot["chip_temp"]
+        out["chip_temp1"] = hot["chip_temp1"]
+        out["board_temp"] = hot["board_temp"]
+        fans = boards[0]["fans"]
+        out["fan0"] = fans[0] if len(fans) > 0 else None
+        out["fan1"] = fans[1] if len(fans) > 1 else None
+    out["fans"] = boards[0]["fans"] if boards else []
+    out["nboards"] = len(boards)
+    out["hot_board"] = _hottest_index(boards)
+    v, c = boards[0]["voltage_mv"], boards[0]["current_ma"]
+    out["watts_dc"] = (v * c / 1e6) if (v is not None and c is not None) else None
+    return out
 
 
 _CHIPTEMP_RE = re.compile(r"^\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\].*?Chip Avgtemp (-?\d+(?:\.\d+)?)'C, MaxTemp (-?\d+(?:\.\d+)?)'C")

@@ -41,6 +41,60 @@ class MinerInfoTest(unittest.TestCase):
         self.assertIsNone(api.kv("", "Name"))
 
 
+class BoardsTest(unittest.TestCase):
+    """`parse_minerinfo_boards` + `board_totals` (gate2-pga-0.8.0 section A, task 3)."""
+
+    # The SC-BOX's today's dict, written out literally from the current `parse_minerinfo` output before
+    # the rewire (regression guard: if this changes after the rewire, that is a STOP, not a test to edit).
+    TODAY_SCBOX = {
+        "elapsed": 37623, "mhs_av": 713260.285, "mhs_20s": 819870.331,
+        "accepted": 17582, "rejected": 4711, "hw_errors": 2894, "hw_pct": 2.6789,
+        "clock": 600.0, "fan0": 3120, "fan1": 3060, "chip_temp": 73.0,
+        "chip_temp1": 73.0, "board_temp": 65.13, "rebootcnt": 355, "overheat": 0,
+    }
+
+    def test_a_scbox_minerinfo_totals_are_todays_dict_literally(self):
+        info = api.parse_minerinfo(fixture("dbg_minerinfo.txt"))
+        subset = {k: info[k] for k in self.TODAY_SCBOX}
+        self.assertEqual(subset, self.TODAY_SCBOX)
+
+    def test_b_sc5proii_four_boards_and_totals(self):
+        text = fixture("sc5proii/dbg_minerinfo.txt")
+        boards = api.parse_minerinfo_boards(text)
+        self.assertEqual(len(boards), 4)
+        self.assertEqual(boards[0]["board"], 0)
+        self.assertEqual(boards[3]["board"], 3)
+        self.assertAlmostEqual(boards[0]["chip_temp"], 89.0)
+        self.assertAlmostEqual(boards[3]["chip_temp"], 85.0)
+        self.assertEqual(boards[0]["fans"], [3360, 3360, 3480, 3480])
+
+        totals = api.board_totals(boards)
+        self.assertEqual(totals["nboards"], 4)
+        self.assertAlmostEqual(totals["mhs_av"], sum(b["mhs_av"] for b in boards))
+        self.assertEqual(totals["hot_board"], 0)
+        self.assertAlmostEqual(totals["chip_temp"], 89.0)
+        self.assertIsNotNone(totals["watts_dc"])
+        self.assertAlmostEqual(totals["watts_dc"], 3042, delta=1)
+
+    def test_c_garbage_is_one_board_of_nones(self):
+        boards = api.parse_minerinfo_boards("garbage not real data")
+        self.assertEqual(len(boards), 1)
+        b = boards[0]
+        self.assertEqual(b["board"], 0)
+        self.assertEqual(b["fans"], [])
+        self.assertIsNone(b["voltage_mv"])
+        self.assertIsNone(b["current_ma"])
+        for key in self.TODAY_SCBOX:
+            self.assertIsNone(b[key], key)
+
+        totals = api.board_totals(boards)
+        self.assertEqual(totals["nboards"], 1)
+        self.assertEqual(totals["hot_board"], 0)
+        self.assertIsNone(totals["watts_dc"])
+        for key in self.TODAY_SCBOX:
+            self.assertIsNone(totals[key], key)
+
+
 class IcInfoTest(unittest.TestCase):
     def test_boards_and_chips(self):
         boards = api.parse_icinfo(fixture("dbg_icinfo.json"))
