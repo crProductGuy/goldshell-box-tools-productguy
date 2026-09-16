@@ -483,6 +483,32 @@ class Miner:
     def minerinfo(self):
         return parse_minerinfo(self.get("dbg/minerinfo"))
 
+    def minerinfo_boards(self):
+        return parse_minerinfo_boards(self.get("dbg/minerinfo"))
+
+    def devs4028(self, port=4028):
+        """The `{"command":"devs"}` reply on cgminer-style port 4028: no token, no web backend, no token
+        race. Serialized under the same lock as every other request (one thing at a time is the simplest
+        rule to keep)."""
+        host = urllib.parse.urlparse(self.base).hostname
+        with self._lock:
+            try:
+                with socket.create_connection((host, port), timeout=self.timeout) as s:
+                    s.sendall(b'{"command":"devs"}')
+                    try:
+                        s.shutdown(socket.SHUT_WR)
+                    except OSError:
+                        pass
+                    chunks = []
+                    while True:
+                        chunk = s.recv(4096)
+                        if not chunk:
+                            break
+                        chunks.append(chunk)
+            except (ConnectionRefusedError, socket.timeout, OSError) as e:
+                raise MinerError("devs 4028: %s" % _describe(e)) from None
+        return parse_devs4028(b"".join(chunks).decode("utf-8", "replace"))
+
     def boards(self):
         return parse_icinfo(self.get("dbg/icinfo"))
 

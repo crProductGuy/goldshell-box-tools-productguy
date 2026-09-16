@@ -1,6 +1,7 @@
 """Parsers against the sanitized fixtures in tests/fixtures."""
 import json
 import os
+import socket
 import unittest
 
 from gbox import api
@@ -93,6 +94,50 @@ class BoardsTest(unittest.TestCase):
         self.assertIsNone(totals["watts_dc"])
         for key in self.TODAY_SCBOX:
             self.assertIsNone(totals[key], key)
+
+
+class Devs4028Test(unittest.TestCase):
+    """`parse_devs4028` + `Miner.devs4028` (gate2-pga-0.8.0 section A, task 4)."""
+
+    def test_sc5proii_devs4028_same_shape_as_minerinfo_board0(self):
+        boards = api.parse_devs4028(fixture("sc5proii/api4028_devs.json"))
+        self.assertEqual(len(boards), 4)
+        self.assertEqual(boards[0]["board"], 0)
+        self.assertAlmostEqual(boards[0]["chip_temp"], 90.0)
+        self.assertEqual(boards[0]["fans"], [3240, 3240, 3360, 3360])
+
+    def test_trailing_nul_is_tolerated(self):
+        raw = fixture("sc5proii/api4028_devs.json").rstrip("\n") + "\x00"
+        boards = api.parse_devs4028(raw)
+        self.assertEqual(len(boards), 4)
+
+    def test_fake_miner_devs4028_served_through_miner(self):
+        from tests.fake_miner import FakeMiner
+        with FakeMiner(fixtures="sc5proii", port4028=True) as fm:
+            m = api.Miner(fm.address, password="password")
+            boards = m.devs4028(port=fm.devs4028_port)
+            self.assertEqual(len(boards), 4)
+            self.assertAlmostEqual(boards[0]["chip_temp"], 90.0)
+
+    def test_devs4028_refused_is_minererror(self):
+        from tests.fake_miner import FakeMiner
+        with FakeMiner(fixtures="sc5proii", port4028=False) as fm:
+            self.assertIsNone(fm.devs4028_port)
+            m = api.Miner(fm.address, password="password")
+            s = socket.socket()
+            s.bind(("127.0.0.1", 0))
+            closed_port = s.getsockname()[1]
+            s.close()                              # a definitely-closed port: guaranteed connection refused
+            with self.assertRaises(api.MinerError):
+                m.devs4028(port=closed_port)
+
+    def test_scbox_4028_totals_match_minerinfo_totals_keys_not_values(self):
+        devs_totals = api.board_totals(api.parse_devs4028(fixture("api4028_devs.json")))
+        info_totals = api.parse_minerinfo(fixture("dbg_minerinfo.txt"))
+        for key in BoardsTest.TODAY_SCBOX:
+            self.assertEqual(devs_totals[key] is None, info_totals[key] is None, key)
+        self.assertEqual(devs_totals["nboards"], 1)
+        self.assertIsNone(devs_totals["watts_dc"])
 
 
 class IcInfoTest(unittest.TestCase):
