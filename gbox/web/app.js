@@ -445,13 +445,24 @@ function interventionCounts(iv) {
 const MODELS = {
   "Goldshell-SCBox": { name: "SC-BOX", rated_mhs: 900000.0, rated_watts: 200.0, fans: 2, fan_max_rpm: 4900.0, boards: 1,
     source: "Goldshell spec via retailer listings (900 GH/s, 200 W); fan max observed on one unit", verified_string: true,
-    plan_dialect: "box", board_source: "icinfo", dbg_expected: true, fan_target: true, temp_target_basis: "board_sensor" },
+    plan_dialect: "box", board_source: "icinfo", dbg_expected: true, fan_target: true, temp_target_basis: "board_sensor",
+    plan_names: null },
   "Goldshell-SCBox II": { name: "SC-BOX II", rated_mhs: 1900000.0, rated_watts: 400.0, fans: 2, fan_max_rpm: null, boards: 1,
     source: "retailer listings (kryptex, d-central, miningnow); model string not read from a unit; capabilities assumed as the SC-BOX's", verified_string: false,
-    plan_dialect: "box", board_source: "icinfo", dbg_expected: true, fan_target: true, temp_target_basis: "board_sensor" },
+    plan_dialect: "box", board_source: "icinfo", dbg_expected: true, fan_target: true, temp_target_basis: "board_sensor",
+    plan_names: null },
   "Goldshell-SCLITE": { name: "SC Lite", rated_mhs: 4400000.0, rated_watts: 950.0, fans: null, fan_max_rpm: 2200.0, boards: null,
     source: "goldshell.company/sclite spec table; model string, plan dialect, devs endpoint, debug lock and fixed 85 C target from Maveth/goldshell-config (fw 2.2.0)", verified_string: false,
-    plan_dialect: "mv_pv", board_source: "devs", dbg_expected: false, fan_target: false, temp_target_basis: "fixed" },
+    plan_dialect: "mv_pv", board_source: "http_devs", dbg_expected: false, fan_target: false, temp_target_basis: "fixed",
+    plan_names: null },
+  "Goldshell-SC5ProⅡ": { name: "SC5 Pro II", rated_mhs: 14000000.0, rated_watts: 3300.0, fans: 4, fan_max_rpm: null, boards: 4,
+    source: "Goldshell spec sheet 2026-09-15 (14 TH/s ±5%, 3300 W ±5%; low-power 10 TH/s at 2050 W); model string, plan dialect, PGA blocks, 4028 devs and plan names from a friend's unit (MCB_V3_3, fw 2.2.0, hw 30.50.SA)", verified_string: true,
+    plan_dialect: "mv_pv", board_source: "icinfo", dbg_expected: true, fan_target: false, temp_target_basis: "fixed",
+    plan_names: { 0: "Hashrate Mode", 2: "Low-power Mode", 3: "Idle Mode" } },
+  "Goldshell-SC5Pro": { name: "SC5 Pro", rated_mhs: 11000000.0, rated_watts: 2820.0, fans: null, fan_max_rpm: null, boards: null,
+    source: "Goldshell spec sheet 2026-09-15 (11 TH/s ±5%, 2820 W ±5%; low-power 8.8 TH/s at 2020 W); capabilities assumed as the SC5 Pro II's", verified_string: false,
+    plan_dialect: "mv_pv", board_source: "icinfo", dbg_expected: true, fan_target: false, temp_target_basis: "fixed",
+    plan_names: null },
 };
 const modelKey = m => String(m || "").toLowerCase().replace(/[ \-_]/g, "");
 const MODELS_BY_KEY = Object.fromEntries(Object.entries(MODELS).map(([k, v]) => [modelKey(k), v]));
@@ -459,7 +470,8 @@ function ratedFor(model) { return MODELS_BY_KEY[modelKey(model)] || null; }
 // The profile for a model not in the table: the SC-BOX's sampling path, no rated figures, nothing optional (models.UNKNOWN).
 const UNKNOWN_PROFILE = { name: null, rated_mhs: null, rated_watts: null, fans: null, fan_max_rpm: null, boards: null,
   source: "not in the table; the SC-BOX's sampling path with every optional capability off", verified_string: false,
-  plan_dialect: "box", board_source: "icinfo", dbg_expected: true, fan_target: false, temp_target_basis: "board_sensor" };
+  plan_dialect: "box", board_source: "icinfo", dbg_expected: true, fan_target: false, temp_target_basis: "board_sensor",
+  plan_names: null };
 function profileFor(model) {
   const text = (typeof model === "string" && model) ? model : null, row = MODELS_BY_KEY[modelKey(model)];
   return row ? Object.assign({}, row, { known: true, model: text }) : Object.assign({}, UNKNOWN_PROFILE, { known: false, model: text, name: text });

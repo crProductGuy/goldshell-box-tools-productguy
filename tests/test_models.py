@@ -11,7 +11,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 NODE = shutil.which("node")
 
 ROW_KEYS = {"name", "rated_mhs", "rated_watts", "fans", "fan_max_rpm", "boards", "source", "verified_string",
-            "plan_dialect", "board_source", "dbg_expected", "fan_target", "temp_target_basis"}
+            "plan_dialect", "board_source", "dbg_expected", "fan_target", "temp_target_basis", "plan_names"}
 
 
 class RatedTest(unittest.TestCase):
@@ -50,7 +50,7 @@ class RatedTest(unittest.TestCase):
             self.assertGreater(v["rated_mhs"], 0, k)
             self.assertGreater(v["rated_watts"], 0, k)
             self.assertIn(v["plan_dialect"], models.PLAN_DIALECTS, k)
-            self.assertIn(v["board_source"], ("icinfo", "devs"), k)
+            self.assertIn(v["board_source"], ("icinfo", "http_devs"), k)
             self.assertIsInstance(v["dbg_expected"], bool, k)
             self.assertIsInstance(v["fan_target"], bool, k)
             self.assertIn(v["temp_target_basis"], ("board_sensor", "fixed"), k)
@@ -58,7 +58,7 @@ class RatedTest(unittest.TestCase):
     @unittest.skipUnless(NODE, "node is not installed; skipping the app.js mirror check")
     def test_the_js_table_is_the_same_table(self):
         script = "console.log(JSON.stringify(require(%r).MODELS))" % os.path.join(HERE, "..", "gbox", "web", "app.js").replace("\\", "/")
-        p = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=30)
+        p = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=30, encoding="utf-8")
         self.assertEqual(p.returncode, 0, p.stderr)
         js = json.loads(p.stdout)
         self.assertEqual(js, json.loads(json.dumps(models.MODELS)))
@@ -83,11 +83,22 @@ class ProfileTest(unittest.TestCase):
         p = models.profile_for("Goldshell-SCLITE")
         self.assertTrue(p["known"])
         self.assertEqual(p["plan_dialect"], "mv_pv")
-        self.assertEqual(p["board_source"], "devs")
+        self.assertEqual(p["board_source"], "http_devs")
         self.assertFalse(p["dbg_expected"])          # /dbg/ answers 401 until the stock UI's debug page is unlocked
         self.assertFalse(p["fan_target"])            # the target is a fixed 85 C, read-only
         self.assertEqual(p["temp_target_basis"], "fixed")
         self.assertFalse(p["verified_string"])
+        self.assertIsNone(p["plan_names"])
+
+    def test_the_sc5_pro_ii_profile(self):
+        p = models.profile_for("Goldshell-SC5ProⅡ")
+        self.assertTrue(p["known"])
+        self.assertEqual(p["rated_mhs"], 14000000.0)         # 14 TH/s
+        self.assertEqual(p["rated_watts"], 3300.0)
+        self.assertEqual(p["boards"], 4)
+        self.assertEqual(p["fans"], 4)
+        self.assertTrue(p["dbg_expected"])
+        self.assertEqual(p["plan_names"], {0: "Hashrate Mode", 2: "Low-power Mode", 3: "Idle Mode"})
 
     def test_an_unknown_model_gets_the_box_path_with_every_optional_capability_off(self):
         for m in ("Goldshell-KDBox", "", None, 123):
