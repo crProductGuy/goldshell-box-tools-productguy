@@ -670,6 +670,65 @@ const tests = {
     assert.deepStrictEqual(app.chartData([0, 0, 812000]), { unit: "GH/s", div: 1000, data: [812] });          // just booted: one sample
     assert.deepStrictEqual(app.chartData([0, 735000, 0, 812000]), { unit: "GH/s", div: 1000, data: [735, 0, 812] });
   },
+  "parseMinerInfoBoards + boardTotals: the SC-BOX (one board, no [PGAn] headers) keeps today's single-board shape"() {
+    const text = fs.readFileSync(path.join(__dirname, "fixtures", "dbg_minerinfo.txt"), "utf8");
+    const boards = app.parseMinerInfoBoards(text);
+    assert.strictEqual(boards.length, 1);
+    const info = app.boardTotals(boards);
+    assert.deepStrictEqual([info.chipTemp, info.fan0, info.fan1, info.fans, info.nboards, info.hotBoard, info.wattsDc],
+      [73.0, 3120, 3060, [3120, 3060], 1, 0, null]);
+    assert.deepStrictEqual(app.parseMinerInfo(text), info);
+  },
+  "parseMinerInfoBoards + boardTotals: the SC5 Pro II (four [PGAn] blocks) sums, picks the hottest board, and reads voltage/current from [STATUS] for every board"() {
+    const text = fs.readFileSync(path.join(__dirname, "fixtures", "sc5proii", "dbg_minerinfo.txt"), "utf8");
+    const boards = app.parseMinerInfoBoards(text);
+    assert.strictEqual(boards.length, 4);
+    assert.strictEqual(boards[0].chipTemp, 89.0);
+    assert.strictEqual(boards[3].chipTemp, 85.0);
+    assert.deepStrictEqual(boards.map(b => b.voltageMv), [11750, 11750, 11750, 11750]);       // unit-level, same on every board
+    assert.deepStrictEqual(boards.map(b => b.currentMa), [258930, 258930, 258930, 258930]);
+    const info = app.boardTotals(boards);
+    assert.strictEqual(info.nboards, 4);
+    assert.strictEqual(info.hotBoard, 0);
+    assert.strictEqual(info.chipTemp, 89.0);
+    assert.deepStrictEqual(info.fans, [3360, 3360, 3480, 3480]);
+    assert.ok(Math.abs(info.wattsDc - 3042.4275) < 1e-6, info.wattsDc);
+    assert.ok(Math.abs(info.mhsAv - 14021719.646) < 1e-6, info.mhsAv);
+  },
+  "fansTileText: two fans with a known fan_max_rpm show the duty-cycle percent; the SC5 Pro II's four fans (no fan_max_rpm) never claim a percent"() {
+    assert.deepStrictEqual(app.fansTileText([3120, 3060], 72, 4900), { value: "72 % · 3,120 / 3,060", sub: "% · RPM fan0 / fan1" });
+    assert.deepStrictEqual(app.fansTileText([3120, 3060], null, 4900), { value: "3,120 / 3,060", sub: "RPM fan0 / fan1" });
+    assert.deepStrictEqual(app.fansTileText([3360, 3360, 3480, 3480], 72, null), { value: "3,360 / 3,360 / 3,480 / 3,480", sub: "RPM fan0 / fan1 / fan2 / fan3" });
+  },
+  "hotsubText: one board unchanged; several boards name the hottest and coolest"() {
+    assert.strictEqual(app.hotsubText({ chipTemp: 73, boardTemp: 63.5 }, [{ board: 0, chipTemp: 73 }]),
+      "chips avg <b class=\"v2\">73 °C</b> · <b class=\"v2\">63.5 °C</b> board sensor");
+    const boards = [{ board: 0, chipTemp: 89 }, { board: 1, chipTemp: 86 }, { board: 2, chipTemp: 89 }, { board: 3, chipTemp: 85 }];
+    assert.strictEqual(app.hotsubText({ chipTemp: 89, boardTemp: 77.63, hotBoard: 0 }, boards),
+      "chips avg <b class=\"v2\">89 °C</b> on board 0 (hottest) · coolest board 3 <b class=\"v2\">85 °C</b> · <b class=\"v2\">77.6 °C</b> board sensor");
+  },
+  "powerTile: no plug but a firmware DC wattage (the SC5 Pro II, unmetered) shows it with the inferred-unit title; a plug still wins; no plug and no DC figure is unchanged"() {
+    assert.deepStrictEqual(app.powerTile({ power: { configured: false } }, { wattsDc: 3042.4275 }),
+      { value: "≈ 3042 W DC (firmware)", sub: "",
+        title: "the firmware's own voltage x current; DC side, not the wall; the unit of the current field is inferred, not documented" });
+    assert.deepStrictEqual(app.powerTile(null, { wattsDc: 3042.4275 }),
+      { value: "≈ 3042 W DC (firmware)", sub: "",
+        title: "the firmware's own voltage x current; DC side, not the wall; the unit of the current field is inferred, not documented" });
+    assert.deepStrictEqual(app.powerTile({ power: { configured: false } }, { wattsDc: null }), { value: "no plug", sub: "see docs/power-cycle.md" });
+    assert.deepStrictEqual(app.powerTile({ power: { configured: false } }), { value: "no plug", sub: "see docs/power-cycle.md" });   // no info arg at all
+  },
+  "boardRow: normalizes either the camelCase shape parseMinerInfoBoards produces or the snake_case /api/boards JSON"() {
+    const camel = { board: 2, mhs20: 1, mhsAv: 2, accepted: 3, rejected: 4, hwPct: 5, chipTemp: 6, boardTemp: 7, rebootcnt: 8 };
+    const snake = { board: 2, mhs_20s: 1, mhs_av: 2, accepted: 3, rejected: 4, hw_pct: 5, chip_temp: 6, board_temp: 7, rebootcnt: 8 };
+    assert.deepStrictEqual(app.boardRow(camel), app.boardRow(snake));
+  },
+  "presetList: names a level from profile.plan_names (the SC5 Pro II's stock-UI names) when the profile has one, null otherwise"() {
+    const s = { powerplans: [{ level: 0, info: "700 MHz 9700 V 100 RPM 100 RPM PV 9700" }, { level: 3, info: "0 MHz 0 V 40 RPM 40 RPM PV 0" }] };
+    const withNames = app.presetList(s, { plan_names: { 0: "Hashrate Mode", 3: "Idle Mode" } });
+    assert.deepStrictEqual(withNames.map(p => p.name), ["Hashrate Mode", "Idle Mode"]);
+    assert.deepStrictEqual(app.presetList(s, { plan_names: null }).map(p => p.name), [null, null]);
+    assert.deepStrictEqual(app.presetList(s), app.presetList(s, undefined));             // no profile at all: today's exact shape, no name key
+  },
 };
 
 let failed = 0;
