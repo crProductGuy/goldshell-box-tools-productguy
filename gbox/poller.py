@@ -19,6 +19,18 @@ the last read it writes the hottest chip's peak, its sustained level (the
 median of the 5-second readings) and the chip average as the last three
 columns; every other row leaves them blank, like `watts` without a plug. The
 log text itself is never stored or logged: it repeats the pool user.
+
+0.8.0: `board_source` ("auto", "4028" or "minerinfo") picks the transport for
+every board of a multi-board unit. "auto" probes port 4028 once, on the
+first sample, and falls back to `/dbg/minerinfo` on a `MinerError` there,
+with one event line; the resolved transport then holds for the life of the
+poller. The per-board list rides the row under `_boards` (a key `COLUMNS`
+does not list, so `_append` ignores it) and is written to `boards.csv`
+beside `log.csv`, one row per board per poll, only when the unit has more
+than one board. `watts_dc` (the firmware's own voltage x current, DC side)
+is the last log column. A persistent 401 on `/dbg/icinfo` (`AuthError`) no
+longer fails the sample: the chip-level columns go blank and one event line
+says so, once.
 """
 import datetime
 import shutil
@@ -33,18 +45,42 @@ COLUMNS = ["time", "http", "elapsed", "mhs_av", "mhs_20s", "hwerr", "hwerr_pct",
            "rejected", "clock", "fan0", "fan1", "tstemp0", "tstemp1", "tstemp2", "rebootcnt",
            "weak_chips", "nonces_good", "nonces_bad", "temp_target", "overheat", "watts",
            "chips",        # 0.6.0: every chip's cumulative good/bad as board.chip:g/b;... (docs/charts-proposal.md)
-           "hot_peak", "hot_level", "chip_avg"]   # 0.7.0: from the cgminer log, on the rows where it was read
+           "hot_peak", "hot_level", "chip_avg",   # 0.7.0: from the cgminer log, on the rows where it was read
+           "watts_dc"]     # 0.8.0: the firmware's own voltage x current (DC side); None when either is unknown
 FIRST_READ_MINUTES = 5        # the first log read after a service start looks back this far only, by the miner's clock
 
+# boards.csv (0.8.0): one row per board per poll, beside log.csv, only when the unit has more than one board.
+# A second file rather than widening log.csv, because a variable board count does not fit one append-only header.
+BOARDS_COLUMNS = ["time", "board", "elapsed", "mhs_20s", "mhs_av", "accepted", "rejected", "hwerr", "hwerr_pct",
+                  "clock", "tstemp0", "tstemp2", "rebootcnt", "overheat"]
 
-def sample(miner):
-    """One sample as a dict keyed by COLUMNS. Raises MinerError on failure."""
-    info = miner.minerinfo()
-    boards = miner.boards()
+BOARD_SOURCES = ("auto", "4028", "minerinfo")
+
+
+def sample(miner, source, devs4028_port=4028):
+    """One sample as a dict keyed by COLUMNS. Raises MinerError on failure.
+
+    `source` picks the transport for the per-board data: "4028" reads cgminer-style port 4028
+    (`Miner.devs4028`), anything else reads `/dbg/minerinfo` (`Miner.minerinfo_boards`). `devs4028_port`
+    lets tests point port 4028 at a fake miner's listener; production always uses the real 4028.
+
+    Two extra keys ride along under names `COLUMNS` does not list, so `_append` ignores them:
+    `_boards` (the per-board list, for `boards.csv` and `/api/boards`) and `_icinfo_locked` (True when
+    `/dbg/icinfo`'s 401 persisted this sample, so the chip-level columns are blank rather than losing the
+    whole row -- unproven on the SC5 Pro II).
+    """
+    boards = miner.devs4028(port=devs4028_port) if source == "4028" else miner.minerinfo_boards()
+    info = api.board_totals(boards)
+    try:
+        chip_boards = miner.boards()
+        icinfo_locked = False
+    except api.AuthError:
+        chip_boards = []
+        icinfo_locked = True
     setting = miner.setting()
     weak = ";".join("%d:%d/%d" % (c["chip"], c["good"], c["bad"])
-                    for board in boards for c in api.weak_chips(board))
-    chips = [c for board in boards for c in board]
+                    for board in chip_boards for c in api.weak_chips(board))
+    chips = [c for board in chip_boards for c in board]
     return {
         "http": "ok", "elapsed": info["elapsed"], "mhs_av": info["mhs_av"], "mhs_20s": info["mhs_20s"],
         "hwerr": info["hw_errors"], "hwerr_pct": info["hw_pct"], "accepted": info["accepted"],
@@ -53,7 +89,8 @@ def sample(miner):
         "rebootcnt": info["rebootcnt"], "weak_chips": weak,
         "nonces_good": sum(c["good"] for c in chips), "nonces_bad": sum(c["bad"] for c in chips),
         "temp_target": setting.get("temp_target"), "overheat": info["overheat"],
-        "chips": api.format_chips(boards),
+        "chips": api.format_chips(chip_boards),
+        "watts_dc": info["watts_dc"], "_boards": boards, "_icinfo_locked": icinfo_locked,
     }
 
 
@@ -108,7 +145,7 @@ def error_row(exc):
 
 class Poller(threading.Thread):
     def __init__(self, miner, csv_path, interval, watchdog=None, events=None, clock=time.time, plug=None, scheduler=None,
-                 syslog_interval=0):
+                 syslog_interval=0, board_source="auto", devs4028_port=4028):
         super().__init__(name="gbox-poller", daemon=True)
         self.miner = miner
         self.syslog_interval = float(syslog_interval or 0)   # 0: never read the cgminer log
@@ -117,6 +154,7 @@ class Poller(threading.Thread):
         self._syslog_cursor = None  # the newest miner timestamp seen, so a read takes only newer lines
         self.scheduler = scheduler  # gbox.power.Scheduler: ticked once per sample, after the watchdog
         self.csv_path = Path(csv_path)
+        self.boards_csv_path = self.csv_path.with_name("boards.csv")
         self.interval = float(interval)
         self.watchdog = watchdog
         self.events = events
@@ -132,6 +170,45 @@ class Poller(threading.Thread):
         self.plug_watts = None
         self._plug_down = False
         self.miner_status = None    # /mcb/status (model, firmware, hardware), read once after the first good sample
+        if board_source not in BOARD_SOURCES:
+            raise ValueError("board_source must be one of: %s" % ", ".join(BOARD_SOURCES))
+        self.board_source = board_source        # "auto", "4028" or "minerinfo"
+        self.devs4028_port = devs4028_port
+        self._source = None if board_source == "auto" else board_source   # resolved transport, once decided
+        self._icinfo_locked = False   # one event line the first time /dbg/icinfo's 401 persists, never again
+
+    def _sample(self):
+        """One sample via the transport `board_source` picks. "auto": the very first sample probes port
+        4028 directly; a `MinerError` there (never `NoCredentials` -- port 4028 needs no token, so a
+        missing one says nothing about the socket) falls back to `/dbg/minerinfo` for the rest of the
+        run, with one event line. Once resolved, by success or by fallback, the source never changes
+        again for this poller."""
+        if self._source is not None:
+            return sample(self.miner, self._source, devs4028_port=self.devs4028_port)
+        try:
+            self.miner.devs4028(port=self.devs4028_port)   # probe; sample() below reads it again, once
+        except api.MinerError:
+            self._source = "minerinfo"
+            if self.events:
+                self.events.write("miner: port 4028 closed or silent; reading boards from /dbg/minerinfo")
+            return sample(self.miner, "minerinfo")
+        self._source = "4028"
+        return sample(self.miner, "4028", devs4028_port=self.devs4028_port)
+
+    def _append_boards(self, now, boards):
+        """boards.csv beside log.csv: one row per board per poll, header on create. Only called when the
+        unit has more than one board; a single-board unit never gets this file."""
+        new = not self.boards_csv_path.exists() or self.boards_csv_path.stat().st_size == 0
+        with open(self.boards_csv_path, "a", encoding="utf-8", newline="") as f:
+            if new:
+                f.write(",".join(BOARDS_COLUMNS) + "\n")
+            for b in boards:
+                row = {"time": now, "board": b["board"], "elapsed": b["elapsed"], "mhs_20s": b["mhs_20s"],
+                       "mhs_av": b["mhs_av"], "accepted": b["accepted"], "rejected": b["rejected"],
+                       "hwerr": b["hw_errors"], "hwerr_pct": b["hw_pct"], "clock": b["clock"],
+                       "tstemp0": b["chip_temp"], "tstemp2": b["board_temp"], "rebootcnt": b["rebootcnt"],
+                       "overheat": b["overheat"]}
+                f.write(",".join("" if row.get(c) is None else str(row.get(c)) for c in BOARDS_COLUMNS) + "\n")
 
     def read_plug(self):
         """Relay and watts from the plug into plug_state and plug_watts; one event line per transition."""
@@ -190,9 +267,13 @@ class Poller(threading.Thread):
         """Take one sample, append it, feed the watchdog. Returns the row."""
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
-            row = sample(self.miner)
+            row = self._sample()
             self.samples += 1
             self.last_error = None
+            if row.get("_icinfo_locked") and not self._icinfo_locked:
+                self._icinfo_locked = True
+                if self.events:
+                    self.events.write("miner: /dbg/icinfo 401 persisted; chip-level columns blank until it answers")
             if self.miner_status is None:            # one extra request, once, after the sample (never concurrent)
                 try:
                     self.miner_status = self.miner.status()
@@ -211,6 +292,9 @@ class Poller(threading.Thread):
         self.read_plug()
         row["watts"] = self.plug_watts
         self._append(row)
+        boards = row.get("_boards")
+        if boards and len(boards) > 1:
+            self._append_boards(now, boards)
         self.latest = row
         if self.watchdog is not None and not row["http"].startswith("ERR:NoCredentials"):
             ok = row["http"] == "ok"

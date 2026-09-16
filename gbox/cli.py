@@ -467,6 +467,8 @@ def cmd_serve(args, cfg, data_dir):
         cfg.poll_interval = args.interval
     if args.host:
         cfg.host = args.host
+    if args.board_source:
+        cfg.board_source = args.board_source
     cfg.validate()
     if not cfg.host:
         _die("no miner address: run `gbox init` or pass --host")
@@ -514,7 +516,7 @@ def cmd_serve(args, cfg, data_dir):
         scheduler = Scheduler(cfg.power["schedule"], control, events)
         events.write("service: schedule %s" % scheduler.describe())
     poller = Poller(miner, data_dir / "log.csv", cfg.poll_interval, watchdog=wd, events=events, plug=plug, scheduler=scheduler,
-                    syslog_interval=cfg.syslog_interval)
+                    syslog_interval=cfg.syslog_interval, board_source=cfg.board_source)
     state.poller, state.watchdog, state.power_control = poller, wd, control
 
     url = "http://%s:%d/" % ("127.0.0.1" if cfg.bind in ("0.0.0.0", "") else cfg.bind, cfg.port)
@@ -630,6 +632,8 @@ def build_parser():
     sp.add_argument("--forget", action="store_true", help="remove a stored password")
     sp.add_argument("--no-watchdog", action="store_true")
     sp.add_argument("--no-power", action="store_true", help="ignore the power block in config.json for this run")
+    sp.add_argument("--board-source", choices=config.BOARD_SOURCES,
+                    help="per-board data transport for a multi-board unit: auto (default), 4028 or minerinfo")
     sp.set_defaults(fn=cmd_serve)
     return p
 
