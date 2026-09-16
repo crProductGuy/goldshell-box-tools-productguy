@@ -56,6 +56,10 @@ DEFAULT_TEMPS = {
 }
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
+# 0.8.0: which transport a multi-board unit's per-board data comes from. "auto" probes port 4028 once
+# and falls back to /dbg/minerinfo on failure (gbox.poller.Poller); "4028" and "minerinfo" force one.
+BOARD_SOURCES = ("auto", "4028", "minerinfo")
+
 
 def parse_hhmm(text):
     """"23:05" -> (23, 5); ValueError for anything else."""
@@ -86,10 +90,12 @@ def validate_schedule(sched):
 
 class Config:
     def __init__(self, host="", poll_interval=30, bind="127.0.0.1", port=8765,
-                 password_hex=None, watchdog=None, power=None, syslog_interval=DEFAULT_SYSLOG_INTERVAL, temps=None):
+                 password_hex=None, watchdog=None, power=None, syslog_interval=DEFAULT_SYSLOG_INTERVAL, temps=None,
+                 board_source="auto"):
         self.host = host
         self.poll_interval = int(poll_interval)
         self.syslog_interval = int(syslog_interval)
+        self.board_source = board_source
         self.temps = dict(DEFAULT_TEMPS)
         self.temps.update(temps or {})
         self.bind = bind
@@ -119,6 +125,8 @@ class Config:
             raise ValueError("port out of range")
         if self.syslog_interval != 0 and self.syslog_interval < MIN_SYSLOG_INTERVAL:
             raise ValueError("syslog_interval must be 0 (off) or at least %d seconds" % MIN_SYSLOG_INTERVAL)
+        if self.board_source not in BOARD_SOURCES:
+            raise ValueError("board_source must be one of: %s" % ", ".join(BOARD_SOURCES))
         serious, critical = int(self.temps["hot_serious"]), int(self.temps["hot_critical"])
         if not 40 <= serious < critical <= 120:
             raise ValueError("temps.hot_serious must be below temps.hot_critical, both between 40 and 120")
@@ -155,7 +163,8 @@ class Config:
 
     def to_dict(self, include_secret=True):
         d = {"host": self.host, "poll_interval": self.poll_interval, "bind": self.bind,
-             "port": self.port, "watchdog": self.watchdog, "syslog_interval": self.syslog_interval, "temps": self.temps}
+             "port": self.port, "watchdog": self.watchdog, "syslog_interval": self.syslog_interval, "temps": self.temps,
+             "board_source": self.board_source}
         if self.power is not None:
             d["power"] = self.power
         if include_secret and self.password_hex:
@@ -165,7 +174,7 @@ class Config:
     @classmethod
     def from_dict(cls, d):
         known = {k: d[k] for k in ("host", "poll_interval", "bind", "port", "password_hex", "watchdog", "power",
-                                   "syslog_interval", "temps") if k in d}
+                                   "syslog_interval", "temps", "board_source") if k in d}
         return cls(**known)
 
 

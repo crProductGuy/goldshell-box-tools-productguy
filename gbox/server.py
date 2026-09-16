@@ -216,6 +216,9 @@ def make_handler(state):
             if path == "/api/latest":
                 latest = state.poller.latest if state.poller else None
                 return self._json(200, latest or {})
+            if path == "/api/boards":
+                latest = state.poller.latest if state.poller else None
+                return self._json(200, (latest or {}).get("_boards") or [])
             if path == "/api/trials":
                 return self._json(200, state.trials_table())
             if path == "/api/trial":

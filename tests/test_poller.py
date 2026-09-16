@@ -76,7 +76,7 @@ class PollerTest(unittest.TestCase):
         with open(self.csv, encoding="utf-8") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
-        self.assertEqual(lines[1], "2026-09-05 21:05:52,ok,1,2,3,4,0.4,5,0,600.0,3000,3000,70,70,63,0,8:1/1,,,,,,,,,")
+        self.assertEqual(lines[1], "2026-09-05 21:05:52,ok,1,2,3,4,0.4,5,0,600.0,3000,3000,70,70,63,0,8:1/1,,,,,,,,,,")
         self.assertEqual(lines[2].count(","), len(poller.COLUMNS) - 1)
         self.assertTrue((self.csv.parent / "log.csv.bak").exists())
         rows = self.rows()
@@ -93,6 +93,10 @@ class PollerTest(unittest.TestCase):
         self.assertFalse(poller.migrate_columns(self.csv))
         with open(self.csv, encoding="utf-8") as f:
             self.assertEqual(f.read(), "a,b,c\n1,2,3\n")
+
+    def test_poller_rejects_unknown_board_source(self):
+        with self.assertRaises(ValueError):
+            poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, board_source="devs")
 
     def test_watchdog_is_fed(self):
         events = EventLog()
@@ -113,7 +117,8 @@ class PollerTest(unittest.TestCase):
         with open(self.csv, encoding="utf-8") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
-        self.assertTrue(lines[1].endswith(",65,0,,,,,"))       # watts, chips and the three 0.7.0 log columns padded
+        # watts, chips, the three 0.7.0 log columns and 0.8.0's watts_dc: six empty fields padded
+        self.assertTrue(lines[1].endswith(",65,0,,,,,,"))
 
     def test_migration_note_says_whether_the_backup_is_new(self):
         """The first migration writes log.csv.bak; a later one keeps the older backup and says so."""
@@ -167,7 +172,7 @@ class ChipsColumnPollerTest(unittest.TestCase):
         with open(self.csv, encoding="utf-8") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
-        self.assertTrue(lines[1].endswith(",174.476037,,,,"))
+        self.assertTrue(lines[1].endswith(",174.476037,,,,,"))   # chips, hot_peak, hot_level, chip_avg, watts_dc padded
         self.assertEqual(self.rows()[0]["chips"], "")
         self.assertTrue((self.csv.parent / "log.csv.bak").exists())
 
@@ -194,7 +199,9 @@ class HottestChipPollerTest(unittest.TestCase):
         return sum(1 for m, path in self.fm.requests if path == "/dbg/minersyslog")
 
     def test_columns_end_with_the_three_chip_temperature_fields(self):
-        self.assertEqual(poller.COLUMNS[-4:], ["chips", "hot_peak", "hot_level", "chip_avg"])
+        # 0.8.0 appends watts_dc after chip_avg (append-only: a new column always lands at the true end,
+        # so this 0.7.0 snapshot of "the last four" necessarily grows by one here).
+        self.assertEqual(poller.COLUMNS[-5:], ["chips", "hot_peak", "hot_level", "chip_avg", "watts_dc"])
 
     def test_first_cycle_reads_the_log_and_writes_peak_level_and_average(self):
         p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, clock=self.clock, syslog_interval=300)
@@ -285,7 +292,7 @@ class HottestChipPollerTest(unittest.TestCase):
         with open(self.csv, encoding="utf-8") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
-        self.assertTrue(lines[1].endswith(",0.1:5/0,,,"))
+        self.assertTrue(lines[1].endswith(",0.1:5/0,,,,"))       # hot_peak, hot_level, chip_avg, watts_dc padded
         self.assertEqual(self.rows()[0]["hot_level"], "")
         self.assertTrue((self.csv.parent / "log.csv.bak").exists())
 
@@ -378,7 +385,10 @@ class PollerPlugTest(unittest.TestCase):
         self.assertIsNone(p.plug_watts)
 
     def test_watts_and_relay_read_from_the_plug(self):
-        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, plug=self.plug, events=self.events)
+        # board_source="minerinfo": this test is about the plug, not board_source; "auto" would probe port
+        # 4028 (closed on this fake) and add its own event line, which is not what this asserts against.
+        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, plug=self.plug,
+                          events=self.events, board_source="minerinfo")
         p.poll_once()
         self.assertEqual(self.rows()[0]["watts"], "188.0")
         self.assertEqual(p.plug_watts, 188.0)
@@ -400,7 +410,10 @@ class PollerPlugTest(unittest.TestCase):
         self.assertEqual(self.rows()[0]["watts"], "188.0")
 
     def test_plug_outage_keeps_the_sample_and_logs_one_line_per_transition(self):
-        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, plug=self.plug, events=self.events)
+        # board_source="minerinfo": see test_watts_and_relay_read_from_the_plug -- this test is about the
+        # plug's own transitions, not the unrelated port-4028 auto-probe.
+        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, plug=self.plug,
+                          events=self.events, board_source="minerinfo")
         p.poll_once()
         self.fake.hang = True
         for _ in range(3):
@@ -415,6 +428,164 @@ class PollerPlugTest(unittest.TestCase):
         self.assertEqual(self.rows()[-1]["watts"], "188.0")
         self.assertEqual(sum("plug back" in l for l in self.lines), 1)
         self.assertEqual(len(self.lines), 2)
+
+
+class BoardSourceTest(unittest.TestCase):
+    """gate2-pga-0.8.0 task 5, section B: sample(miner, source), the auto fallback and its one event line."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.csv = Path(self.tmp.name) / "log.csv"
+
+    def test_sample_source_4028_reads_the_sc5proii_boards(self):
+        with FakeMiner(fixtures="sc5proii", port4028=True, dbg_locked_icinfo=True) as fm:
+            m = api.Miner(fm.address, password="password")
+            row = poller.sample(m, "4028", devs4028_port=fm.devs4028_port)
+        self.assertEqual(len(row["_boards"]), 4)
+        self.assertAlmostEqual(row["_boards"][0]["chip_temp"], 90.0)
+        # the 4028 capture's own voltage/current, not the minerinfo capture's (3042.4275): the two captures
+        # were taken a little apart in time, so the two transports' watts_dc legitimately differ a little.
+        self.assertAlmostEqual(row["watts_dc"], 3036.905, delta=1)
+
+    def test_sample_source_minerinfo_reads_the_sc5proii_boards(self):
+        with FakeMiner(fixtures="sc5proii", dbg_locked_icinfo=True) as fm:
+            m = api.Miner(fm.address, password="password")
+            row = poller.sample(m, "minerinfo")
+        self.assertEqual(len(row["_boards"]), 4)
+        self.assertAlmostEqual(row["_boards"][0]["chip_temp"], 89.0)
+
+    def test_auto_uses_4028_when_it_answers(self):
+        with FakeMiner(fixtures="sc5proii", port4028=True, dbg_locked_icinfo=True) as fm:
+            events = EventLog(Path(self.tmp.name) / "events.log")
+            p = poller.Poller(api.Miner(fm.address, password="password"), self.csv, 30, events=events,
+                              devs4028_port=fm.devs4028_port)
+            row = p.poll_once()
+        self.assertEqual(row["http"], "ok")
+        self.assertEqual(p._source, "4028")
+        self.assertAlmostEqual(row["_boards"][0]["chip_temp"], 90.0)     # the 4028 value, not minerinfo's 89.0
+        self.assertNotIn("port 4028", "".join(events.tail()))
+
+    def test_auto_falls_back_to_minerinfo_and_logs_once(self):
+        import socket
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        closed_port = s.getsockname()[1]
+        s.close()                              # a definitely-closed port: guaranteed connection refused
+        with FakeMiner(fixtures="sc5proii", dbg_locked_icinfo=True) as fm:
+            events = EventLog(Path(self.tmp.name) / "events.log")
+            p = poller.Poller(api.Miner(fm.address, password="password"), self.csv, 30, events=events,
+                              devs4028_port=closed_port)
+            row = p.poll_once()
+            row2 = p.poll_once()
+        self.assertEqual(row["http"], "ok")
+        self.assertEqual(p._source, "minerinfo")
+        self.assertAlmostEqual(row["_boards"][0]["chip_temp"], 89.0)
+        lines = [l for l in events.tail() if "port 4028 closed or silent" in l]
+        self.assertEqual(len(lines), 1)              # once, not once per sample
+
+    def test_forced_minerinfo_ignores_an_available_4028(self):
+        with FakeMiner(fixtures="sc5proii", port4028=True, dbg_locked_icinfo=True) as fm:
+            p = poller.Poller(api.Miner(fm.address, password="password"), self.csv, 30, board_source="minerinfo",
+                              devs4028_port=fm.devs4028_port)
+            row = p.poll_once()
+        self.assertEqual(p._source, "minerinfo")
+        self.assertAlmostEqual(row["_boards"][0]["chip_temp"], 89.0)
+
+
+class IcinfoLockedTest(unittest.TestCase):
+    """A persistent 401 on /dbg/icinfo no longer fails the sample (section B, task 5)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.csv = Path(self.tmp.name) / "log.csv"
+
+    def rows(self):
+        with open(self.csv, newline="", encoding="utf-8") as f:
+            return list(csv.DictReader(f))
+
+    def test_locked_icinfo_leaves_chip_columns_blank_and_logs_once(self):
+        with FakeMiner(fixtures="sc5proii", port4028=True, dbg_locked_icinfo=True) as fm:
+            events = EventLog(Path(self.tmp.name) / "events.log")
+            p = poller.Poller(api.Miner(fm.address, password="password"), self.csv, 30, events=events,
+                              devs4028_port=fm.devs4028_port)
+            p.poll_once()
+            p.poll_once()
+        self.assertEqual(p.errors, 0)
+        r = self.rows()
+        self.assertEqual(r[0]["http"], "ok")
+        self.assertEqual(r[0]["chips"], "")
+        self.assertEqual(r[0]["weak_chips"], "")
+        lines = [l for l in events.tail() if "icinfo" in l]
+        self.assertEqual(len(lines), 1)               # once, not once per sample
+
+
+class BoardsCsvTest(unittest.TestCase):
+    """boards.csv beside log.csv: written only for more than one board (section B, task 5)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.csv = Path(self.tmp.name) / "log.csv"
+        self.boards_csv = Path(self.tmp.name) / "boards.csv"
+
+    def test_written_for_the_sc5proii_fake(self):
+        with FakeMiner(fixtures="sc5proii", port4028=True, dbg_locked_icinfo=True) as fm:
+            p = poller.Poller(api.Miner(fm.address, password="password"), self.csv, 30, board_source="4028",
+                              devs4028_port=fm.devs4028_port)
+            p.poll_once()
+        self.assertTrue(self.boards_csv.exists())
+        with open(self.boards_csv, newline="", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(lines[0], ",".join(poller.BOARDS_COLUMNS))
+        self.assertEqual(len(lines), 5)                # header + 4 boards
+        with open(self.boards_csv, newline="", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        self.assertEqual([r["board"] for r in rows], ["0", "1", "2", "3"])
+        self.assertEqual(rows[0]["tstemp0"], "90.0")
+
+    def test_absent_for_the_sc_box_fake(self):
+        with FakeMiner(port4028=True) as fm:          # default fixtures: the SC-BOX, one board
+            p = poller.Poller(api.Miner(fm.address, password="password"), self.csv, 30, board_source="4028",
+                              devs4028_port=fm.devs4028_port)
+            row = p.poll_once()
+        self.assertEqual(row["http"], "ok")
+        self.assertEqual(len(row["_boards"]), 1)
+        self.assertFalse(self.boards_csv.exists())
+
+
+class WattsDcMigrationTest(unittest.TestCase):
+    """`watts_dc` is the new last log column; an older header is migrated in place (section B, task 5).
+
+    The header and row below are a literal copy of this machine's own ~/.gbox/log.csv (2026-09-15,
+    before this change), written only into this test's own tempfile.TemporaryDirectory. Nothing here
+    opens the live file.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.csv = Path(self.tmp.name) / "log.csv"
+
+    def test_migrates_a_copy_of_a_real_log_without_touching_the_live_one(self):
+        old_header = ("time,http,elapsed,mhs_av,mhs_20s,hwerr,hwerr_pct,accepted,rejected,clock,fan0,fan1,"
+                     "tstemp0,tstemp1,tstemp2,rebootcnt,weak_chips,nonces_good,nonces_bad,temp_target,overheat,"
+                     "watts,chips,hot_peak,hot_level,chip_avg")
+        self.assertEqual(old_header, ",".join(poller.COLUMNS[:-1]))
+        row1 = ("2026-09-05 21:05:52,ok,38859,714194.349,761630.09,2912,2.6095,17780,4713,600.0,3120,3060,73.0,"
+               "73.0,64.63,355,3:6990/90;8:4481/2386;9:7032/51;10:7067/103;15:7030/120;16:7174/72,,,,,,,,,")
+        with open(self.csv, "w", encoding="utf-8", newline="") as f:
+            f.write(old_header + "\n" + row1 + "\n")
+        self.assertTrue(poller.migrate_columns(self.csv))
+        self.assertFalse(poller.migrate_columns(self.csv))       # already current: a no-op
+        with open(self.csv, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(lines[0], ",".join(poller.COLUMNS))
+        self.assertEqual(lines[0].split(",")[-1], "watts_dc")
+        self.assertEqual(lines[1].count(","), len(poller.COLUMNS) - 1)
+        self.assertTrue(lines[1].endswith(","))                  # watts_dc padded blank
+        self.assertTrue((self.csv.parent / "log.csv.bak").exists())
 
 
 class ConfigTest(unittest.TestCase):
@@ -498,6 +669,16 @@ class ConfigTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             config.Config(poll_interval=5).validate()
         config.Config(poll_interval=10).validate()
+
+    def test_board_source_default_round_trip_and_validate(self):
+        cfg = config.load(self.tmp.name)
+        self.assertEqual(cfg.board_source, "auto")
+        config.save(config.Config(host="h", board_source="4028"), self.tmp.name)
+        back = config.load(self.tmp.name)
+        self.assertEqual(back.board_source, "4028")
+        back.validate()
+        with self.assertRaises(ValueError):
+            config.Config(board_source="devs").validate()
 
     def test_data_dir_env(self):
         old = os.environ.get("GBOX_DATA")

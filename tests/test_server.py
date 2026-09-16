@@ -136,6 +136,14 @@ class ServerTest(unittest.TestCase):
         self.events.write("hello")
         self.assertIn(b"hello", self.get("/api/events")[2])
 
+    def test_api_boards_serves_the_latest_per_board_list(self):
+        self.assertEqual(json.loads(self.get("/api/boards")[2]), [])
+        self.miner.set_token(TOKEN)
+        self.poller.poll_once()
+        boards = json.loads(self.get("/api/boards")[2])
+        self.assertEqual(len(boards), 1)               # the SC-BOX fixture: one PGA block
+        self.assertEqual(boards[0]["board"], 0)
+
     def test_csv_tail_keeps_the_header_and_the_last_rows(self):
         self.miner.set_token(TOKEN)
         for _ in range(4):
