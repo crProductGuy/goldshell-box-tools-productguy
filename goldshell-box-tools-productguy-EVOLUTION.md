@@ -1721,6 +1721,59 @@ build. On a reminder of the two-hour boundary he reversed that in one
 line and sent the build to a fresh session. The plan, the status doc and
 this narrative carry both decisions.
 
+## 2026-09-15 evening into 2026-09-16, session V: gate 2 built, six tasks of eight
+
+The session opened with "load the goldshell project" and, once the state
+was restated, "Begin the build tasks. Delegate easy things to cheaper
+stupider agents when you can. I am almost out of Claude credits for 3 days
+till a new month. be frugal." Two answers set the shape of the work: skip
+the security pass for now, and go ahead with the one live read the plan
+needed. Later, after a subagent overran: "Keep the agent limits tight."
+
+The build ran as an Opus session managing Sonnet executors, one bounded
+brief per plan task, with every acceptance claim re-checked here by running
+the commands rather than reading the agent's prose. Six of the eight tasks
+landed: the fixtures and the fake miner's port 4028 listener, both model
+rows with the stock plan names and the http_devs rename, the two board
+parsers with their totals, the poller with its transport setting and
+fallback and the new watts column and boards file, the page with its
+mirrored parsers and boards table, and part of the API notes.
+
+Three findings changed the work. The plan placed voltage and current inside
+each board block; the capture has them once in the status block ahead of the
+first board, so implemented literally the firmware watts figure would have
+been blank everywhere, contradicting the plan's own expected number. The
+executor caught that and passed the unit-level text alongside each block.
+The plan also said the SC-BOX's port 4028 block lacks voltage; it carries
+one, reading 0.41 in a unit that is plainly not the millivolts the other
+model reports, and it lacks only current and the power identifier. The
+consequence is the same either way, no watts figure on that unit, but the
+reason is different and now recorded correctly.
+
+The third finding is about the method rather than the miner. A documentation
+agent, handed that correction, wrote it up as "both units carry voltage in
+the status block", which is false for the older unit over HTTP. The error
+was caught only because the claim was checked against the fixture before the
+commit. A correction handed to an agent is not a correction until something
+verifies what the agent did with it.
+
+Pushback ran the other way once, and it was the right call. An executor's
+first draft of the preset list broke an existing test; rather than edit the
+test, which the brief forbade, it changed its own code to preserve today's
+shape.
+
+What it cost. One executor wrote a correct poller but never reported,
+stopping three times with no hand-back at 109 tool calls against a budget of
+70 and roughly 230,000 tokens. It was stopped, its work verified here and
+committed by hand. Later briefs carried a smaller budget, a hard stop short
+of it, and an instruction that an unfinished write-up is a success. A
+standing rule for delegated briefs is worth considering: a budget, a stop
+below it, and reporting as the first duty rather than the last.
+
+Left undone: four of the five documents in task 7, and all of task 8, which
+merges, restarts the service and verifies both pages. The version stays at
+0.7.2; 0.8.0 waits for gate 3. Nothing was pushed and the branch is not
+merged.
 ## 2026-09-17 evening, session W: the cold-start hashboard failure, and the settle gap that hid it
 
 This was not a build session. It began on another machine's problem entirely
