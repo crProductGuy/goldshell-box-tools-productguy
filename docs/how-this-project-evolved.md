@@ -613,7 +613,36 @@ walks around the debug lock rather than through it.
 
 Mark sent the owner four requests, the status codes from his browser's
 network tab, the path of whatever the page calls when it opens, the response
-text itself, and the two port 4028 lines, and said hold. Nothing was built.
+text itself, and the two port 4028 lines, and said hold.
+
+The answers came back within the afternoon, and every one of them said the
+same thing. The debug endpoint answered his browser with four boards' worth
+of text. Port 4028 answered his shell with the same four boards as JSON and
+never asked for a token. A curl retest the agent wrote for him answered
+200 with a Referer header, 200 without one, and 200 twice in a row. The
+lock the whole morning had been designed around did not exist; the two 401s
+in his first capture were the token race, or a slip, and nobody will know
+which. Mark's copy of Goldshell's spec sheet corrected a number the plan
+had carried on his say-so, 17 terahash where the sheet says 14, and his
+unit's own reading of 13.99 settled it. The firmware also reports volts and
+amps, whose product lands a typical supply's efficiency short of the wall
+rating, so the plan says "DC, inferred" beside that number until a meter
+confirms it.
+
+The gate was planned a third time in one day, and the third plan is smaller
+than the second. The three sources had turned out to carry the same field
+names, so one parser reads the per-board record from either transport: the
+socket for the service, which needs no token and cannot hit the race, and
+the debug endpoint for the page, which cannot open a socket. The wrapper
+endpoint the morning's plan had been built around went from primary source
+to nothing at all, once Mark asked what "devs" meant and heard that it was
+one cgminer command reachable three ways. He renamed the one place it
+survives, a value in the model table, so it would stop reading like the
+command. Then he told the agent to build, and the agent, past the two-hour
+mark the hygiene rules draw, said so and started anyway. Mark stopped it
+in the next line: save everything, update the narrative, make ready to
+exit. The build went to a fresh session, which is where the rules had put
+it in the first place.
 
 ## What the numbers say
 

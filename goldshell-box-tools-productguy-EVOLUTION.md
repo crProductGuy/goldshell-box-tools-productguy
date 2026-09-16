@@ -1711,3 +1711,12 @@ strip from each file, and eight test-first tasks. One item is deferred to
 Mark: the page's fallback to the HTTP `devs` endpoint, a third parser for a
 lock no unit has shown. The API notes got the constant-token finding and a
 port 4028 section the same afternoon. The build goes to a fresh session.
+
+Closing the session (15:05): Mark asked what "devs" was about, since three
+different things had carried the name. The answer: one cgminer command,
+reachable as the debug endpoint's text, as an HTTP wrapper in the stock
+UI's API, and raw on port 4028. He renamed the model table's `"devs"` value
+to `"http_devs"`, agreed to drop the page's wrapper fallback, and said
+build. On a reminder of the two-hour boundary he reversed that in one
+line and sent the build to a fresh session. The plan, the status doc and
+this narrative carry both decisions.
