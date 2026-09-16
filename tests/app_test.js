@@ -645,13 +645,17 @@ const tests = {
     const box = app.profileFor("Goldshell-SCBox");
     assert.strictEqual(box.known, true); assert.strictEqual(box.plan_dialect, "box"); assert.strictEqual(box.fan_target, true);
     const lite = app.profileFor("goldshell sclite");
-    assert.strictEqual(lite.known, true); assert.strictEqual(lite.board_source, "devs"); assert.strictEqual(lite.dbg_expected, false);
+    assert.strictEqual(lite.known, true); assert.strictEqual(lite.board_source, "http_devs"); assert.strictEqual(lite.dbg_expected, false);
     const kd = app.profileFor("Goldshell-KDBox");
     assert.strictEqual(kd.known, false); assert.strictEqual(kd.model, "Goldshell-KDBox"); assert.strictEqual(kd.name, "Goldshell-KDBox");
     assert.strictEqual(kd.board_source, "icinfo"); assert.strictEqual(kd.fan_target, false); assert.strictEqual(kd.rated_mhs, null);
     assert.strictEqual(app.profileFor(null).model, null);
     assert.deepStrictEqual(Object.keys(kd).sort(), Object.keys(box).sort());
     kd.fan_target = true; assert.strictEqual(app.profileFor("Goldshell-KDBox").fan_target, false);   // no aliasing of the table
+    const sc5 = app.profileFor("Goldshell-SC5ProⅡ");
+    assert.strictEqual(sc5.known, true); assert.strictEqual(sc5.rated_mhs, 14000000.0); assert.strictEqual(sc5.rated_watts, 3300.0);
+    assert.strictEqual(sc5.boards, 4); assert.strictEqual(sc5.fans, 4); assert.strictEqual(sc5.dbg_expected, true);
+    assert.deepStrictEqual(sc5.plan_names, { 0: "Hashrate Mode", 2: "Low-power Mode", 3: "Idle Mode" });
   },
   "modelNote: one line under the title when the model is not in the table, nothing when it is or when there is no model yet"() {
     assert.strictEqual(app.modelNote("Goldshell-SCBox"), "");

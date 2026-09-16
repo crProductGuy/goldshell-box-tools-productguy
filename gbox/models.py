@@ -17,14 +17,19 @@ sampler, the plan parser and the page may assume about a unit:
   (docs/firmware-api.md, "Power plan dialects"). Parsing is driven by the
   string itself; this field says what to expect and what to write.
 - `board_source`: where per-board data comes from, `icinfo` (the BOX's
-  `/dbg/icinfo`, one board) or `devs` (`/mcb/cgminer?cgminercmd=devs`, the
-  multi-board units; 500 on the BOX).
+  `/dbg/icinfo`, one board) or `http_devs` (`/mcb/cgminer?cgminercmd=devs`,
+  the HTTP wrapper around cgminer's `devs` command; 500 on the BOX).
 - `dbg_expected`: whether `/dbg/` answers without unlocking the stock UI's
   debug page. The SC Lite answers 401 "Debug access is locked" until it is.
 - `fan_target`: whether the firmware exposes an adjustable fan target
   (`temp_targets` in `/mcb/setting`).
 - `temp_target_basis`: `board_sensor` (the BOX: the fans hold a chosen
-  board-sensor temperature) or `fixed` (the SC Lite: about 85 C, read-only).
+  board-sensor temperature) or `fixed` (the SC Lite and the SC5 Pro/Pro II:
+  a fixed target, read-only).
+- `plan_names`: `{level: name}` for the stock UI's names of the power-plan
+  levels on this model (the SC5 Pro II: "Hashrate Mode", "Low-power Mode",
+  "Idle Mode"), or None when no such names have been read from a unit. The
+  page shows `plan_names[level]` when present, else the plan string itself.
 
 An unknown model gets the BOX's sampling path with every optional
 capability off and `known: False`, and the page says so.
@@ -47,6 +52,7 @@ MODELS = {
         "dbg_expected": True,
         "fan_target": True,
         "temp_target_basis": "board_sensor",
+        "plan_names": None,
     },
     "Goldshell-SCBox II": {
         "name": "SC-BOX II",
@@ -62,6 +68,7 @@ MODELS = {
         "dbg_expected": True,
         "fan_target": True,
         "temp_target_basis": "board_sensor",
+        "plan_names": None,
     },
     "Goldshell-SCLITE": {
         "name": "SC Lite",
@@ -73,10 +80,25 @@ MODELS = {
         "source": "goldshell.company/sclite spec table; model string, plan dialect, devs endpoint, debug lock and fixed 85 C target from Maveth/goldshell-config (fw 2.2.0)",
         "verified_string": False,
         "plan_dialect": "mv_pv",
-        "board_source": "devs",
+        "board_source": "http_devs",
         "dbg_expected": False,
         "fan_target": False,
         "temp_target_basis": "fixed",
+        "plan_names": None,
+    },
+    "Goldshell-SC5ProⅡ": {            # exact bytes from /mcb/status on a friend's unit (Unicode Ⅱ, U+2161)
+        "name": "SC5 Pro II", "rated_mhs": 14000000.0, "rated_watts": 3300.0, "fans": 4, "fan_max_rpm": None, "boards": 4,
+        "source": "Goldshell spec sheet 2026-09-15 (14 TH/s ±5%, 3300 W ±5%; low-power 10 TH/s at 2050 W); model string, "
+                  "plan dialect, PGA blocks, 4028 devs and plan names from a friend's unit (MCB_V3_3, fw 2.2.0, hw 30.50.SA)",
+        "verified_string": True, "plan_dialect": "mv_pv", "board_source": "icinfo", "dbg_expected": True,
+        "fan_target": False, "temp_target_basis": "fixed",
+        "plan_names": {0: "Hashrate Mode", 2: "Low-power Mode", 3: "Idle Mode"},
+    },
+    "Goldshell-SC5Pro": {              # string not read from a unit
+        "name": "SC5 Pro", "rated_mhs": 11000000.0, "rated_watts": 2820.0, "fans": None, "fan_max_rpm": None, "boards": None,
+        "source": "Goldshell spec sheet 2026-09-15 (11 TH/s ±5%, 2820 W ±5%; low-power 8.8 TH/s at 2020 W); capabilities "
+                  "assumed as the SC5 Pro II's", "verified_string": False, "plan_dialect": "mv_pv", "board_source": "icinfo",
+        "dbg_expected": True, "fan_target": False, "temp_target_basis": "fixed", "plan_names": None,
     },
 }
 
@@ -86,7 +108,7 @@ UNKNOWN = {
     "source": "not in the table; the SC-BOX's sampling path with every optional capability off",
     "verified_string": False,
     "plan_dialect": "box", "board_source": "icinfo", "dbg_expected": True, "fan_target": False,
-    "temp_target_basis": "board_sensor",
+    "temp_target_basis": "board_sensor", "plan_names": None,
 }
 
 
