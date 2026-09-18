@@ -1720,3 +1720,76 @@ to `"http_devs"`, agreed to drop the page's wrapper fallback, and said
 build. On a reminder of the two-hour boundary he reversed that in one
 line and sent the build to a fresh session. The plan, the status doc and
 this narrative carry both decisions.
+
+## 2026-09-17 evening, session W: the cold-start hashboard failure, and the settle gap that hid it
+
+This was not a build session. It began on another machine's problem entirely
+(blocking Windows 11 auto-restart) and reached the miner only because the
+health payload was on screen: seven watchdog restarts today, one power cycle.
+Mark: "yeah look into those 7 restarts, but they aren't much worse than recent
+days. see if there are any new clues about bad box behavior."
+
+The log reading went to a subagent with a written budget and stop-losses, so
+the 6.3 MB telemetry file never entered the main context. Its two load-bearing
+claims were then re-verified directly before being acted on, per the rule that
+an executor's prose counts for nothing.
+
+**Mark's impression was right, and worth recording as a method note.** Seven is
+below the 09-11..09-16 mean of 8.3, and one cycle is the quietest day since
+09-11. More usefully, the seven are not seven failures: they are one 95-minute
+incident, with sixteen clean hours before it and three after. Counting events
+per day had been hiding the shape of the thing.
+
+**The finding.** After a power interruption the control board boots and answers
+HTTP normally while the hashboard never comes up at all: zero hashrate, both
+temperatures reading 0.0, fans spinning down, wall draw collapsing to two and a
+half watts. The unit looks alive and does nothing. It stays there until the
+stall watchdog restarts it. Five episodes, every one since 09-13, none before,
+each beginning within about a minute of a power interruption.
+
+**What it is not.** Every wear metric is flat or better than last week: mean
+temperature falling, watts falling, fan speed up 2.6% at matched temperature,
+today's error rate the lowest of the week, bad-nonce share at zero, no weak
+chip on any day. The 09-13 hashrate step tracks the deliberate clock change
+almost exactly. Nothing is dying.
+
+**The awkward part, and the reason this entry exists.** The 6-to-8 minute
+episodes and the 22-minute ones differ only because gbox's own `settle_minutes`
+of 20 suppressed the stall check after a cycle. The tool was lengthening its
+own outages. Worse, 0.7.2 had already added the boot check for precisely this
+failure, and today it did not fire: the wall draw was three to four watts at
+the moment it was due, far under `boot_watts`, and no event line was written.
+Two candidate paths were found in the code - `check()` returns early whenever a
+hold is active, before it ever reaches the boot check, and the boot check
+itself returns silently when the watts reading is absent or high. **Which one
+suppressed it was not proven, and neither was fixed.** `_check_boot` has one
+call site and no test coverage. That is the more important defect; the settle
+gap is a symptom next to it.
+
+**The decision.** Mark asked for the rationale behind `settle_minutes` 20
+before agreeing to change it - "It was pushed out for some reason" - and the
+answer was thinner than expected. It came from the power-cycle proposal, where
+it sat beside `after_minutes` 15. The 09-12 tuning pass cut `after_minutes` to
+5 and `min_gap_minutes` to 5 and left the settle gap alone. An un-revisited
+default, not a defended value. The empirical check that settled it: across 25
+measured boots the miner is hashing within 5 to 25 seconds of its own uptime,
+never longer, roughly a minute of wall clock from the relay closing. A
+twenty-minute grace period for a one-minute boot.
+
+Cut to 6 in the live config at Mark's instruction, service restarted, health
+confirming. The package default was deliberately left at 20 pending a decision
+on whether to follow it in code.
+
+**Also found, not fixed:** the cycle counter disagrees with itself - the log
+wrote "cycled #3 today" while the API reported one - and four telemetry columns
+(`hot_peak`, `hot_level`, `chip_avg`, and `weak_chips` after 09-13) are no
+longer populated, so chip health had to be inferred indirectly.
+
+**Confidence stated plainly:** high on the trend numbers, medium at best on the
+cold-start diagnosis. 09-13 is badly confounded - the clock drop, a CSV schema
+change and Mark's first use of the off/on button all land on that day, so a new
+box fault cannot be cleanly separated from new tool behaviour exposing an old
+one. What would settle it is about ten deliberate cycles on a healthy box,
+counting the failures. A standing note was added to `AGENTS.md` telling the
+next session to read the aftermath of any power cycle rather than wait for
+someone to notice a bad day.

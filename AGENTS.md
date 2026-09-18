@@ -28,6 +28,39 @@ Read these before acting, in this order:
 - `docs/plan.md` — decisions, package layout, order of work, deferred items.
 - `docs/firmware-api.md` — what the firmware does; verified facts only.
 
+## Standing check: read the aftermath of every power cycle
+
+Added 2026-09-17 (session W). **If `events.log` shows a `power: cycled` line
+since the last session, read what happened in the twenty minutes after it
+before doing anything else, and report it.** Do not wait for the owner to
+notice a bad day in the numbers.
+
+What to look for, in `~/.gbox/log.csv` from the cycle timestamp forward:
+
+- **Did the hashboard come up?** The known failure is a cold start where the
+  controller boots and answers HTTP normally while the hashboard stays dead:
+  `mhs_av` 0.0, both temps 0.0, fans spinning down, wall draw a few watts. It
+  ends only when the stall watchdog restarts the unit. Five episodes between
+  2026-09-13 and 2026-09-17; see the evolution log entry for session W.
+- **How long was the dead stretch?** `settle_minutes` was cut 20 -> 6 on
+  2026-09-17 to shorten exactly this. The open question is whether the stretch
+  now ends near six minutes. If it does not, say so with the number.
+- **Did the boot check fire?** `boot_check_minutes` after a cycle it should
+  read the meter and, under `boot_watts`, cycle again at once and write a
+  `power:` line saying so. On 2026-09-17 it did **not** fire although the draw
+  was three to four watts. That defect is open and unproven as to cause, and
+  `_check_boot` has no test coverage. A cycle with no boot-check line and a low
+  draw is the same bug recurring: record it.
+- **Did anything restart a healthy booting miner?** The risk introduced by the
+  shorter settle gap. Measured boot time is 5-25 s of miner uptime, about a
+  minute of wall clock, so a restart inside the first minutes is a regression.
+  If you see one, say the settle cut needs revisiting.
+- **Do the counters agree?** `events.log` has written "cycled #N today" with an
+  N that disagrees with `/api/health`'s `cycles_today`. Open defect.
+
+Telemetry never enters the main context raw: read it with a bounded subagent or
+targeted `awk`, and report conclusions. The log is 6 MB and grows.
+
 ## Rules that bound every change
 
 - Standard library only. No new dependencies without a decision in
