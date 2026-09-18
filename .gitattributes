@@ -1,0 +1,15 @@
+# Normalize line endings at commit time, so that a whole-file rewrite by any
+# tool cannot churn the diff. Added 2026-09-17 after a Python round-trip
+# (io.open reads with universal newlines, writes with os.linesep) silently
+# flipped AGENTS.md to CRLF and produced 62 phantom deletions on a 33-line
+# insert. git now normalizes regardless of what wrote the file.
+* text=auto
+
+# Scripts that run on the Mac and on Linux must keep LF.
+*.sh text eol=lf
+
+# Windows-only scripts keep CRLF.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.vbs text eol=crlf
