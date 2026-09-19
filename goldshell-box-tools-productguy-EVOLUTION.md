@@ -1959,3 +1959,72 @@ flagged as a contradiction and left unstarted rather than resolved by inference.
 1013-line session transcript to recover the handoff. Neither put a raw line into
 the main session. The second found the stale checkpoint on its own and said so
 plainly, which is how the discrepancy surfaced at all.
+
+## 2026-09-19 afternoon, session Y continued: the meter demoted, and a live service stopped by accident
+
+The session's second half started from one question the owner asked about a
+bound added that morning: should `settle_minutes` not simply have a minimum of
+two minutes? Checking it turned up the reason a flat minimum would have been
+wrong, and then a principle that reached further than the question.
+
+**The finding.** The settle gap was timed from the moment the relay OPENS, and
+the plug call blocks for `off_seconds` while the relay is open. So `off_seconds`
+was spent inside the gap before the miner had begun to boot: at the owner's
+`off_seconds` of 120, a `settle_minutes` of 6 was really 4, silently, and
+disagreed with what the seeding path recomputed after a service restart. The
+owner's verdict: "that seems like a stupid design decision." It was, and a flat
+floor of two minutes would have compensated for it rather than fixed it.
+
+**The principle, which redirected the work.** In the owner's words: the power
+meter on the plug has to be an add-on value for deciding whether the controller
+and hashboard are up, because a plug with a meter cannot be counted on; deciding
+whether a restart worked must start with network behaviour and especially the
+hashrate. Each function was checked against it rather than assumed. Two already
+complied: the sample observer keys off `ok and hashrate > 0`, and the power rung
+reads watts only to build its descriptive string. Exactly one violated it, the
+post-cycle boot check, and badly -- wall draw was the sole decider, so on a plug
+without a sensor the one mechanism meant to catch a cycle that left the box dark
+did nothing at all.
+
+**What the telemetry settled.** A question about the right check interval was
+answered from the log rather than from judgement: all five known cold-start
+failures drew *over* the threshold transiently in their first 30 to 70 seconds
+before collapsing, so a check at one minute reads a failing boot as a healthy
+one. That is why the interval now has a floor of two, and why a low reading is
+confirmed before anything acts on it.
+
+**A pushback the owner accepted.** He asked that a hold release be "confirmed by
+wattage, if available". The recommendation back was to log the draw and never let
+it gate the release, because the meter had read 15 W for a minute on 09-18 while
+the miner hashed above 600,000 -- a glitch that would have pinned the watchdog
+down. Confirmed, and the rule is now written into the code comments.
+
+**Verified on hardware, twice.** First a harness driving the real plug driver,
+real TCP and a real relay on a spare meterless plug with a lamp on it. Then the
+full thing: a scratch service against a fake miner and that same plug, which ran
+the whole ladder end to end and exercised the new meterless path through the real
+poller and watchdog. The bench run found a defect no unit test would have: the
+repeat-cycle line printed its "no meter" note twice. It also showed the restart
+ladder can reach its own power cycle before the boot check returns a verdict when
+the settle gap is shorter than twice the check interval -- benign, same remedy,
+and recorded rather than fenced off with a validation rule that would have
+blocked the minimum the owner asked for.
+
+**A real mistake, and what came of it.** Cleaning up the scratch service, a
+command that selected processes by matching their command line also stopped the
+owner's live mining watchdog. Both run identical command lines, so the filter
+could not have distinguished them; it was not a careless shortcut but an
+impossible one. Down about twenty seconds, counters intact through event-log
+seeding, miner unaffected. The owner asked what would stop a future session
+repeating it, and was told honestly that documentation alone was worth perhaps
+40 percent, evidenced by four cases in this same session where written-down facts
+had failed to change behaviour. So the fix is three-layered: a hook that refuses
+the dangerous command shape and names the alternatives in its refusal, a pid file
+each service writes into its own data directory so there is a precise handle at
+all, and only then the prose. The hook denied its own documentation on first
+firing, because the write-up quotes the commands it bans; heredoc bodies are now
+treated as data.
+
+Shipped as 0.7.4. A patch: nothing here touches the log schema, the CLI surface
+or the HTTP API, and 0.8.0 stays reserved for gate 2 and gate 3, which this
+session was told to stop before and did.
