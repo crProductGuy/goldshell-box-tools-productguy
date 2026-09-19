@@ -190,7 +190,9 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(lad["config_path"], str(self.data / "config.json"))
         self.state.cfg = config.Config(host=self.fm.address, port=0, power={"host": "p", "after_minutes": 7, "max_cycles_per_day": 4})
         lad = json.loads(self.get("/api/health")[2])["ladder"]
-        self.assertEqual((lad["after_minutes"], lad["settle_minutes"], lad["max_cycles_per_day"]), (7, 20, 4))
+        # after_minutes and max_cycles_per_day are set above; settle_minutes falls through to the default
+        self.assertEqual((lad["after_minutes"], lad["settle_minutes"], lad["max_cycles_per_day"]),
+                         (7, config.DEFAULT_POWER["settle_minutes"], 4))
 
     def test_dashboard_event_is_sanitized(self):
         msg = "a" * 500 + "\nservice: forged line\x07"

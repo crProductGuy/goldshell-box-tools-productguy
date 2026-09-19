@@ -42,7 +42,7 @@ class PowerConfigTest(unittest.TestCase):
         self.assertEqual(cfg.power["after_minutes"], 5)     # 2026-09-12: 15 cost 17 min of hashing per freeze
         self.assertEqual(config.DEFAULT_WATCHDOG["min_gap_minutes"], 5)
         self.assertEqual(cfg.power["off_seconds"], 15)
-        self.assertEqual(cfg.power["settle_minutes"], 20)
+        self.assertEqual(cfg.power["settle_minutes"], 6)    # 2026-09-17: 20 hid a dead hashboard for 22 min
         self.assertEqual(cfg.power["max_cycles_per_day"], 3)
         self.assertEqual(cfg.power["idle_watts"], 100)
 
