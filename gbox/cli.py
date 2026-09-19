@@ -26,7 +26,7 @@ import os
 import sys
 import threading
 
-from . import __version__, api, config, plug as plugmod, series, trials
+from . import __version__, api, config, pidfile, plug as plugmod, series, trials
 from .events import EventLog
 from .poller import COLUMNS, Poller, migrate_columns
 from .power import PowerControl, Scheduler
@@ -518,6 +518,9 @@ def cmd_serve(args, cfg, data_dir):
     state.poller, state.watchdog, state.power_control = poller, wd, control
 
     url = "http://%s:%d/" % ("127.0.0.1" if cfg.bind in ("0.0.0.0", "") else cfg.bind, cfg.port)
+    # Each service records itself in its OWN data dir, so the live one and a scratch one can be told
+    # apart by something other than their identical command lines (2026-09-19).
+    pidfile.write(data_dir, cfg.port, __version__)
     events.write("service: started v%s, miner %s, poll %ds, watchdog %s, power plug %s, listening on %s:%d" % (
         __version__, cfg.host, cfg.poll_interval, "on" if wd else "off",
         ("armed" if cfg.power["cycle"] else "dry run") if plug else "none", cfg.bind, cfg.port))
@@ -542,6 +545,7 @@ def cmd_serve(args, cfg, data_dir):
     finally:
         poller.stop()
         srv.shutdown()
+        pidfile.remove(data_dir)
         events.write("service: stopped")
 
 
