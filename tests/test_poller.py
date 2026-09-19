@@ -471,28 +471,28 @@ class ConfigTest(unittest.TestCase):
             config.Config(host="h", power={"host": "p", "boot_check_minutes": 11}).validate()
         config.Config(host="h", power={"host": "p", "boot_check_minutes": 0}).validate()
 
-    def test_settle_minutes_is_bounded_and_must_cover_the_off_period(self):
-        """It was the one power value with no bound, and it is the one that suppresses the stall check: at 20 it
-        hid a dead hashboard for 22 minutes (2026-09-17), so a typo of 600 would hide one for ten hours. The
-        floor is derived rather than flat because the gap is timed from the relay OPENING: off_seconds is spent
-        before the miner has begun to boot, so a flat "at least 2 minutes" would still leave nothing at all at
-        off_seconds 120, the maximum the validator allows."""
-        self.assertEqual(config.Config(host="h", power={"host": "p"}).power["settle_minutes"], 6)
-        config.Config(host="h", power={"host": "p", "settle_minutes": 60}).validate()
-        with self.assertRaises(ValueError):
-            config.Config(host="h", power={"host": "p", "settle_minutes": 61}).validate()
-        with self.assertRaises(ValueError):
-            config.Config(host="h", power={"host": "p", "settle_minutes": -1}).validate()
-        # off_seconds 15 (the default) needs 75 s, so 2 minutes clears it and 1 does not
+    def test_the_two_post_cycle_timers_are_bounded(self):
+        """Both are measured from power returning, and both have a floor of 2 minutes for different reasons.
+
+        settle_minutes had no bound at all, and it is the one that suppresses the stall check: at 20 it hid a
+        dead hashboard for 22 minutes (2026-09-17), so a typo of 600 would hide one for ten hours. Below 2 it
+        judges a miner that is still booting -- measured boot is 60 to 66 s.
+
+        boot_check_minutes rejects 1 specifically. Every one of the five known cold-start failures drew over
+        boot_watts transiently in its first 30 to 70 seconds before collapsing to 2-10 W, so a reading that
+        early sees the spike and concludes the box booted fine -- missing the failure it exists to catch."""
+        power = config.Config(host="h", power={"host": "p"}).power
+        self.assertEqual((power["settle_minutes"], power["boot_check_minutes"]), (6, 2))
         config.Config(host="h", power={"host": "p", "settle_minutes": 2}).validate()
-        with self.assertRaises(ValueError):
-            config.Config(host="h", power={"host": "p", "settle_minutes": 1}).validate()
-        # off_seconds 120 (the owner's live setting) needs 180 s: 2 minutes is entirely eaten by the off period
-        config.Config(host="h", power={"host": "p", "off_seconds": 120, "settle_minutes": 3}).validate()
-        with self.assertRaises(ValueError):
-            config.Config(host="h", power={"host": "p", "off_seconds": 120, "settle_minutes": 2}).validate()
-        with self.assertRaises(ValueError):
-            config.Config(host="h", power={"host": "p", "settle_minutes": 0}).validate()
+        config.Config(host="h", power={"host": "p", "settle_minutes": 60}).validate()
+        for bad in (1, 0, -1, 61):
+            with self.assertRaises(ValueError):
+                config.Config(host="h", power={"host": "p", "settle_minutes": bad}).validate()
+        config.Config(host="h", power={"host": "p", "boot_check_minutes": 0}).validate()   # 0 switches it off
+        config.Config(host="h", power={"host": "p", "boot_check_minutes": 2}).validate()
+        for bad in (1, 11, -1):
+            with self.assertRaises(ValueError):
+                config.Config(host="h", power={"host": "p", "boot_check_minutes": bad}).validate()
 
     def test_validate_rejects_fast_polling(self):
         with self.assertRaises(ValueError):
