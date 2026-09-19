@@ -37,11 +37,11 @@ DEFAULT_POWER = {
     "cycle": False,              # true arms the watchdog; false logs "would cycle" only
     "after_minutes": 5,          # unreachable this long, with two failed soft restarts, before a cycle (15 until 2026-09-12: 17 min of lost hashing per freeze)
     "off_seconds": 15,           # relay open this long
-    "settle_minutes": 6,         # nothing judged this long after a cycle (20 until 2026-09-17: across 25 measured boots the miner was hashing at 5-25 s, so 20 only hid a dead hashboard for 22 min)
+    "settle_minutes": 6,         # nothing judged this long after POWER RETURNS, and it ends early once the miner hashes twice (20 until 2026-09-17: across 25 measured boots the miner was hashing at 5-25 s, so 20 only hid a dead hashboard for 22 min)
     "max_cycles_per_day": 3,
     "idle_watts": 100,           # below this the miner is idle (hung draws about 34 W, hashing 180+)
-    "boot_watts": 20,            # 0.7.2: under this, boot_check_minutes after a cycle, the controller never came up
-    "boot_check_minutes": 2,     # (2026-09-15 06:40: 12 W for 25 min after a cycle); one repeat cycle at once. 0: no check
+    "boot_watts": 20,            # 0.7.2: under this AND silent on the network, the controller never came up. Only ever refines the remedy; the fault itself is decided without a meter (2026-09-19)
+    "boot_check_minutes": 2,     # first reading this long after power returns, verdict at twice it (2026-09-15 06:40: 12 W for 25 min after a cycle); one repeat cycle. 0: no check
 }
 PLUG_DRIVERS = ("kasa",)
 
@@ -134,19 +134,16 @@ class Config:
                 raise ValueError("power.after_minutes must be at least watchdog.unreachable_minutes")
             if not 0 <= int(p["max_cycles_per_day"]) <= 10:
                 raise ValueError("power.max_cycles_per_day must be 0 to 10")
-            if not 0 <= float(p["settle_minutes"]) <= 60:
-                raise ValueError("power.settle_minutes must be 0 to 60: nothing is judged for this long after a "
-                                 "cycle, so a large value hides a dead hashboard for exactly that long")
-            # The floor is derived, not flat: the settle gap is timed from the moment the relay OPENS, so
-            # off_seconds is spent before the miner has begun to boot at all. A flat "at least 2 minutes" would
-            # still leave nothing at off_seconds 120, the maximum. Measured boot is 60 to 66 s on the SC-BOX.
-            if float(p["settle_minutes"]) * 60 < int(p["off_seconds"]) + 60:
-                raise ValueError("power.settle_minutes must cover power.off_seconds plus a minute for the boot "
-                                 "(%d s here): the gap is timed from the relay opening, not from power coming "
-                                 "back, so anything less judges a miner that is still booting"
-                                 % (int(p["off_seconds"]) + 60))
-            if not 0 <= int(p["boot_check_minutes"]) <= 10:
-                raise ValueError("power.boot_check_minutes must be 0 (no check) to 10")
+            # Both floors are flat, and both are measured from the moment power comes back (2026-09-19).
+            if not 2 <= float(p["settle_minutes"]) <= 60:
+                raise ValueError("power.settle_minutes must be 2 to 60: below 2 the watchdog judges a miner that "
+                                 "is still booting (60 to 66 s measured), and a large value hides a dead "
+                                 "hashboard for exactly that long")
+            # 1 is rejected on purpose: every one of the five known cold-start failures drew over boot_watts
+            # transiently in its first 30 to 70 s before collapsing, so a check that early reads "booted fine".
+            if int(p["boot_check_minutes"]) != 0 and not 2 <= int(p["boot_check_minutes"]) <= 10:
+                raise ValueError("power.boot_check_minutes must be 0 (no check) or 2 to 10: a check before two "
+                                 "minutes lands in the transient draw of a boot that is actually failing")
             if not 0 <= int(p["boot_watts"]) < int(p["idle_watts"]):
                 raise ValueError("power.boot_watts must be below power.idle_watts")
             if int(self.watchdog["max_restarts_per_day"]) < 2 * int(p["max_cycles_per_day"]):

@@ -93,8 +93,9 @@ class Watchdog:
         self._seeded_restarts = set()
         self._seeded_cycles = set()
         self.power_gap_until = None
+        self._gap_streak = 0                # hashing samples in a row since the gap started; ends it early
         self._power_logged = False          # one "would cycle" / refusal / cap line per episode
-        self._boot_check = None             # {at, cycle, retry} after a cycle: did the controller come up at all?
+        self._boot_check = None             # {at, cycle, retry, confirmed, http_ok}: did the box come back?
         self.last_power_reason = None
         self.hold = None                    # None, or {since, until (None: no expiry), reason, source, ok_streak}
 
@@ -104,22 +105,44 @@ class Watchdog:
         without its hashboard, answered HTTP with a zero hashrate, and two answers released the hold.
         None (older callers) means "same as ok". The post-cycle boot check clears the same way: an HTTP-only
         answer with a dead hashboard is exactly the failure it exists to catch, so it is only cancelled on a
-        sample that is actually hashing (2026-09-18)."""
+        sample that is actually hashing (2026-09-18).
+
+        The settle gap after a cycle ends the same way, on HOLD_OK_SAMPLES hashing samples (2026-09-19):
+        waiting out a fixed timer on a miner that is demonstrably back is what let `settle_minutes` 20 hide a
+        dead hashboard for 22 minutes. The wall meter is never consulted here. It is optional hardware, and on
+        2026-09-18 it read 15 W for a minute while the miner hashed above 600,000, so letting it gate a release
+        would stand the watchdog down on a sensor glitch."""
         t = self._clock() if t is None else t
         self._rows.append((t, bool(ok), accepted))
+        back = bool(ok) if hashing is None else bool(ok and hashing)
         if ok:
             self.episode_start = None
             self.episode_failed_restarts = 0
             self._power_logged = False
             if hashing is None or hashing:
                 self._boot_check = None     # only a hashing sample proves it booted; ok alone does not (2026-09-18)
+            elif self._boot_check is not None:
+                # It answered but the board is silent. The check runs on, remembering that the controller is at
+                # least on the network: that is what picks the remedy, with no meter needed (2026-09-19).
+                self._boot_check["http_ok"] = True
         elif self.episode_start is None:
             self.episode_start = t
         if self.hold is not None:
-            back = bool(ok) if hashing is None else bool(ok and hashing)
             self.hold["ok_streak"] = self.hold["ok_streak"] + 1 if back else 0
             if self.hold["ok_streak"] >= HOLD_OK_SAMPLES:
                 self.hold_release("back")
+        if self.power_gap_until is not None:
+            self._gap_streak = self._gap_streak + 1 if back else 0
+            if self._gap_streak >= HOLD_OK_SAMPLES:
+                self._end_gap("the miner is hashing again")
+
+    def _end_gap(self, why):
+        """End the post-cycle settle gap early, on proof of health or of a settled fault (2026-09-19)."""
+        if self.power_gap_until is None:
+            return
+        self.power_gap_until = None
+        self._gap_streak = 0
+        self._events.write("power: settle gap ended early, %s; the watchdog is judging again" % why)
 
     # ------------------------------------------------------------ holds
 
@@ -131,6 +154,10 @@ class Watchdog:
         now = self._clock()
         until = None if minutes is None else now + float(minutes) * 60
         self.hold = {"since": now, "until": until, "reason": reason or "", "source": source, "ok_streak": 0}
+        # A hold means hands off the hardware, and check() returns before reaching the boot check, so a pending
+        # one would otherwise sit there and fire late when the hold lifts. The early return is right; the stale
+        # check is not (2026-09-19).
+        self._boot_check = None
         who = "the schedule" if source == "schedule" else "you"
         when = ("until " + self._stamp(until)) if until is not None else ", no expiry"
         self._events.write("hold: started by %s%s%s%s" % (who, "" if until is None else " ", when,
@@ -376,17 +403,29 @@ class Watchdog:
         self._cycle(reason, before)
 
     def _cycle(self, reason, before, retry=False):
-        """Open the relay and close it, start the settle gap, and book the boot check."""
+        """Open the relay and close it, start the settle gap, and book the boot check.
+
+        Both timers run from the moment power comes BACK, not from the relay opening (2026-09-19).
+        `plug.cycle()` blocks for `off_seconds`, so timing the gap from here spent that whole time inside it:
+        at `off_seconds` 120 a `settle_minutes` of 6 was really 4, silently, and disagreed with what
+        `seed_from_events` recomputes from the event line (which is written after the cycle, so it already
+        carries the power-return time). The provisional value below still covers `plug.cycle()` raising.
+
+        `_cycle_times` deliberately keeps the relay-open time: it feeds a 24-hour rate limit, where a
+        difference of at most `off_seconds` is immaterial, and it must count a failed cycle too.
+        """
         now = self._clock()
         self.last_power_reason = reason
         self._cycle_times.append(now)
         self._seeded_cycles.add(now)        # so a later seed of the line written below does not count it twice
         self.power_gap_until = now + float(self.power["settle_minutes"]) * 60
+        self._gap_streak = 0
         self.episode_failed_restarts = 0
         self._power_logged = False
         self._boot_check = None
         try:
             self.plug.cycle(int(self.power["off_seconds"]), sleep=self._sleep)
+            self.power_gap_until = self._clock() + float(self.power["settle_minutes"]) * 60
             self._events.write("power: cycled #%d in 24 h: off %d s, on (%s; %s)"
                                % (self.cycles_today(), int(self.power["off_seconds"]), reason, before))
         except Exception as e:
@@ -394,45 +433,61 @@ class Watchdog:
             return
         minutes = int(self.power.get("boot_check_minutes", 0) or 0)
         if minutes > 0:
-            self._boot_check = {"at": self._clock() + minutes * 60, "cycle": self.cycles_today(), "retry": retry}
+            self._boot_check = {"at": self._clock() + minutes * 60, "cycle": self.cycles_today(),
+                                "retry": retry, "confirmed": False, "http_ok": False}
 
     def _check_boot(self):
-        """`boot_check_minutes` after a cycle: is the controller drawing power at all? A cycle that leaves the
-        wall under `boot_watts` never booted (2026-09-15 06:40: 12 W for 25 minutes, below even the hung
-        controller's 34 W, until the ladder's next cycle). One repeat cycle, at once, within the daily cap; a
-        second failure is logged and left to the ladder."""
+        """`boot_check_minutes` after power returns: did the box come back, and which remedy does it need?
+
+        The fault is decided on what the miner's own API shows, never on the meter: a plug that measures watts
+        is optional hardware and must not be what the diagnosis rests on (2026-09-19). Two signals, both free:
+
+        * Reaching here at all means the miner is NOT hashing -- `observe()` clears the check on a hashing
+          sample, which is the whole point of the 2026-09-18 fix.
+        * `http_ok` says whether it has answered at all since the cycle, which separates a controller that
+          never came up from one that is up with a dead hashboard.
+
+        The meter, when there is one, only refines the remedy. Silent on the network AND under `boot_watts`
+        (or no meter to say otherwise) is a box that never powered up, and only another cycle will help
+        (2026-09-15 06:40: 12 W for 25 minutes, below even the hung controller's 34 W). Anything else -- it
+        answered, or it is drawing real power -- is a job for a soft restart first, so the settle gap ends and
+        the ladder takes over, escalating on its own if the soft restarts fail.
+
+        Either way the verdict waits for a second reading `boot_check_minutes` later. One low reading is not
+        proof: `cli.py` tells the owner to allow two or three minutes on units other than this one, and every
+        one of the five known cold-start failures transiently drew over `boot_watts` in its first 30 to 70
+        seconds before collapsing. One repeat cycle at most, within the daily cap.
+        """
         bc = self._boot_check
         if bc is None or self._clock() < bc["at"] or self.plug is None:
             return
-        self._boot_check = None
+        minutes = int(self.power.get("boot_check_minutes", 0) or 0)
+        w = None
         try:
             info = self.plug.identify()
             w = self.plug.watts() if info.get("meter") else None
         except Exception as e:
-            self._events.write("power: boot check after cycle #%d skipped: plug did not answer (%s)" % (bc["cycle"], e))
-            return
-        if w is None:
-            # A meterless plug cannot answer the question the check exists to ask. Silence here read as "the box
-            # booted fine" for anyone reading the event log, so say it once per cycle instead (2026-09-19).
-            self._events.write("power: boot check after cycle #%d skipped: the plug has no meter, so whether the "
-                               "controller came up cannot be read" % bc["cycle"])
-            return
-        if w >= float(self.power.get("boot_watts", 0)):
-            return
-        minutes = int(self.power.get("boot_check_minutes", 0) or 0)
+            self._events.write("power: boot check after cycle #%d: the plug did not answer (%s); judging on the "
+                               "miner's own behaviour instead" % (bc["cycle"], e))
         if not bc.get("confirmed"):
-            # One low reading is not proof (2026-09-19). `cli.py` tells the owner to allow two or three minutes
-            # on units other than this one, and a unit still booting draws a few watts, so a single reading at
-            # boot_check_minutes cuts power to a miner that was going to come up on its own. A controller that
-            # genuinely never booted sits low for 25 minutes (2026-09-15 06:40), so confirming costs one
-            # interval and buys the difference between a ramping draw and a flat one. A unit that starts
-            # hashing in between never gets here: observe() clears the check.
-            self._boot_check = {"at": self._clock() + minutes * 60, "cycle": bc["cycle"],
-                                "retry": bc["retry"], "confirmed": True}
-            self._events.write("power: after cycle #%d the wall is %.0f W at %d min, under boot_watts; reading "
-                               "again in %d min before cycling again" % (bc["cycle"], w, minutes, minutes))
+            self._boot_check = dict(bc, at=self._clock() + minutes * 60, confirmed=True)
+            self._events.write("power: after cycle #%d the miner is not hashing at %d min (%s, %s); reading again "
+                               "in %d min before acting"
+                               % (bc["cycle"], minutes, "it has answered HTTP" if bc.get("http_ok") else "silent",
+                                  ("%.0f W" % w) if w is not None else "no meter", minutes))
             return
-        why = "controller did not come up after cycle #%d: %.0f W after %d min" % (bc["cycle"], w, 2 * minutes)
+        self._boot_check = None
+        dark = not bc.get("http_ok")
+        unpowered = w is None or w < float(self.power.get("boot_watts", 0))
+        if not (dark and unpowered):
+            self._events.write("power: after cycle #%d the miner is still not hashing at %d min (%s, %s), but that "
+                               "is not a box without power; leaving it to the restart ladder"
+                               % (bc["cycle"], 2 * minutes, "it has answered HTTP" if not dark else "silent",
+                                  ("%.0f W" % w) if w is not None else "no meter"))
+            self._end_gap("the boot check has decided a soft restart is the right remedy")
+            return
+        why = ("controller did not come up after cycle #%d: silent on the network for %d min (%s)"
+               % (bc["cycle"], 2 * minutes, ("%.0f W" % w) if w is not None else "no meter"))
         if bc["retry"]:
             self._events.write("power: %s; already cycled again once, leaving it to the ladder" % why)
             return
@@ -440,4 +495,4 @@ class Watchdog:
         if self.cycles_today() >= cap:
             self._events.write("power: %s, but %d cycles in 24 h is the cap; not cycling" % (why, cap))
             return
-        self._cycle(why, "%.0f W before" % w, retry=True)
+        self._cycle(why, ("%.0f W before" % w) if w is not None else "no meter", retry=True)

@@ -43,37 +43,49 @@ What to look for, in `~/.gbox/log.csv` from the cycle timestamp forward:
   ends only when the stall watchdog restarts the unit. Five episodes between
   2026-09-13 and 2026-09-17; see the evolution log entry for session W.
 - **How long was the dead stretch?** `settle_minutes` was cut 20 -> 6 on
-  2026-09-17 to shorten exactly this. The open question is whether the stretch
-  now ends near six minutes. If it does not, say so with the number.
-- **Did the boot check fire?** `boot_check_minutes` after a cycle it should
-  read the meter and, under `boot_watts`, cycle again at once and write a
-  `power:` line saying so. On 2026-09-17 it did **not** fire although the draw
-  was three to four watts. **Cause found and fixed 2026-09-18:** `observe()`
-  cleared the pending check on any successful HTTP sample, and a cold start
-  answers HTTP, so the check was always cancelled before it came due. It now
-  clears only on a sample that is actually hashing. A cycle with no boot-check
-  line and a low draw is the same bug recurring: record it. Every branch of
-  `_check_boot` now has a test (2026-09-19; the earlier note here listing four
-  untested branches was wrong about two of them, `retry` and the cycle cap,
-  which `tests/test_watchdog.py` already covered). The one path still untested
-  is a slow-booting healthy unit, and it is a real risk rather than an
-  omission: see the note below.
+  2026-09-17 to shorten exactly this. Since 2026-09-19 the gap also **ends
+  early, as soon as the miner delivers two hashing samples in a row** — the
+  same evidence that releases a hold — so on a healthy boot it should end
+  around a minute, not six. A full-length gap means the miner never proved it
+  was back; that is a finding, not a timer.
+- **Did the boot check fire?** `boot_check_minutes` after power returns it
+  takes a reading, and a second one `boot_check_minutes` later before acting.
+  On 2026-09-17 it did **not** fire although the draw was three to four watts.
+  **Cause found and fixed 2026-09-18:** `observe()` cleared the pending check
+  on any successful HTTP sample, and a cold start answers HTTP, so the check
+  was always cancelled before it came due. It now clears only on a sample that
+  is actually hashing. A cycle with no boot-check line at all is the same bug
+  recurring: record it.
 - **Did anything restart a healthy booting miner?** The risk introduced by the
   shorter settle gap. Measured boot time is 5-25 s of miner uptime, about a
   minute of wall clock, so a restart inside the first minutes is a regression.
   If you see one, say the settle cut needs revisiting.
-- **Did the boot check cut power to a unit that was merely slow to boot?**
-  Found and fixed 2026-09-19. `boot_check_minutes` is 2, but `cli.py` tells the
-  owner "back hashing in about a minute (60 to 66 s measured); allow two or
-  three on other units", and a cold-start SC-BOX draws 3 to 4 W. A single
-  reading under `boot_watts` at the two-minute mark therefore cut power to a
-  miner that was coming up on its own. **The check now needs two consecutive
-  low readings**, `boot_check_minutes` apart, and writes a "reading again in N
-  min" line between them; a unit that starts hashing in between never reaches
-  the second, because `observe()` clears the check. A controller that genuinely
-  never booted sits low for 25 minutes, so confirming costs one interval. If
-  you see a repeat cycle where the wall draw was rising between the two
-  readings, the confirmation is not doing its job: say so.
+- **Did the right remedy get chosen?** Reworked 2026-09-19 on the owner's
+  principle: **a plug that measures watts is optional hardware, so the fault is
+  decided on what the miner's own API shows and the meter only refines the
+  remedy.** Reaching the boot check at all means the miner is not hashing. From
+  there, "has it answered HTTP at all since power returned" is what separates
+  the two cases, and it needs no sensor:
+
+  | Answered HTTP | Wall draw | Meaning | Remedy |
+  |---|---|---|---|
+  | no | under `boot_watts`, **or no meter** | never powered up | cycle again |
+  | no | at or above `boot_watts` | powered but hung | end the gap, soft restart |
+  | yes | anything, or no meter | hashboard dead | end the gap, soft restart |
+
+  Two consequences to check for. **A meterless plug now gets a working boot
+  check** where it previously did nothing at all — if you see a cycle on a
+  meterless plug with no boot-check line, that is a regression. And a box that
+  answered HTTP is **no longer power-cycled a second time**; it is handed to the
+  soft-restart ladder, which is what actually ended the 09-13..09-17 episodes.
+  A second power cut on a box that was answering means the handover broke.
+
+  The verdict always waits for a second reading `boot_check_minutes` later,
+  with a "reading again in N min" line between the two. That is not caution for
+  its own sake: every one of the five known cold-start failures drew **over**
+  `boot_watts` transiently in its first 30 to 70 seconds before collapsing to
+  2-10 W, so one reading can catch either the spike or the collapse. It is also
+  why `boot_check_minutes` may not be set to 1.
 - **Do the counters agree?** `events.log` used to write "cycled #N today" with an
   N that disagreed with `/api/health`'s `cycles_today`. **Explained and closed
   2026-09-18:** the counter is a rolling 24-hour window and was always right;

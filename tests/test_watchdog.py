@@ -322,8 +322,12 @@ class PowerCycleTest(unittest.TestCase):
 
         settle_minutes is pinned at 20 rather than taken from the default, which became 6 on 2026-09-17. What
         this test is about is the gap's mechanics -- nothing judged inside it, the full ladder again after it --
-        so it states the gap length it exercises instead of inheriting a tunable number."""
-        self.wd = self.make(after_minutes=15, settle_minutes=20)
+        so it states the gap length it exercises instead of inheriting a tunable number.
+
+        The boot check is switched off here for the same reason. From 2026-09-19 it ends the settle gap early
+        when it concludes a soft restart is the right remedy, and the fake plug's default 34 W is exactly the
+        hung-controller draw that triggers that. Leaving it on would make this a test of the boot check."""
+        self.wd = self.make(after_minutes=15, settle_minutes=20, boot_check_minutes=0)
         self.freeze(20)                                             # samples up to 19.5 min
         self.assertEqual(self.plug.calls, ["off", "on"])
         restarts_before = sum("restart attempt failed" in l for l in self.lines)
@@ -353,11 +357,11 @@ class PowerCycleTest(unittest.TestCase):
         self.feed(1, ok=False)                                      # 14 min: first reading, low but unconfirmed
         self.assertEqual(self.plug.calls, ["off", "on"])            # one reading is not proof (2026-09-19)
         self.assertTrue(any("reading again in 2 min" in l for l in self.power_lines()))
-        self.feed(4, ok=False)                                      # 16 min: still low, and now it is proof
+        self.feed(4, ok=False)                                      # 16 min: still silent and dark, now it is proof
         self.assertEqual(self.plug.calls, ["off", "on", "off", "on"])
         self.assertEqual(self.wd.cycles_today(), 2)
         line = [l for l in self.power_lines() if l.startswith("power: cycled #2")][0]
-        self.assertIn("controller did not come up after cycle #1: 12 W after 4 min", line)
+        self.assertIn("silent on the network for 4 min (12 W)", line)
         self.plug.watts_value = 12.0                                # still dark after the repeat
         self.feed(8, ok=False)                                      # 20 min: both readings of the second check
         self.assertEqual(self.plug.calls, ["off", "on", "off", "on"])          # no third cycle from the check
@@ -435,6 +439,9 @@ class PowerCycleTest(unittest.TestCase):
         self.assertEqual(self.plug.calls, [])                       # two in total, but not two in this episode
 
     def test_no_meter_says_so_in_the_line(self):
+        """The boot check is off here so this stays a test of the cycle line's wording. With it on, a meterless
+        plug now earns a second cycle of its own -- that path is test_b1 (2026-09-19)."""
+        self.wd = self.make(boot_check_minutes=0)
         self.plug.meter = False
         self.freeze(20)
         cycled = [l for l in self.power_lines() if l.startswith("power: cycled")]
@@ -463,10 +470,14 @@ class PowerCycleTest(unittest.TestCase):
         self.assertEqual(self.plug.calls, ["off", "on", "off", "on"])
         self.assertTrue(any("did not come up" in l for l in self.power_lines()))
 
-    def test_a2_boot_check_fires_after_an_http_only_cold_start(self):
-        """The defect (2026-09-18): the controller boots and answers HTTP (ok=True) while the hashboard stays
-        dead (hashing=False) at a low draw. Before the observe() fix this cleared _boot_check on any ok=True
-        sample regardless of hashing, so the check never fired. Fails before the fix, passes after."""
+    def test_a2_boot_check_still_runs_after_an_http_only_cold_start(self):
+        """The 2026-09-18 defect: the controller boots and answers HTTP (ok=True) while the hashboard stays dead
+        (hashing=False). observe() used to clear _boot_check on any ok=True sample regardless of hashing, so the
+        check never fired at all. It must still run here -- that part is the fix and must not regress.
+
+        What it decides changed on 2026-09-19. A box that answers HTTP has power and a working controller, so a
+        second power cut is the wrong tool: the remedy is a soft restart, and the check hands over by ending the
+        settle gap. This is also what actually ended the 09-13..09-17 episodes."""
         self.freeze(12)
         self.feed(1, ok=False)                                      # 12 min: second failed restart, cycle #1
         self.assertEqual(self.plug.calls, ["off", "on"])
@@ -475,8 +486,10 @@ class PowerCycleTest(unittest.TestCase):
             self.clock.tick(self.INTERVAL)
             self.wd.observe(True, None, hashing=False)
             self.wd.check()
-        self.assertEqual(self.plug.calls, ["off", "on", "off", "on"])
-        self.assertTrue(any("did not come up" in l for l in self.power_lines()))
+        self.assertEqual(self.plug.calls, ["off", "on"])            # no second power cut on a box that answers
+        self.assertTrue(any("it has answered HTTP" in l for l in self.power_lines()))
+        self.assertTrue(any("leaving it to the restart ladder" in l for l in self.power_lines()))
+        self.assertIsNone(self.wd.power_gap_until)                  # handed over: the ladder can act now
 
     def test_a3_healthy_boot_clears_the_check_without_a_repeat_cycle(self):
         """Guard against overcorrecting task A into a restart loop on a healthy box: ok=True with hashing=True
@@ -507,20 +520,80 @@ class PowerCycleTest(unittest.TestCase):
         self.assertEqual(self.plug.calls, ["off", "on"])            # never cycled a healthy miner
         self.assertFalse(any("did not come up" in l for l in self.power_lines()))
 
+    def test_c2_the_settle_gap_ends_early_once_the_miner_is_hashing(self):
+        """The gap was a blind timer, so a miner demonstrably back still bought the full wait -- which is how
+        settle_minutes 20 hid a dead hashboard for 22 minutes (2026-09-17). Two hashing samples end it, the same
+        evidence a hold releases on. The meter is never consulted: on 2026-09-18 it read 15 W for a minute while
+        the miner hashed above 600,000, and a glitch like that must not be able to stand the watchdog down."""
+        self.wd = self.make(settle_minutes=20, boot_check_minutes=0)
+        self.freeze(12)
+        self.feed(1, ok=False)                                      # 12 min: cycle #1, gap runs to 32 min
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.assertIsNotNone(self.wd.power_gap_until)
+        self.clock.tick(self.INTERVAL)
+        self.wd.observe(True, None, hashing=True)                   # one hashing sample is not enough
+        self.wd.check()
+        self.assertIsNotNone(self.wd.power_gap_until)
+        self.clock.tick(self.INTERVAL)
+        self.wd.observe(True, None, hashing=True)                   # two in a row: it is back
+        self.wd.check()
+        self.assertIsNone(self.wd.power_gap_until)
+        self.assertTrue(any("settle gap ended early" in l for l in self.power_lines()))
+
+    def test_c3_an_http_only_answer_does_not_end_the_settle_gap(self):
+        """The cold-start signature answers HTTP with a dead board. That is not evidence of health and must not
+        shorten the gap, for the same reason it does not release a hold (2026-09-13)."""
+        self.wd = self.make(settle_minutes=20, boot_check_minutes=0)
+        self.freeze(12)
+        self.feed(1, ok=False)                                      # 12 min: cycle #1
+        for _ in range(6):
+            self.clock.tick(self.INTERVAL)
+            self.wd.observe(True, None, hashing=False)
+            self.wd.check()
+        self.assertIsNotNone(self.wd.power_gap_until)
+        self.assertFalse(any("settle gap ended early" in l for l in self.power_lines()))
+
+    def test_c4_a_hold_clears_a_pending_boot_check(self):
+        """check() returns on a hold before reaching the boot check, which is right -- a hold means hands off,
+        and the check's action is a power cut. But the pending check used to survive and fire late when the hold
+        lifted, acting on a reading minutes stale (2026-09-19)."""
+        self.freeze(12)
+        self.feed(1, ok=False)                                      # 12 min: cycle #1 arms the boot check
+        self.assertIsNotNone(self.wd._boot_check)
+        self.wd.hold_start(minutes=30, reason="working on it", source="page")
+        self.assertIsNone(self.wd._boot_check)
+
     # ---------------------------------------- the two branches of _check_boot that had no test (2026-09-19)
 
-    def test_b1_a_meterless_plug_says_so_instead_of_passing_the_check_silently(self):
-        """`w is None` returned with no event line, so a plug that cannot measure watts looked exactly like a
-        box that booted fine. The check is impossible here, and the log now says which of the two it was."""
+    def test_b1_a_meterless_plug_still_gets_a_working_boot_check(self):
+        """The meter is optional hardware and the diagnosis must not rest on it (Mark, 2026-09-19). `w is None`
+        used to return silently, so on a plug without a sensor the one mechanism meant to catch a cycle that
+        left the box dark did nothing whatsoever. The miner being silent on the network is evidence enough."""
         self.plug.meter = False
         self.freeze(12)
         self.feed(1, ok=False)                                      # 12 min: second failed restart, cycle #1
         self.assertEqual(self.plug.calls, ["off", "on"])
-        self.plug.watts_value = 3.0                                 # would be under boot_watts, but unreadable
-        self.feed(4, ok=False)                                      # 14 min: the boot check is due
-        self.assertEqual(self.plug.calls, ["off", "on"])            # never cycle on a reading we do not have
-        self.assertTrue(any("has no meter" in l for l in self.power_lines()))
-        self.assertFalse(any("did not come up" in l for l in self.power_lines()))
+        self.feed(4, ok=False)                                      # 14 min: first reading, still silent
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.assertTrue(any("no meter" in l and "reading again" in l for l in self.power_lines()))
+        self.feed(4, ok=False)                                      # 16 min: confirmed silent, cycle again
+        self.assertEqual(self.plug.calls, ["off", "on", "off", "on"])
+        line = [l for l in self.power_lines() if l.startswith("power: cycled #2")][0]
+        self.assertIn("silent on the network for 4 min (no meter)", line)
+
+    def test_b3_a_meterless_plug_hands_over_when_the_miner_is_answering(self):
+        """Same plug, other branch: it answered HTTP, so the controller is up and only the board is dead. With
+        no meter to consult, the decision still lands correctly on the soft-restart ladder, not a power cut."""
+        self.plug.meter = False
+        self.freeze(12)
+        self.feed(1, ok=False)                                      # 12 min: cycle #1
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        for _ in range(8):                                          # 14 and 16 min: answering, not hashing
+            self.clock.tick(self.INTERVAL)
+            self.wd.observe(True, None, hashing=False)
+            self.wd.check()
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.assertTrue(any("leaving it to the restart ladder" in l for l in self.power_lines()))
 
     def test_b2_a_plug_that_stops_answering_at_the_boot_check_is_logged_not_swallowed(self):
         """`identify()` raising inside the check is caught and logged, and must not cycle: an unreachable plug
