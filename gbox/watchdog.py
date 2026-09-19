@@ -419,7 +419,20 @@ class Watchdog:
             return
         if w >= float(self.power.get("boot_watts", 0)):
             return
-        why = "controller did not come up after cycle #%d: %.0f W after %d min" % (bc["cycle"], w, int(self.power["boot_check_minutes"]))
+        minutes = int(self.power.get("boot_check_minutes", 0) or 0)
+        if not bc.get("confirmed"):
+            # One low reading is not proof (2026-09-19). `cli.py` tells the owner to allow two or three minutes
+            # on units other than this one, and a unit still booting draws a few watts, so a single reading at
+            # boot_check_minutes cuts power to a miner that was going to come up on its own. A controller that
+            # genuinely never booted sits low for 25 minutes (2026-09-15 06:40), so confirming costs one
+            # interval and buys the difference between a ramping draw and a flat one. A unit that starts
+            # hashing in between never gets here: observe() clears the check.
+            self._boot_check = {"at": self._clock() + minutes * 60, "cycle": bc["cycle"],
+                                "retry": bc["retry"], "confirmed": True}
+            self._events.write("power: after cycle #%d the wall is %.0f W at %d min, under boot_watts; reading "
+                               "again in %d min before cycling again" % (bc["cycle"], w, minutes, minutes))
+            return
+        why = "controller did not come up after cycle #%d: %.0f W after %d min" % (bc["cycle"], w, 2 * minutes)
         if bc["retry"]:
             self._events.write("power: %s; already cycled again once, leaving it to the ladder" % why)
             return
