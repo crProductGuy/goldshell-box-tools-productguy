@@ -486,13 +486,18 @@ class Watchdog:
                                   ("%.0f W" % w) if w is not None else "no meter"))
             self._end_gap("the boot check has decided a soft restart is the right remedy")
             return
-        why = ("controller did not come up after cycle #%d: silent on the network for %d min (%s)"
-               % (bc["cycle"], 2 * minutes, ("%.0f W" % w) if w is not None else "no meter"))
+        # The reading is carried separately: _cycle appends it to the "cycled #N" line already, and repeating
+        # it inside the reason printed "no meter ... no meter" on a meterless plug (seen on the bench, 09-19).
+        reading = ("%.0f W" % w) if w is not None else "no meter"
+        why = ("controller did not come up after cycle #%d: silent on the network for %d min"
+               % (bc["cycle"], 2 * minutes))
         if bc["retry"]:
-            self._events.write("power: %s; already cycled again once, leaving it to the ladder" % why)
+            self._events.write("power: %s (%s); already cycled again once, leaving it to the ladder"
+                               % (why, reading))
             return
         cap = int(self.power["max_cycles_per_day"])
         if self.cycles_today() >= cap:
-            self._events.write("power: %s, but %d cycles in 24 h is the cap; not cycling" % (why, cap))
+            self._events.write("power: %s (%s), but %d cycles in 24 h is the cap; not cycling"
+                               % (why, reading, cap))
             return
-        self._cycle(why, ("%.0f W before" % w) if w is not None else "no meter", retry=True)
+        self._cycle(why, reading, retry=True)
