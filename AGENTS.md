@@ -61,6 +61,15 @@ What to look for, in `~/.gbox/log.csv` from the cycle timestamp forward:
 Telemetry never enters the main context raw: read it with a bounded subagent or
 targeted `awk`, and report conclusions. The log is 6 MB and grows.
 
+The bounded subagent is the `scanner` type (installed at user level on the
+owner's machine from `agent-delegation-kit`; `browser-checker` for a page
+check). **Never use the built-in `Explore` type or `general-purpose` without an
+explicit `model`:** both run on the parent session's model, which is the most
+expensive one. Write the brief from
+`../agent-delegation-kit/templates/BRIEF-TEMPLATE.md`. To confirm which model a
+scan ran on, count `"model"` values in its transcript under
+`~/.claude/projects/<slug>/<session>/subagents/`.
+
 ## Rules that bound every change
 
 - Standard library only. No new dependencies without a decision in
