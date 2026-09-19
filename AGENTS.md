@@ -52,14 +52,25 @@ What to look for, in `~/.gbox/log.csv` from the cycle timestamp forward:
   cleared the pending check on any successful HTTP sample, and a cold start
   answers HTTP, so the check was always cancelled before it came due. It now
   clears only on a sample that is actually hashing. A cycle with no boot-check
-  line and a low draw is the same bug recurring: record it. Note the fix is
-  covered for the three main paths only; a meterless plug, `identify()` raising,
-  a second failure with `retry` already true, and the cycle cap are still
-  untested branches of `_check_boot`.
+  line and a low draw is the same bug recurring: record it. Every branch of
+  `_check_boot` now has a test (2026-09-19; the earlier note here listing four
+  untested branches was wrong about two of them, `retry` and the cycle cap,
+  which `tests/test_watchdog.py` already covered). The one path still untested
+  is a slow-booting healthy unit, and it is a real risk rather than an
+  omission: see the note below.
 - **Did anything restart a healthy booting miner?** The risk introduced by the
   shorter settle gap. Measured boot time is 5-25 s of miner uptime, about a
   minute of wall clock, so a restart inside the first minutes is a regression.
   If you see one, say the settle cut needs revisiting.
+- **Did the boot check cut power to a unit that was merely slow to boot?**
+  Open risk, recorded 2026-09-19, not yet fixed. `boot_check_minutes` is 2, but
+  `cli.py` tells the owner "back hashing in about a minute (60 to 66 s
+  measured); allow two or three on other units". The check cycles anything
+  under `boot_watts` 20 W at the two-minute mark, and a cold-start SC-BOX draws
+  3 to 4 W. It is harmless on the SC-BOX, which is at 164 W by then (measured
+  after the 2026-09-18 cycle), and it becomes live the moment gate 2 lands a
+  model that boots slower. A repeat cycle on a healthy booting unit is the
+  symptom.
 - **Do the counters agree?** `events.log` used to write "cycled #N today" with an
   N that disagreed with `/api/health`'s `cycles_today`. **Explained and closed
   2026-09-18:** the counter is a rolling 24-hour window and was always right;
@@ -103,8 +114,19 @@ scan ran on, count `"model"` values in its transcript under
 
 The live service runs from the main checkout and serves the web files from
 disk on every request, so an edit to `gbox/web/*` changes the live dashboard
-mid-edit. Build in a worktree, merge with `--ff-only`, then restart the
-service only if Python code changed. Machine-specific notes live outside
+mid-edit. Build in a worktree, then restart the service only if Python code
+changed.
+
+Merge with `--ff-only` **only when the branch was created after `633b948`**,
+which added `.gitattributes` and renormalized line endings. A branch that
+predates it holds CRLF blobs, so `--ff-only` fails and a plain merge shows the
+whole tree as changed (559/559 lines of `api.py` on `gate2-pga`). Rebase those
+instead, and check the result:
+
+    git -c merge.renormalize=true rebase main <branch>
+    # any append conflict in the EVOLUTION file: keep both entries, newest last
+    git -c merge.renormalize=true rebase --continue
+    git diff --numstat main      # must match the pre-rebase diff against the merge base Machine-specific notes live outside
 this repo in the owner's working root, not here.
 
 ## Done-when discipline
