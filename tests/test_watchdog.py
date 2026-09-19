@@ -441,6 +441,48 @@ class PowerCycleTest(unittest.TestCase):
         self.assertEqual(self.wd.cycles_today(), 1)
         self.assertIn("unreachable", self.wd.last_power_reason)
 
+    # -------------------------------------------------- task A: observe() must gate the boot check on hashing
+
+    def test_a1_boot_check_fires_when_the_box_stays_fully_dark(self):
+        """Regression guard: a fully dark box (ok=False) after a cycle must still get the repeat cycle. This
+        passed before the task A fix and must keep passing after it."""
+        self.freeze(12)
+        self.feed(1, ok=False)                                      # 12 min: second failed restart, cycle #1
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.plug.watts_value = 12.0                                # under boot_watts (20): never came up
+        self.feed(4, ok=False)                                      # 14 min: the boot check is due
+        self.assertEqual(self.plug.calls, ["off", "on", "off", "on"])
+        self.assertTrue(any("did not come up" in l for l in self.power_lines()))
+
+    def test_a2_boot_check_fires_after_an_http_only_cold_start(self):
+        """The defect (2026-09-18): the controller boots and answers HTTP (ok=True) while the hashboard stays
+        dead (hashing=False) at a low draw. Before the observe() fix this cleared _boot_check on any ok=True
+        sample regardless of hashing, so the check never fired. Fails before the fix, passes after."""
+        self.freeze(12)
+        self.feed(1, ok=False)                                      # 12 min: second failed restart, cycle #1
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.plug.watts_value = 3.0                                 # under boot_watts (20): hashboard dead
+        for _ in range(4):                                          # 14 min: HTTP answers ok, hashboard silent
+            self.clock.tick(self.INTERVAL)
+            self.wd.observe(True, None, hashing=False)
+            self.wd.check()
+        self.assertEqual(self.plug.calls, ["off", "on", "off", "on"])
+        self.assertTrue(any("did not come up" in l for l in self.power_lines()))
+
+    def test_a3_healthy_boot_clears_the_check_without_a_repeat_cycle(self):
+        """Guard against overcorrecting task A into a restart loop on a healthy box: ok=True with hashing=True
+        at a normal draw must clear the boot check and fire no repeat cycle."""
+        self.freeze(12)
+        self.feed(1, ok=False)                                      # 12 min: second failed restart, cycle #1
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.plug.watts_value = 180.0                               # hashing normally, well over boot_watts
+        for _ in range(4):
+            self.clock.tick(self.INTERVAL)
+            self.wd.observe(True, None, hashing=True)
+            self.wd.check()
+        self.assertEqual(self.plug.calls, ["off", "on"])            # no repeat cycle
+        self.assertFalse(any("did not come up" in l for l in self.lines))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -98,14 +98,17 @@ class Watchdog:
         """One sample. `hashing` says whether the miner reported a hashrate; a hold releases only on
         HOLD_OK_SAMPLES hashing samples in a row. On 2026-09-13 a controller came back from a power-on
         without its hashboard, answered HTTP with a zero hashrate, and two answers released the hold.
-        None (older callers) means "same as ok"."""
+        None (older callers) means "same as ok". The post-cycle boot check clears the same way: an HTTP-only
+        answer with a dead hashboard is exactly the failure it exists to catch, so it is only cancelled on a
+        sample that is actually hashing (2026-09-18)."""
         t = self._clock() if t is None else t
         self._rows.append((t, bool(ok), accepted))
         if ok:
             self.episode_start = None
             self.episode_failed_restarts = 0
             self._power_logged = False
-            self._boot_check = None         # it answered: it booted
+            if hashing is None or hashing:
+                self._boot_check = None     # only a hashing sample proves it booted; ok alone does not (2026-09-18)
         elif self.episode_start is None:
             self.episode_start = t
         if self.hold is not None:
