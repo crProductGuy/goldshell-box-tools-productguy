@@ -374,7 +374,7 @@ def cmd_power_status(args, cfg, data_dir):
         _out("service not running (or not at %s): cycles today unknown" % _service_url(cfg))
     else:
         pw = h.get("power") or {}
-        _out("service: %d cycles today%s" % (pw.get("cycles_today", 0),
+        _out("service: %d cycles in 24 h%s" % (pw.get("cycles_today", 0),
                                               (", last: " + pw["last_reason"]) if pw.get("last_reason") else ""))
 
 

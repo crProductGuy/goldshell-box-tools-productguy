@@ -587,6 +587,37 @@ class SeedFromEventsTest(unittest.TestCase):
         self.assertIsNone(self.wd.hold["until"])
         self.assertEqual(self.wd.hold["reason"], "switched off")
 
+    # -------------------------------------------------- task B1: SEED_RE must match both wordings
+
+    def test_seed_re_counts_both_the_old_today_wording_and_the_new_in_24h_wording(self):
+        """The written wording changed from "today" to "in 24 h" (task B1); SEED_RE must still match the old
+        form in already-written log lines as well as the new form going forward, or seeding silently drops
+        every historical cycle line."""
+        n = self.wd.seed_from_events(self.lines(
+            (3000, "power: cycled #1 today: off 15 s, on (miner unreachable for 2 min; 43 W before)"),
+            (2000, "power: cycled #2 in 24 h: off 15 s, on (miner unreachable for 2 min; 40 W before)"),
+        ))
+        self.assertEqual(n, (0, 2))
+        self.assertEqual(self.wd.cycles_today(), 2)
+
+    # -------------------------------------------------- task B2: a second seed must not double-count
+
+    def test_seeding_the_same_tail_twice_does_not_double_count(self):
+        """Measured: before this fix, seeding the same two-cycle tail twice gave cycles_today() == 4."""
+        lines = self.lines(
+            (19000, "power: cycled #1 today: off 15 s, on (x; y)"),
+            (10000, "power: cycled #2 today: off 15 s, on (x; y)"),
+        )
+        first = self.wd.seed_from_events(lines)
+        restarts_after_first, cycles_after_first = self.wd.restarts_today(), self.wd.cycles_today()
+        wrote_after_first = len(self.wrote)
+        second = self.wd.seed_from_events(lines)
+        self.assertEqual(first, (0, 2))
+        self.assertEqual(second, (0, 0))                            # nothing new: no double-count
+        self.assertEqual(self.wd.restarts_today(), restarts_after_first)
+        self.assertEqual(self.wd.cycles_today(), cycles_after_first)
+        self.assertEqual(len(self.wrote), wrote_after_first)        # the pickup line is not written again
+
 
 class HoldTest(unittest.TestCase):
     """A hold: the miner is expected to be unreachable, so nothing is judged until it is back."""

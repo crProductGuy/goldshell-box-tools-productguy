@@ -46,7 +46,7 @@ from collections import deque
 
 # The watchdog's own lines in the event log, read back at start so the daily caps survive a service restart.
 # A failed attempt counts: check() takes the restart slot before the PUT goes out. A hand cycle (`dashboard:`) never did.
-SEED_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (watchdog: restart (?:#\d+ sent|attempt failed)|power: cycled #\d+ today)")
+SEED_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (watchdog: restart (?:#\d+ sent|attempt failed)|power: cycled #\d+ (?:today|in 24 h))")
 
 # A hold: the owner said the miner will be unreachable on purpose. Nothing is judged until it is back
 # (HOLD_OK_SAMPLES good samples in a row), the hold expires, or it is released. Its lines are read back
@@ -88,6 +88,10 @@ class Watchdog:
         self.episode_start = None           # time of the first failed sample after the last good one
         self.episode_failed_restarts = 0    # soft restarts that raised in this episode (reset by a cycle too)
         self._cycle_times = deque()
+        # timestamps already counted by seed_from_events, so a second call over the same or overlapping
+        # tail does not double-count (there is one call site today, at service start, but it must be safe)
+        self._seeded_restarts = set()
+        self._seeded_cycles = set()
         self.power_gap_until = None
         self._power_logged = False          # one "would cycle" / refusal / cap line per episode
         self._boot_check = None             # {at, cycle, retry} after a cycle: did the controller come up at all?
@@ -198,6 +202,13 @@ class Watchdog:
         2026-09-12 a restart onto a hung miner ran a fourth cycle the cap
         would have blocked. Only the last 24 h count. The newest seeded
         restart or cycle also holds its settle gap. Returns (restarts, cycles).
+
+        Idempotent by timestamp: a line whose stamp was already seeded by an
+        earlier call is skipped, so calling this twice over the same or an
+        overlapping tail does not double-count (measured: seeding the same
+        two-cycle tail twice used to give cycles_today() == 4). The returned
+        counts, and the pickup line below, only ever reflect what this call
+        actually added.
         """
         cutoff = self._clock() - 86400
         restarts, cycles = [], []
@@ -211,7 +222,13 @@ class Watchdog:
                 continue
             if t < cutoff:
                 continue
-            (cycles if m.group(2).startswith("power:") else restarts).append(t)
+            if m.group(2).startswith("power:"):
+                if t not in self._seeded_cycles:
+                    self._seeded_cycles.add(t)
+                    cycles.append(t)
+            elif t not in self._seeded_restarts:
+                self._seeded_restarts.add(t)
+                restarts.append(t)
         self._restart_times.extend(sorted(restarts))
         self._cycle_times.extend(sorted(cycles))
         if restarts:
@@ -356,7 +373,7 @@ class Watchdog:
         self._boot_check = None
         try:
             self.plug.cycle(int(self.power["off_seconds"]), sleep=self._sleep)
-            self._events.write("power: cycled #%d today: off %d s, on (%s; %s)"
+            self._events.write("power: cycled #%d in 24 h: off %d s, on (%s; %s)"
                                % (self.cycles_today(), int(self.power["off_seconds"]), reason, before))
         except Exception as e:
             self._events.write("power: cycle failed: %s (%s; %s)" % (e, reason, before))
