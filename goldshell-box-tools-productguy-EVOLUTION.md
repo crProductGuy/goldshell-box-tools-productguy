@@ -1898,3 +1898,64 @@ and no watchdog restart afterwards -- the regression the shorter settle window
 risked did not occur. Health flat to slightly better across hashrate, watts and
 temperature, with restarts per day down from 8.0 to 1.8. One data point, and it
 never entered the failure mode, so it tests the shorter gap and not the fix.
+
+## 2026-09-19 midday, session Y: what the last checkpoint got wrong, and the hardening that came out of checking
+
+The goal, in the owner's words: "pick up the goldshell project and continue with
+next actions in the plan. Stop at the end of the 0.7.x activities, before
+starting the 0.8 work."
+
+**Most of the queued list turned out to be already done.** The previous session
+wrote its checkpoint at 00:30 and then, at the owner's word, pushed and
+restarted the service without refreshing it. So the file still said "not pushed"
+and "service NOT restarted" while the tag was on GitHub and the live process had
+been running the new code since 09:56. Reading the machine rather than the file
+is what caught it: the remote ref, the process start time and `/api/health`
+settle the question in three commands, and none of them agreed with the
+checkpoint. The lesson is not that the previous session was careless -- it did
+the work and said so in chat -- but that a checkpoint written before the last
+two actions is a checkpoint that lies, and the cheap fix is to write it last.
+
+**Three more claims in that checkpoint did not survive being checked**, which is
+the substance of this session. An "unexplained data defect" in the telemetry
+columns was not a defect at all: those columns are written only on the rows where
+the syslog read falls due, one in ten by design, and the column that had gone
+quiet did so because the box stopped producing weak chips after the clock drop. A
+list of four untested branches was wrong about two of them, which had been
+covered for some time. And a note to correct a `--ff-only` instruction pointed at
+the wrong file: the plan it named had no merge recipe at all, while the flat
+instruction that would actually mislead the next branch was in this repo's own
+`AGENTS.md`. Three for three, in a checkpoint whose own closing lesson had been
+that a reviewer's prose can run ahead of its numbers.
+
+**What was built.** Two small pieces of hardening, both found by reading code
+rather than by any failure. `settle_minutes` was the only value under `power`
+with no validation bound, and it is the one that suppresses the stall check; at
+20 it had hidden a dead hashboard for 22 minutes two days earlier, so a typo of
+600 would hide one for ten hours. It is now bounded. Separately, the boot check
+returned silently when the plug cannot measure watts, which produced exactly the
+same empty log as a box that booted cleanly -- and the standing check in
+AGENTS.md asks a reader to tell those two apart. It now says which it was. Three
+tests, each confirmed to fail with its fix reverted, which also closed the two
+branches that genuinely lacked coverage.
+
+**A risk recorded rather than fixed, deliberately.** `boot_check_minutes` is 2,
+and the CLI tells the owner to allow two or three minutes on units other than
+the one this was built against. The check cycles anything drawing under
+`boot_watts` at the two-minute mark, and a cold start draws a few watts. On the
+box in front of us it is harmless -- 164 W by then, measured -- and it becomes
+live the moment a slower-booting model is supported. Two fixes were put to the
+owner, a longer default or a second confirming reading, with the second
+recommended. Changing when software cuts power to hardware is his call, not a
+routine judgement to make on his behalf, so the branch carries the note and not
+the change.
+
+**Scope held.** Gate 2 task 7 was raised twice as the next thing to do, once by
+the previous session's handoff and once in conversation, and it is 0.8.0 work by
+its own plan while this session's instruction was to stop before that. It was
+flagged as a contradiction and left unstarted rather than resolved by inference.
+
+**Delegation.** Two scanner subagents: one read the telemetry, one read a
+1013-line session transcript to recover the handoff. Neither put a raw line into
+the main session. The second found the stale checkpoint on its own and said so
+plainly, which is how the discrepancy surfaced at all.
