@@ -350,13 +350,16 @@ class PowerCycleTest(unittest.TestCase):
         self.plug.watts_value = 12.0                                # the controller did not come up
         self.feed(3, ok=False)                                      # 13.5 min: the check is not due yet
         self.assertEqual(self.plug.calls, ["off", "on"])
-        self.feed(1, ok=False)                                      # 14 min: two minutes after the cycle
+        self.feed(1, ok=False)                                      # 14 min: first reading, low but unconfirmed
+        self.assertEqual(self.plug.calls, ["off", "on"])            # one reading is not proof (2026-09-19)
+        self.assertTrue(any("reading again in 2 min" in l for l in self.power_lines()))
+        self.feed(4, ok=False)                                      # 16 min: still low, and now it is proof
         self.assertEqual(self.plug.calls, ["off", "on", "off", "on"])
         self.assertEqual(self.wd.cycles_today(), 2)
         line = [l for l in self.power_lines() if l.startswith("power: cycled #2")][0]
-        self.assertIn("controller did not come up after cycle #1: 12 W after 2 min", line)
+        self.assertIn("controller did not come up after cycle #1: 12 W after 4 min", line)
         self.plug.watts_value = 12.0                                # still dark after the repeat
-        self.feed(4, ok=False)                                      # 16 min: the second check
+        self.feed(8, ok=False)                                      # 20 min: both readings of the second check
         self.assertEqual(self.plug.calls, ["off", "on", "off", "on"])          # no third cycle from the check
         self.assertTrue(any("already cycled again once" in l for l in self.power_lines()))
 
@@ -382,7 +385,7 @@ class PowerCycleTest(unittest.TestCase):
         self.freeze(12)
         self.feed(1, ok=False)                                      # cycle #1, the cap
         self.plug.watts_value = 12.0
-        self.feed(4, ok=False)
+        self.feed(8, ok=False)                                      # both readings: low, confirmed low
         self.assertEqual(self.plug.calls, ["off", "on"])
         self.assertTrue(any("is the cap; not cycling" in l and "did not come up" in l for l in self.power_lines()))
         self.wd = self.make(boot_check_minutes=0)
@@ -454,7 +457,9 @@ class PowerCycleTest(unittest.TestCase):
         self.feed(1, ok=False)                                      # 12 min: second failed restart, cycle #1
         self.assertEqual(self.plug.calls, ["off", "on"])
         self.plug.watts_value = 12.0                                # under boot_watts (20): never came up
-        self.feed(4, ok=False)                                      # 14 min: the boot check is due
+        self.feed(4, ok=False)                                      # 14 min: first reading, low
+        self.assertEqual(self.plug.calls, ["off", "on"])            # confirmed on the second one, not this one
+        self.feed(4, ok=False)                                      # 16 min: still low
         self.assertEqual(self.plug.calls, ["off", "on", "off", "on"])
         self.assertTrue(any("did not come up" in l for l in self.power_lines()))
 
@@ -466,7 +471,7 @@ class PowerCycleTest(unittest.TestCase):
         self.feed(1, ok=False)                                      # 12 min: second failed restart, cycle #1
         self.assertEqual(self.plug.calls, ["off", "on"])
         self.plug.watts_value = 3.0                                 # under boot_watts (20): hashboard dead
-        for _ in range(4):                                          # 14 min: HTTP answers ok, hashboard silent
+        for _ in range(8):                                          # 14 and 16 min: HTTP answers, board silent
             self.clock.tick(self.INTERVAL)
             self.wd.observe(True, None, hashing=False)
             self.wd.check()
@@ -486,6 +491,21 @@ class PowerCycleTest(unittest.TestCase):
             self.wd.check()
         self.assertEqual(self.plug.calls, ["off", "on"])            # no repeat cycle
         self.assertFalse(any("did not come up" in l for l in self.lines))
+
+    def test_c1_a_slow_booting_unit_is_not_cycled_when_the_second_reading_is_healthy(self):
+        """The risk the confirming reading exists to remove (2026-09-19). `cli.py` tells the owner to allow two
+        or three minutes on units other than this one, and a unit still booting draws a few watts. A single low
+        reading at boot_check_minutes used to cut power to a miner that was coming up on its own."""
+        self.freeze(12)
+        self.feed(1, ok=False)                                      # 12 min: cycle #1
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.plug.watts_value = 4.0                                 # 14 min: still booting, drawing almost nothing
+        self.feed(4, ok=False)
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.plug.watts_value = 150.0                               # 16 min: it came up on its own after all
+        self.feed(4, ok=False)
+        self.assertEqual(self.plug.calls, ["off", "on"])            # never cycled a healthy miner
+        self.assertFalse(any("did not come up" in l for l in self.power_lines()))
 
     # ---------------------------------------- the two branches of _check_boot that had no test (2026-09-19)
 

@@ -63,14 +63,17 @@ What to look for, in `~/.gbox/log.csv` from the cycle timestamp forward:
   minute of wall clock, so a restart inside the first minutes is a regression.
   If you see one, say the settle cut needs revisiting.
 - **Did the boot check cut power to a unit that was merely slow to boot?**
-  Open risk, recorded 2026-09-19, not yet fixed. `boot_check_minutes` is 2, but
-  `cli.py` tells the owner "back hashing in about a minute (60 to 66 s
-  measured); allow two or three on other units". The check cycles anything
-  under `boot_watts` 20 W at the two-minute mark, and a cold-start SC-BOX draws
-  3 to 4 W. It is harmless on the SC-BOX, which is at 164 W by then (measured
-  after the 2026-09-18 cycle), and it becomes live the moment gate 2 lands a
-  model that boots slower. A repeat cycle on a healthy booting unit is the
-  symptom.
+  Found and fixed 2026-09-19. `boot_check_minutes` is 2, but `cli.py` tells the
+  owner "back hashing in about a minute (60 to 66 s measured); allow two or
+  three on other units", and a cold-start SC-BOX draws 3 to 4 W. A single
+  reading under `boot_watts` at the two-minute mark therefore cut power to a
+  miner that was coming up on its own. **The check now needs two consecutive
+  low readings**, `boot_check_minutes` apart, and writes a "reading again in N
+  min" line between them; a unit that starts hashing in between never reaches
+  the second, because `observe()` clears the check. A controller that genuinely
+  never booted sits low for 25 minutes, so confirming costs one interval. If
+  you see a repeat cycle where the wall draw was rising between the two
+  readings, the confirmation is not doing its job: say so.
 - **Do the counters agree?** `events.log` used to write "cycled #N today" with an
   N that disagreed with `/api/health`'s `cycles_today`. **Explained and closed
   2026-09-18:** the counter is a rolling 24-hour window and was always right;

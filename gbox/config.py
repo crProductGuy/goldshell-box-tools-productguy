@@ -134,9 +134,17 @@ class Config:
                 raise ValueError("power.after_minutes must be at least watchdog.unreachable_minutes")
             if not 0 <= int(p["max_cycles_per_day"]) <= 10:
                 raise ValueError("power.max_cycles_per_day must be 0 to 10")
-            if not 0 <= int(p["settle_minutes"]) <= 60:
+            if not 0 <= float(p["settle_minutes"]) <= 60:
                 raise ValueError("power.settle_minutes must be 0 to 60: nothing is judged for this long after a "
                                  "cycle, so a large value hides a dead hashboard for exactly that long")
+            # The floor is derived, not flat: the settle gap is timed from the moment the relay OPENS, so
+            # off_seconds is spent before the miner has begun to boot at all. A flat "at least 2 minutes" would
+            # still leave nothing at off_seconds 120, the maximum. Measured boot is 60 to 66 s on the SC-BOX.
+            if float(p["settle_minutes"]) * 60 < int(p["off_seconds"]) + 60:
+                raise ValueError("power.settle_minutes must cover power.off_seconds plus a minute for the boot "
+                                 "(%d s here): the gap is timed from the relay opening, not from power coming "
+                                 "back, so anything less judges a miner that is still booting"
+                                 % (int(p["off_seconds"]) + 60))
             if not 0 <= int(p["boot_check_minutes"]) <= 10:
                 raise ValueError("power.boot_check_minutes must be 0 (no check) to 10")
             if not 0 <= int(p["boot_watts"]) < int(p["idle_watts"]):
