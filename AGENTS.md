@@ -86,6 +86,18 @@ What to look for, in `~/.gbox/log.csv` from the cycle timestamp forward:
   `boot_watts` transiently in its first 30 to 70 seconds before collapsing to
   2-10 W, so one reading can catch either the spike or the collapse. It is also
   why `boot_check_minutes` may not be set to 1.
+
+  **The two timers can race, and which one wins is a config property.** The
+  boot check reaches its verdict at `2 * boot_check_minutes` after power
+  returns, while the restart ladder resumes the moment the settle gap ends. So
+  with `settle_minutes` below `2 * boot_check_minutes` the ladder gets there
+  first and the boot check never concludes. Seen on the bench 2026-09-19 at
+  settle 2 / boot check 2: the ladder cycled at +3:21, the verdict was not due
+  until +4:00. It is benign -- the ladder applies the same remedy and tries two
+  soft restarts on the way -- and the defaults put the boot check first (6
+  against 4). No validation rule enforces it, deliberately, because that would
+  block the permitted `settle_minutes` of 2. Worth knowing before concluding
+  the boot check is broken because a log shows no verdict line.
 - **Do the counters agree?** `events.log` used to write "cycled #N today" with an
   N that disagreed with `/api/health`'s `cycles_today`. **Explained and closed
   2026-09-18:** the counter is a rolling 24-hour window and was always right;
