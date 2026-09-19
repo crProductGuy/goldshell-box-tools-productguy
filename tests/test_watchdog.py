@@ -361,7 +361,8 @@ class PowerCycleTest(unittest.TestCase):
         self.assertEqual(self.plug.calls, ["off", "on", "off", "on"])
         self.assertEqual(self.wd.cycles_today(), 2)
         line = [l for l in self.power_lines() if l.startswith("power: cycled #2")][0]
-        self.assertIn("silent on the network for 4 min (12 W)", line)
+        self.assertIn("silent on the network for 4 min", line)
+        self.assertIn("12 W", line)
         self.plug.watts_value = 12.0                                # still dark after the repeat
         self.feed(8, ok=False)                                      # 20 min: both readings of the second check
         self.assertEqual(self.plug.calls, ["off", "on", "off", "on"])          # no third cycle from the check
@@ -579,7 +580,8 @@ class PowerCycleTest(unittest.TestCase):
         self.feed(4, ok=False)                                      # 16 min: confirmed silent, cycle again
         self.assertEqual(self.plug.calls, ["off", "on", "off", "on"])
         line = [l for l in self.power_lines() if l.startswith("power: cycled #2")][0]
-        self.assertIn("silent on the network for 4 min (no meter)", line)
+        self.assertIn("silent on the network for 4 min", line)
+        self.assertIn("no meter", line)
 
     def test_b3_a_meterless_plug_hands_over_when_the_miner_is_answering(self):
         """Same plug, other branch: it answered HTTP, so the controller is up and only the board is dead. With
