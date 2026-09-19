@@ -144,6 +144,17 @@ disk on every request, so an edit to `gbox/web/*` changes the live dashboard
 mid-edit. Build in a worktree, then restart the service only if Python code
 changed.
 
+**Never stop a gbox process picked out by a text pattern.** A scratch service
+and the live one run byte-identical command lines (`pythonw -m gbox serve`), so
+a filter on the command line cannot tell them apart — which is how a session
+stopped the owner's live watchdog while cleaning up after a test on 2026-09-19.
+Since 0.7.4 each service writes `gbox.pid` into **its own** data directory, with
+pid, port, version and start time: `~/.gbox/gbox.pid` for the live one,
+`$GBOX_DATA/gbox.pid` for a scratch one. Read the pid from the right file and
+stop that. Ask the owner before stopping the live service at all; if it is ever
+stopped, restart it from the Startup `gbox-serve.vbs` and confirm `/api/health`
+shows the version and an advancing `samples`.
+
 Merge with `--ff-only` **only when the branch was created after `633b948`**,
 which added `.gitattributes` and renormalized line endings. A branch that
 predates it holds CRLF blobs, so `--ff-only` fails and a plain merge shows the
