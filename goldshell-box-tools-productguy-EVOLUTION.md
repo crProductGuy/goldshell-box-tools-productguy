@@ -1793,3 +1793,108 @@ one. What would settle it is about ten deliberate cycles on a healthy box,
 counting the failures. A standing note was added to `AGENTS.md` telling the
 next session to read the aftermath of any power cycle rather than wait for
 someone to notice a bad day.
+
+## 2026-09-18 into 2026-09-19, session X: the boot check's real cause, 0.7.3, and gate 2 brought forward
+
+Mark: "pick up the goldshell project and look at what's queued. I want to
+continue with the work in progress which should be some minor fixes to v0.7.2,
+commit that, then go on to the planned v.0.8. Have a look at get familiar. Start
+anything you can tell is straightforward and use the new agent delegation kit."
+
+Three things came out of it: the open boot-check defect turned out to have a
+cause nobody had guessed, the 0.8 merge path turned out to be blocked in a way
+nobody had noticed, and the delegation kit got its first real exercise on
+`executor` and `reviewer`.
+
+**The boot check: the cause was neither candidate on the list.** Session W had
+left two suspects, a hold blocking `check()` before it reached `_check_boot`,
+and `_check_boot` returning silently on a watts reading that was `None` or above
+`boot_watts`. Both were plausible and both were wrong. Running the real
+`Watchdog` against the fake plug in two scenarios settled it in one go: a fully
+dark box writes the boot line and cycles again correctly, and a box that answers
+HTTP with a dead hashboard writes nothing at all. The cause is one line in
+`observe()` -- any successful HTTP sample cleared the pending check, with the
+comment "it answered: it booted". A cold start answers. The check existed
+specifically to catch a unit that answers while its hashboard is dead, and it
+was cancelled by the very symptom it was watching for, every time. The fix uses
+the `hashing` flag the poller already passes.
+
+Worth recording as method: the two candidates in the status doc were reasoned
+from reading the code, and the answer came from running it. Fifteen minutes of
+probe beat two sessions of hypothesis.
+
+**The counter defect was a labelling bug, and Mark chose the smaller fix.**
+`cycles_today()` is a rolling 24-hour window; only the word "today" was wrong.
+Reproduced exactly: a cycle logged as "#4 today" read as one cycle eight hours
+later, because the earlier ones had aged out. Offered as (a) fix the wording or
+(b) build a real calendar-day counter, Mark took (a) in one word. (b) would have
+changed what the daily cap means, for a label.
+
+**A hole in a delegation brief, found by the code rather than by the agent.**
+The brief named `SEED_RE` as the hazard in the wording change and put
+`gbox/web/*` out of scope. The page mirrors that regex with its own copy, which
+still required the literal "today", so the dashboard would have silently stopped
+classifying power cycles from the first cycle after the change. The executor
+did exactly the right thing -- it stayed inside the scope it was given -- and the
+defect survived because the scope was wrong. The lesson is not about the agent.
+When a brief says "this regex is the hazard", the next question is what else
+reads the same text, and the answer has to be searched for rather than recalled.
+
+**The executor's scope-stop was worth more than its code.** Told to stop rather
+than widen scope, it stopped on the `settle_minutes` default because one test
+asserted 20 and that test was out of scope. There were six failures across four
+files, not one. Had it edited its way to green it would have buried that.
+
+**The review found three real defects and overstated one of them.** A `reviewer`
+on the parent's model attacked the branch and produced three findings that all
+reproduced under direct probing: a live cycle's own log line could be counted
+twice by a later seed, an out-of-order seeded entry was never pruned and
+inflated the count permanently, and a repeat seed reset a restored hold's
+`ok_streak`. It also cleared, with evidence, the change most likely to be
+dangerous -- whether gating on `hashing` could restart a healthy miner -- by
+finding the `boot_watts` guard that bounds it, and it proved the new test had
+teeth by reverting the fix and watching that test alone fail.
+
+Where it overreached: it called the double-count "the overlap that actually
+happens (a running service's own lines)". It does not happen. `seed_from_events`
+has one call site, at service start, before anything live exists. All three
+findings are latent. They were fixed anyway, each with a test that fails without
+its fix, but they were not a reason to hold the merge, and the report read as
+though they were. Same shape as the calibration note in the delegation kit's own
+status file: the numbers were right and the prose ran ahead of them.
+
+**The 0.8 merge path was blocked, and nobody had noticed.** The gate 2 plan ended
+with "merge `gate2-pga` to main `--ff-only`". That was impossible twice over:
+main had moved three commits ahead, and one of those commits added
+`.gitattributes` and renormalized line endings. `gate2-pga` predates it, so
+every blob on the branch was still CRLF. A plain rebase failed at commit 7 of 8,
+and simply checking the branch out against main's attributes showed the entire
+tree as changed -- 559 lines of 559 in `api.py`, 1538 of 1538 in `app.js` -- which
+committed would have buried eight commits of real work in line-ending noise.
+
+`git -c merge.renormalize=true rebase` is the answer; it normalizes both sides
+per blob before merging. Seven of eight commits then applied clean, and the
+eighth was an ordinary append conflict in this file, both branches having added a
+session entry. It was proven on a throwaway branch first, and the check that it
+worked is that `git diff --numstat main` after the rebase is byte-identical to
+the diff against the merge base before it. The real rebase reproduced that
+exactly, and the rebased branch runs 396 Python tests and 66 JS tests green.
+
+**Version.** 0.7.3, at Mark's call, over the argument for a minor bump: the event
+log's wording and two CLI strings changed, which AGENTS.md makes a bumping
+change, but 0.8.0 is reserved for gate 3 and nothing here touches the log.csv
+schema or the HTTP API. `/api/health`'s `cycles_today` key was deliberately left
+alone so the page and any other reader are unaffected.
+
+**Also declined.** The executor's evidence file was kept out of the repo at
+Mark's word; `evidence/` is not a convention here and the repo is public. No
+validation bound was added for `settle_minutes`, which remains an open decision.
+The security pass stays deferred.
+
+**Verified on the hardware, not just in tests.** The standing post-cycle check in
+AGENTS.md had not been run and was overdue. One cycle since the `settle_minutes`
+change, on 09-18 at 21:41: no cold-start failure, hashboard up inside a minute,
+and no watchdog restart afterwards -- the regression the shorter settle window
+risked did not occur. Health flat to slightly better across hashrate, watts and
+temperature, with restarts per day down from 8.0 to 1.8. One data point, and it
+never entered the failure mode, so it tests the shorter gap and not the fix.
