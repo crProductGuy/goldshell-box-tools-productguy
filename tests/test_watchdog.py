@@ -622,6 +622,42 @@ class SeedFromEventsTest(unittest.TestCase):
         self.assertEqual(self.wd.cycles_today(), cycles_after_first)
         self.assertEqual(len(self.wrote), wrote_after_first)        # the pickup line is not written again
 
+    def test_a_live_cycles_own_log_line_is_not_counted_a_second_time(self):
+        """Review finding, 2026-09-18. The dedup only knew stamps seeded from the log, so a cycle this process
+        performed was counted again if its own line came back through a later seed: one slot of
+        max_cycles_per_day burned, and a needed cycle refused. Latent (the one call site seeds at service
+        start, before anything live), so this pins it rather than reporting a live defect."""
+        self.wd._cycle("test reason", "34 W before")
+        own_line = "%s %s\n" % (self.stamp(self.clock.t),
+                                [m for m in self.wrote if "cycled" in m][-1])
+        self.assertEqual(self.wd.cycles_today(), 1)
+        self.assertEqual(self.wd.seed_from_events([own_line]), (0, 0))
+        self.assertEqual(self.wd.cycles_today(), 1)
+
+    def test_a_seeded_line_older_than_a_live_one_still_ages_out(self):
+        """Review finding, 2026-09-18. cycles_today() prunes with popleft and stops at the first entry inside
+        the window, so an older seeded entry appended after a newer live one was never pruned and inflated the
+        count for good. seed_from_events now re-sorts instead of appending."""
+        self.wd._cycle("test reason", "34 W before")                # live, at T0
+        self.wd.seed_from_events(self.lines((80000, "power: cycled #1 in 24 h: off 15 s, on (x; y)")))
+        self.assertEqual(list(self.wd._cycle_times), sorted(self.wd._cycle_times))
+        self.assertEqual(self.wd.cycles_today(), 2)
+        self.clock.tick(5.5 * 3600)                                 # the 80000 s-old one is now outside 24 h
+        self.assertEqual(self.wd.cycles_today(), 1)
+
+    def test_seeding_twice_does_not_reset_a_restored_holds_ok_streak(self):
+        """Review finding, 2026-09-18. _seed_hold sat outside the dedup, so a second seed replaced the hold
+        object and reset ok_streak to 0, delaying a legitimate release by HOLD_OK_SAMPLES polls."""
+        lines = self.lines((600, "hold: started by you until %s (PSU swap)" % self.stamp(self.T0 + 3000)))
+        self.wd.seed_from_events(lines)
+        self.assertIsNotNone(self.wd.hold)
+        self.wd.observe(True, None, hashing=True)                   # one good sample towards the release
+        self.assertEqual(self.wd.hold["ok_streak"], 1)
+        wrote_before = len(self.wrote)
+        self.wd.seed_from_events(lines)
+        self.assertEqual(self.wd.hold["ok_streak"], 1)              # not reset back to 0
+        self.assertEqual(len(self.wrote), wrote_before)             # and the pickup line is not written again
+
 
 class HoldTest(unittest.TestCase):
     """A hold: the miner is expected to be unreachable, so nothing is judged until it is back."""

@@ -83,12 +83,12 @@ service; its start line in the event log names the plug and the mode.
 ## What you get right away
 
 - The service line on the dashboard reads, for example, `plug HS110(US)
-  on, 188 W, dry run, 0 cycles today`.
+  on, 188 W, dry run, 0 cycles in 24 h`.
 - `log.csv` gains a `watts` column (empty for a plug without a meter, or
   while the plug does not answer). The service migrates an older log on
   start and keeps a `.bak` copy, as always.
 - `gbox power status` prints the relay, the watts, the mode, and the
-  count of cycles today from the running service.
+  count of cycles in the last 24 h from the running service.
 - A plug that stops answering is one event line on the way out and one on
   the way back. It never fails a miner sample.
 
@@ -130,7 +130,7 @@ Only on the frozen-controller signature, all five at once:
 In dry run the log then says `power: would cycle now (miner unreachable
 for 2 min; 34 W before); dry run, set "cycle": true in config.json to
 arm`, once per episode. Armed, the relay opens for `off_seconds` (default
-15), closes, and the log says `power: cycled #1 today: off 15 s, on
+15), closes, and the log says `power: cycled #1 in 24 h: off 15 s, on
 (...)`. Nothing is judged for `settle_minutes` (default 20) while the
 miner boots. If it is still dark after that, the whole ladder runs again
 before a second cycle, up to the daily cap.
@@ -260,7 +260,7 @@ page names the boot time next to them.
 | `service: power plug HS110(US) '...', meter yes, dry run: ...` | the plug answered at start |
 | `power: plug unreachable (...)` / `power: plug back` | the plug stopped and resumed answering the poller |
 | `power: would cycle now (...)` | dry run: every condition held |
-| `power: cycled #N today: off 15 s, on (...)` | armed: the relay was cycled |
+| `power: cycled #N in 24 h: off 15 s, on (...)` | armed: the relay was cycled |
 | `power: cycle failed: ...` | the off or the on command got no answer; the on was still attempted |
 | `power: the plug is not the configured device (id differs); not cycling` | the address now belongs to another plug |
 | `power: plug is off (someone switched it off); not cycling` | left alone on purpose |
@@ -268,6 +268,13 @@ page names the boot time next to them.
 | `power: would cycle (...), but N cycles in 24 h is the cap; not cycling` | the daily cap |
 | `service: watchdog picked up N restarts and M cycles from the last 24 h of the event log; the daily caps carry on` | the service restarted; the caps did not reset |
 | `dashboard: power: cycled by hand (gbox power cycle; ...)` | you ran the command |
+
+The cycle line read `cycled #N today` until 2026-09-18. The counter was always a
+rolling 24-hour window rather than a calendar day, and on 2026-09-17 the log said
+`#3` while the service reported one cycle, because the earlier two had aged out
+of the window. Only the wording changed; the cap it enforces is the same. Logs
+written before the change keep the old wording, and both the service and the
+dashboard still read it.
 
 ## What the page does and does not do
 
