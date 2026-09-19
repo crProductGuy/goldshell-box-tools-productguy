@@ -411,7 +411,13 @@ class Watchdog:
         except Exception as e:
             self._events.write("power: boot check after cycle #%d skipped: plug did not answer (%s)" % (bc["cycle"], e))
             return
-        if w is None or w >= float(self.power.get("boot_watts", 0)):
+        if w is None:
+            # A meterless plug cannot answer the question the check exists to ask. Silence here read as "the box
+            # booted fine" for anyone reading the event log, so say it once per cycle instead (2026-09-19).
+            self._events.write("power: boot check after cycle #%d skipped: the plug has no meter, so whether the "
+                               "controller came up cannot be read" % bc["cycle"])
+            return
+        if w >= float(self.power.get("boot_watts", 0)):
             return
         why = "controller did not come up after cycle #%d: %.0f W after %d min" % (bc["cycle"], w, int(self.power["boot_check_minutes"]))
         if bc["retry"]:

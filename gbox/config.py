@@ -134,6 +134,9 @@ class Config:
                 raise ValueError("power.after_minutes must be at least watchdog.unreachable_minutes")
             if not 0 <= int(p["max_cycles_per_day"]) <= 10:
                 raise ValueError("power.max_cycles_per_day must be 0 to 10")
+            if not 0 <= int(p["settle_minutes"]) <= 60:
+                raise ValueError("power.settle_minutes must be 0 to 60: nothing is judged for this long after a "
+                                 "cycle, so a large value hides a dead hashboard for exactly that long")
             if not 0 <= int(p["boot_check_minutes"]) <= 10:
                 raise ValueError("power.boot_check_minutes must be 0 (no check) to 10")
             if not 0 <= int(p["boot_watts"]) < int(p["idle_watts"]):
