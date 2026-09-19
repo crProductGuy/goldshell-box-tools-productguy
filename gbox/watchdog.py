@@ -178,6 +178,9 @@ class Watchdog:
                       "source": "schedule" if m.group(2) == "the schedule" else "page", "ok_streak": 0}
         if latest is None or (latest["until"] is not None and latest["until"] <= self._clock()):
             return False
+        if self.hold is not None and self.hold["since"] == latest["since"]:
+            return False                    # already restored from this same line: keep the live ok_streak,
+                                            # which a second seed would otherwise reset and delay the release
         self.hold = latest
         self._events.write("service: hold picked up from the event log (%s): nothing judged until the miner is back"
                            % ("until " + self._stamp(latest["until"]) if latest["until"] is not None else "no expiry"))
@@ -203,12 +206,17 @@ class Watchdog:
         would have blocked. Only the last 24 h count. The newest seeded
         restart or cycle also holds its settle gap. Returns (restarts, cycles).
 
-        Idempotent by timestamp: a line whose stamp was already seeded by an
-        earlier call is skipped, so calling this twice over the same or an
-        overlapping tail does not double-count (measured: seeding the same
-        two-cycle tail twice used to give cycles_today() == 4). The returned
-        counts, and the pickup line below, only ever reflect what this call
-        actually added.
+        Idempotent by timestamp: a stamp already counted -- by an earlier call
+        to this method, or by a live restart or cycle this process performed --
+        is skipped, so a second call over the same or an overlapping tail does
+        not double-count (measured: seeding the same two-cycle tail twice used
+        to give cycles_today() == 4, and re-seeding the line _cycle had just
+        written counted that cycle twice). The returned counts, and the pickup
+        line below, only ever reflect what this call actually added.
+
+        There is one call site, at service start, before anything live has
+        happened; the idempotency is here so that stays a fact about the call
+        site rather than a load-bearing assumption of this method.
         """
         cutoff = self._clock() - 86400
         restarts, cycles = [], []
@@ -229,8 +237,12 @@ class Watchdog:
             elif t not in self._seeded_restarts:
                 self._seeded_restarts.add(t)
                 restarts.append(t)
-        self._restart_times.extend(sorted(restarts))
-        self._cycle_times.extend(sorted(cycles))
+        # Both deques must stay oldest-first. restarts_today()/cycles_today() prune with popleft and stop at
+        # the first entry inside the window, so a single out-of-order old entry is never pruned and inflates
+        # the count for good. A seeded line can be older than a live one already in the deque, so re-sort
+        # rather than append.
+        self._restart_times = deque(sorted(list(self._restart_times) + restarts))
+        self._cycle_times = deque(sorted(list(self._cycle_times) + cycles))
         if restarts:
             self.last_restart = max(self.last_restart or 0, max(restarts))
         if cycles:
@@ -315,6 +327,7 @@ class Watchdog:
         now = self._clock()
         self.last_restart = now
         self._restart_times.append(now)
+        self._seeded_restarts.add(now)      # as in _cycle: this restart's own log line must not be re-counted
         try:
             self._restart()
             self._events.write("watchdog: restart #%d sent (%s)" % (self.restarts_today(), reason))
@@ -367,6 +380,7 @@ class Watchdog:
         now = self._clock()
         self.last_power_reason = reason
         self._cycle_times.append(now)
+        self._seeded_cycles.add(now)        # so a later seed of the line written below does not count it twice
         self.power_gap_until = now + float(self.power["settle_minutes"]) * 60
         self.episode_failed_restarts = 0
         self._power_logged = False

@@ -48,15 +48,24 @@ What to look for, in `~/.gbox/log.csv` from the cycle timestamp forward:
 - **Did the boot check fire?** `boot_check_minutes` after a cycle it should
   read the meter and, under `boot_watts`, cycle again at once and write a
   `power:` line saying so. On 2026-09-17 it did **not** fire although the draw
-  was three to four watts. That defect is open and unproven as to cause, and
-  `_check_boot` has no test coverage. A cycle with no boot-check line and a low
-  draw is the same bug recurring: record it.
+  was three to four watts. **Cause found and fixed 2026-09-18:** `observe()`
+  cleared the pending check on any successful HTTP sample, and a cold start
+  answers HTTP, so the check was always cancelled before it came due. It now
+  clears only on a sample that is actually hashing. A cycle with no boot-check
+  line and a low draw is the same bug recurring: record it. Note the fix is
+  covered for the three main paths only; a meterless plug, `identify()` raising,
+  a second failure with `retry` already true, and the cycle cap are still
+  untested branches of `_check_boot`.
 - **Did anything restart a healthy booting miner?** The risk introduced by the
   shorter settle gap. Measured boot time is 5-25 s of miner uptime, about a
   minute of wall clock, so a restart inside the first minutes is a regression.
   If you see one, say the settle cut needs revisiting.
-- **Do the counters agree?** `events.log` has written "cycled #N today" with an
-  N that disagrees with `/api/health`'s `cycles_today`. Open defect.
+- **Do the counters agree?** `events.log` used to write "cycled #N today" with an
+  N that disagreed with `/api/health`'s `cycles_today`. **Explained and closed
+  2026-09-18:** the counter is a rolling 24-hour window and was always right;
+  only the word "today" lied, because earlier cycles aged out of the window
+  between the line being written and the reading being taken. The line now says
+  "in 24 h". A genuine disagreement after this is a new defect, so still check.
 
 Telemetry never enters the main context raw: read it with a bounded subagent or
 targeted `awk`, and report conclusions. The log is 6 MB and grows.

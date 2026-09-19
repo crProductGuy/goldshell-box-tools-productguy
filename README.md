@@ -88,7 +88,7 @@ HS100/103/105 have none; the full list is in the guide):
 ```
 python -m gbox power discover                 # which plugs answer on the LAN, with their meters
 python -m gbox power init --plug 192.0.2.34   # record the miner's plug; stays in dry run
-python -m gbox power status                   # relay, watts, dry run or armed, cycles today
+python -m gbox power status                   # relay, watts, dry run or armed, cycles in 24 h
 python -m gbox power cycle                    # a deliberate cycle, after typing CYCLE
 ```
 
