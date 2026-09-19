@@ -37,7 +37,7 @@ DEFAULT_POWER = {
     "cycle": False,              # true arms the watchdog; false logs "would cycle" only
     "after_minutes": 5,          # unreachable this long, with two failed soft restarts, before a cycle (15 until 2026-09-12: 17 min of lost hashing per freeze)
     "off_seconds": 15,           # relay open this long
-    "settle_minutes": 20,        # nothing judged this long after a cycle
+    "settle_minutes": 6,         # nothing judged this long after a cycle (20 until 2026-09-17: across 25 measured boots the miner was hashing at 5-25 s, so 20 only hid a dead hashboard for 22 min)
     "max_cycles_per_day": 3,
     "idle_watts": 100,           # below this the miner is idle (hung draws about 34 W, hashing 180+)
     "boot_watts": 20,            # 0.7.2: under this, boot_check_minutes after a cycle, the controller never came up

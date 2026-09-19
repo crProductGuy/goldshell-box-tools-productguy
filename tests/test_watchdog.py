@@ -318,8 +318,12 @@ class PowerCycleTest(unittest.TestCase):
 
     def test_settle_gap_after_a_cycle_then_judged_again(self):
         """unreachable 2, min_gap 10, after 15 here: restarts at 1.5 and 12 min, the cycle at 15 when the episode
-        is old enough, settle to 35; then the whole ladder again (35.5 and 46 min) before a second cycle."""
-        self.wd = self.make(after_minutes=15)
+        is old enough, settle to 35; then the whole ladder again (35.5 and 46 min) before a second cycle.
+
+        settle_minutes is pinned at 20 rather than taken from the default, which became 6 on 2026-09-17. What
+        this test is about is the gap's mechanics -- nothing judged inside it, the full ladder again after it --
+        so it states the gap length it exercises instead of inheriting a tunable number."""
+        self.wd = self.make(after_minutes=15, settle_minutes=20)
         self.freeze(20)                                             # samples up to 19.5 min
         self.assertEqual(self.plug.calls, ["off", "on"])
         restarts_before = sum("restart attempt failed" in l for l in self.lines)

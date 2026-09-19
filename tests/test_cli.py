@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from gbox import cli, poller
+from gbox import cli, config, poller
 from tests.test_trials import fixture_rows, write_csv
 
 
@@ -389,7 +389,7 @@ class HoldAndPowerCommandTest(unittest.TestCase):
         text = self.run_cli("power", "on")
         self.assertEqual(self.fake.relay, 1)
         self.assertIn("switched on", text)
-        self.assertEqual(self.wd.hold_info()["minutes_left"], 20)
+        self.assertEqual(self.wd.hold_info()["minutes_left"], config.DEFAULT_POWER["settle_minutes"])
         self.assertIn("power: switched on by hand (gbox power on)", self.events_text())
 
     def test_power_off_refuses_without_the_word(self):
@@ -400,7 +400,7 @@ class HoldAndPowerCommandTest(unittest.TestCase):
 
     def test_power_cycle_by_hand_sets_a_settle_hold(self):
         self.run_cli("power", "cycle", "--off-seconds", "3", stdin=FakeTTY("CYCLE\n"))
-        self.assertEqual(self.wd.hold_info()["minutes_left"], 20)
+        self.assertEqual(self.wd.hold_info()["minutes_left"], config.DEFAULT_POWER["settle_minutes"])
         self.assertEqual(self.wd.hold_info()["reason"], "power cycle by hand")
 
 
