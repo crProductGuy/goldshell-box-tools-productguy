@@ -361,6 +361,19 @@ const tests = {
     assert.strictEqual(byT[new Date(2026, 8, 9, 20, 29, 0).getTime()].what, "declined: 6 restarts in 24 h is the cap (miner unreachable for 2 min)");
     assert.deepStrictEqual(app.interventionCounts(iv), { restarts: 1, cycles: 2, actions: 2 });
   },
+  "a plug cycle renders under both wordings: 'today' before 2026-09-18 and 'in 24 h' after"() {
+    // The counter was always a rolling 24 h window; only the label changed. An old log must keep
+    // rendering, and a new one must start. Mirrors SEED_RE in watchdog.py, which accepts both too.
+    const one = msg => app.interventions("2026-09-10 12:33:13 " + msg + "\n", [])[0];
+    const old = one("power: cycled #1 today: off 15 s, on (miner unreachable for 2 min; 187 W before)");
+    const now = one("power: cycled #1 in 24 h: off 15 s, on (miner unreachable for 2 min; 187 W before)");
+    assert.strictEqual(old.kind, "cycle");
+    assert.strictEqual(now.kind, "cycle");
+    assert.strictEqual(old.what, "power cycle #1 today: off 15 s, on (miner unreachable for 2 min; 187 W before)");
+    assert.strictEqual(now.what, "power cycle #1 in 24 h: off 15 s, on (miner unreachable for 2 min; 187 W before)");
+    assert.strictEqual(app.markerKind("power: cycled #8 in 24 h: off 15 s, on"), "plug power cycle");
+    assert.strictEqual(app.markerRow("power: cycled #8 in 24 h: off 120 s, on (miner unreachable for 9 min; 37 W before)"), "top");
+  },
   "hold line: what is held, until when, by whom, and what lifts it; empty without a hold"() {
     const hold = { since: "2026-09-12 21:00:00", until: "2026-09-12 22:00:00", reason: "PSU swap", source: "page", minutes_left: 60, ok_streak: 0 };
     assert.strictEqual(app.holdLine({ hold }),
