@@ -487,6 +487,34 @@ class PowerCycleTest(unittest.TestCase):
         self.assertEqual(self.plug.calls, ["off", "on"])            # no repeat cycle
         self.assertFalse(any("did not come up" in l for l in self.lines))
 
+    # ---------------------------------------- the two branches of _check_boot that had no test (2026-09-19)
+
+    def test_b1_a_meterless_plug_says_so_instead_of_passing_the_check_silently(self):
+        """`w is None` returned with no event line, so a plug that cannot measure watts looked exactly like a
+        box that booted fine. The check is impossible here, and the log now says which of the two it was."""
+        self.plug.meter = False
+        self.freeze(12)
+        self.feed(1, ok=False)                                      # 12 min: second failed restart, cycle #1
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.plug.watts_value = 3.0                                 # would be under boot_watts, but unreadable
+        self.feed(4, ok=False)                                      # 14 min: the boot check is due
+        self.assertEqual(self.plug.calls, ["off", "on"])            # never cycle on a reading we do not have
+        self.assertTrue(any("has no meter" in l for l in self.power_lines()))
+        self.assertFalse(any("did not come up" in l for l in self.power_lines()))
+
+    def test_b2_a_plug_that_stops_answering_at_the_boot_check_is_logged_not_swallowed(self):
+        """`identify()` raising inside the check is caught and logged, and must not cycle: an unreachable plug
+        is not evidence about the miner."""
+        self.freeze(12)
+        self.feed(1, ok=False)                                      # 12 min: second failed restart, cycle #1
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.plug.watts_value = 3.0
+        self.plug.fail_identify = True                              # the plug drops off before the check is due
+        self.feed(4, ok=False)                                      # 14 min: the boot check is due
+        self.assertEqual(self.plug.calls, ["off", "on"])            # no cycle on no evidence
+        self.assertTrue(any("plug did not answer" in l for l in self.power_lines()))
+        self.assertFalse(any("did not come up" in l for l in self.power_lines()))
+
 
 if __name__ == "__main__":
     unittest.main()

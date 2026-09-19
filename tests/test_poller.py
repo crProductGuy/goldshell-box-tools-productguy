@@ -471,6 +471,17 @@ class ConfigTest(unittest.TestCase):
             config.Config(host="h", power={"host": "p", "boot_check_minutes": 11}).validate()
         config.Config(host="h", power={"host": "p", "boot_check_minutes": 0}).validate()
 
+    def test_settle_minutes_is_bounded(self):
+        """It was the one power value with no bound, and it is the one that suppresses the stall check: at 20 it
+        hid a dead hashboard for 22 minutes (2026-09-17), so a typo of 600 would hide one for ten hours."""
+        self.assertEqual(config.Config(host="h", power={"host": "p"}).power["settle_minutes"], 6)
+        config.Config(host="h", power={"host": "p", "settle_minutes": 0}).validate()
+        config.Config(host="h", power={"host": "p", "settle_minutes": 60}).validate()
+        with self.assertRaises(ValueError):
+            config.Config(host="h", power={"host": "p", "settle_minutes": 61}).validate()
+        with self.assertRaises(ValueError):
+            config.Config(host="h", power={"host": "p", "settle_minutes": -1}).validate()
+
     def test_validate_rejects_fast_polling(self):
         with self.assertRaises(ValueError):
             config.Config(poll_interval=5).validate()
