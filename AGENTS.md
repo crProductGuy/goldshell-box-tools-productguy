@@ -164,8 +164,10 @@ instead, and check the result:
     git -c merge.renormalize=true rebase main <branch>
     # any append conflict in the EVOLUTION file: keep both entries, newest last
     git -c merge.renormalize=true rebase --continue
-    git diff --numstat main      # must match the pre-rebase diff against the merge base Machine-specific notes live outside
-this repo in the owner's working root, not here.
+    git diff --numstat main      # must match the pre-rebase diff against the merge base
+
+Machine-specific notes live outside this repo in the owner's working root, not
+here.
 
 ## Done-when discipline
 
