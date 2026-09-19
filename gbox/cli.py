@@ -371,7 +371,7 @@ def cmd_power_status(args, cfg, data_dir):
         cfg.power["max_cycles_per_day"]))
     h = _service_health(cfg)
     if h is None:
-        _out("service not running (or not at %s): cycles today unknown" % _service_url(cfg))
+        _out("service not running (or not at %s): cycles in 24 h unknown" % _service_url(cfg))
     else:
         pw = h.get("power") or {}
         _out("service: %d cycles in 24 h%s" % (pw.get("cycles_today", 0),
@@ -602,7 +602,7 @@ def build_parser():
     i.add_argument("--plug", required=True, help="plug address (IP or hostname, optional :port)")
     i.add_argument("--driver", default="kasa", choices=sorted(plugmod.DRIVERS))
     i.add_argument("--yes", action="store_true", help="skip the 'is this the miner's plug?' question")
-    psub.add_parser("status", help="relay, watts, dry run or armed, cycles today")
+    psub.add_parser("status", help="relay, watts, dry run or armed, cycles in 24 h")
     c = psub.add_parser("cycle", help="cut power and restore it, after typing CYCLE")
     c.add_argument("--off-seconds", type=int, help="relay open this long (default: config, %d)" % config.DEFAULT_POWER["off_seconds"])
     psub.add_parser("off", help="switch the plug off, after typing OFF; the miner stays off, unjudged, until `power on`")

@@ -399,7 +399,9 @@ function interventions(text, rows) {
       else return;
     } else if (src === "power") {
       who = "plug";
-      if ((x = /^cycled (#\d+ today: .*)$/.exec(msg))) { kind = "cycle"; what = "power cycle " + x[1]; result = cameBack(t); }
+      // both wordings: the line said "today" until 2026-09-18, when it became "in 24 h" (the counter was
+      // always a rolling 24 h window). Old logs still render; mirrors SEED_RE in watchdog.py.
+      if ((x = /^cycled (#\d+ (?:today|in 24 h): .*)$/.exec(msg))) { kind = "cycle"; what = "power cycle " + x[1]; result = cameBack(t); }
       else if ((x = /^would cycle now \((.*)\)$/.exec(msg))) { kind = "dryrun"; what = "would cycle (dry run): " + x[1]; }
       else if ((x = /^cycle failed: (.*)$/.exec(msg))) { kind = "failed"; what = "power cycle failed: " + x[1]; }
       else if ((x = /^switched (off|on) by (you|the schedule)(?: \((.*)\))?$/.exec(msg))) {
