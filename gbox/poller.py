@@ -122,13 +122,14 @@ def migrate_columns(csv_path):
     a header this code does not know are left alone.
     """
     csv_path = Path(csv_path)
+    recovered = _promote_orphan_tmp(csv_path)
     if not csv_path.is_file():
-        return False
+        return recovered
     with open(csv_path, encoding="utf-8", newline="") as f:
         header = f.readline().rstrip("\r\n")
         old = header.split(",") if header else []
         if not old or old == COLUMNS or COLUMNS[:len(old)] != old or len(old) >= len(COLUMNS):
-            return False
+            return recovered
         body = f.read()
     pad = "," * (len(COLUMNS) - len(old))
     backup = csv_path.with_name(csv_path.name + ".bak")
@@ -144,7 +145,96 @@ def migrate_columns(csv_path):
             if line:
                 f.write(line + pad + "\n")
     tmp.replace(csv_path)
-    return note
+    return "; ".join(n for n in (recovered, note) if n)
+
+
+STAMP = "%Y-%m-%d %H:%M:%S"
+CARRY_MARGIN_HOURS = 2      # carried beyond keep_hours, so a reader at exactly keep_hours sees whole buckets
+
+
+def _promote_orphan_tmp(csv_path):
+    """Finish a rotation that was interrupted between its two moves.
+
+    `rotate` writes the carried rows to `.tmp`, moves the log to `.1`, then moves `.tmp` into place.
+    A crash in that window leaves `.1` and `.tmp` and no log. The `.tmp` is the new log, complete,
+    so promote it. Called from `migrate_columns`, which runs once at start.
+    """
+    working = csv_path.with_name(csv_path.name + ".tmp")
+    if csv_path.exists() or not working.is_file():
+        return False
+    working.replace(csv_path)
+    return "recovered %s from %s; a rotation had been interrupted" % (csv_path.name, working.name)
+
+
+def _rotation_failed(csv_path, working, archive, error):
+    """Leave the data directory in a state the next poll can work from, and say what happened."""
+    if not csv_path.exists() and working.is_file():
+        try:
+            working.replace(csv_path)       # the move to .1 went through, so finishing is the safe end
+        except OSError:
+            pass
+    elif working.is_file():
+        try:
+            working.unlink()
+        except OSError:
+            pass
+    return ("log rotation deferred: %s (%s); this poll appends as usual and the next one tries again"
+            % (csv_path.name, error))
+
+
+def rotate(csv_path, keep_hours, now=None):
+    """Cap a growing log: carry the last `keep_hours` into a fresh file, archive the whole old one as `.1`.
+
+    No reader changes. `series`, `trials`, `gbox errors` and the dashboard all read the recent end of
+    `log.csv`, and the carried rows are exactly what they were already reading, so a rotation is
+    invisible on the page. A bare rename would have blanked the 24 h charts, the three-day errors
+    chart and the trials table at the moment it fired. The carried rows then exist twice on disk, here
+    and in `.1`, but nothing reads `.1`, so nothing double-counts them. History older than the cap is
+    archived, not shown: that was the deliberate trade against readers that span two files.
+
+    `CARRY_MARGIN_HOURS` more than `keep_hours` is carried. Carrying exactly `keep_hours` leaves the
+    oldest bucket of a reader asking for exactly that window half full: measured on a copy of the
+    real 8.5 MB log, one of 145 half-hour buckets changed across a rotation, the oldest, 29 samples
+    where it had been 60. The three-day errors chart asks for exactly 72 h, so the margin is what
+    keeps a rotation invisible on the page.
+
+    A row whose first field is not a timestamp is dropped from the carry and kept in the archive.
+
+    Any OSError leaves every file as it was and returns a note saying so. On Windows a reader holding
+    the log open makes the move a PermissionError, and the honest answer is to append this poll's
+    sample as usual and try again on the next one. Returns a note for the event log, or False when
+    there was nothing to do.
+    """
+    csv_path = Path(csv_path)
+    if not csv_path.is_file() or csv_path.stat().st_size == 0:
+        return False
+    before = csv_path.stat().st_size
+    cutoff = (now or datetime.datetime.now()) - datetime.timedelta(hours=keep_hours + CARRY_MARGIN_HOURS)
+    working = csv_path.with_name(csv_path.name + ".tmp")
+    archive = csv_path.with_name(csv_path.name + ".1")
+    kept = 0
+    try:
+        with open(csv_path, encoding="utf-8", newline="") as src:
+            header = src.readline().strip()
+            if not header:
+                return False
+            with open(working, "w", encoding="utf-8", newline="") as dst:
+                dst.write(header + "\n")
+                for line in src:
+                    try:
+                        when = datetime.datetime.strptime(line.split(",", 1)[0].strip(), STAMP)
+                    except ValueError:
+                        continue
+                    if when >= cutoff:
+                        dst.write(line.strip() + "\n")
+                        kept += 1
+        csv_path.replace(archive)
+        working.replace(csv_path)
+    except OSError as e:
+        return _rotation_failed(csv_path, working, archive, e)
+    return ("rotated %s: %d bytes to %d, %d row%s carried (the last %d h plus a %d h margin), old file kept as %s"
+            % (csv_path.name, before, csv_path.stat().st_size, kept, "" if kept == 1 else "s",
+               keep_hours, CARRY_MARGIN_HOURS, archive.name))
 
 
 def error_row(exc):
