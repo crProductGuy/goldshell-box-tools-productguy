@@ -1,7 +1,8 @@
 """The LAN, read from the OS and never guessed, with tunnels excluded by what they are.
 
-The four hard rules of `gbox/netiface.py` are what these tests hold: a tunnel is never a source of
-an address range, the prefix comes from the interface, the routing table is never consulted, and
+The hard rules of `gbox/netiface.py` are what these tests hold: a tunnel is never a source of an
+address range, the prefix comes from the interface, the routing table is never consulted, 169.254 is
+never a network, a disconnected link is not a network, a LAN overlapping a tunnel is refused, and
 two candidate LANs are a question rather than a coin toss.
 
 The Windows fixture is the real shape of `Get-NetIPAddress` joined to `Get-NetAdapter`, captured on
@@ -451,6 +452,30 @@ class DegradedLinuxAndMacTest(unittest.TestCase):
         rows = netiface.parse_ifconfig(text)
         self.assertTrue(netiface.is_autoconfigured(rows[0]))
         self.assertIsNone(netiface.network_of(rows[0]))
+
+
+
+
+class ContainerAndSubsystemBridgeTest(unittest.TestCase):
+    """Docker, WSL and libvirt bridges carry private addresses on Ethernet media and reach containers
+    rather than the house. A bridged NIC does reach the house, and must survive."""
+
+    def tunnel(self, name, description=""):
+        return netiface.is_tunnel({"name": name, "description": description, "medium": "802.3"})
+
+    def test_container_and_subsystem_bridges_are_not_lans(self):
+        for name, desc in (("docker0", "bridge"), ("veth1a2b", "veth"), ("virbr0", "libvirt bridge"),
+                           ("vEthernet (WSL (Hyper-V firewall))", "Hyper-V Virtual Ethernet Adapter"),
+                           ("vEthernet (Default Switch)", "Hyper-V Virtual Ethernet Adapter")):
+            self.assertTrue(self.tunnel(name, desc), name)
+
+    def test_a_bridged_nic_is_still_the_lan(self):
+        """br0 is the real network on any machine whose owner bridged their NIC, and an EXTERNAL
+        Hyper-V switch is the same thing on Windows. Guessing here would break the setup of the
+        person most likely to have one."""
+        self.assertFalse(self.tunnel("br0", "Bridge"))
+        self.assertFalse(self.tunnel("vEthernet (External)", "Hyper-V Virtual Ethernet Adapter"))
+        self.assertFalse(self.tunnel("bond0", "Link aggregate"))
 
 
 if __name__ == "__main__":

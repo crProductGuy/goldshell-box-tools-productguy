@@ -1,6 +1,6 @@
 """Which networks are this machine's own LANs, read from the OS and never guessed.
 
-Four hard rules govern this module. They are not preferences, and nothing in the
+Eight hard rules govern this module. They are not preferences, and nothing in the
 package may work around them.
 
 1. **A tunnel is never a source of an address range.** VPN, tap, tun, PPP,
@@ -58,7 +58,11 @@ import sys
 # Interface names, descriptions and driver component ids that mean "tunnel". The short ones are
 # matched as whole words or as a leading token, so an "Intel(R) Ethernet" is not read as a tun.
 TUNNEL_WORDS = ("tun", "tap", "wg", "ppp", "utun", "zt", "ipsec", "gpd", "nordlynx", "proton",
-                "ip6tnl", "sit", "gre", "6to4")
+                "ip6tnl", "sit", "gre", "6to4",
+                # A veth is a container's end of a pair, never a LAN. "br" is NOT here: br0 is the
+                # real LAN on any machine whose owner bridged their NIC, and guessing there would
+                # take a working setup away from the person most likely to have one.
+                "veth", "virbr", "cni", "flannel")
 TUNNEL_PHRASES = ("vpn", "wintun", "wireguard", "openvpn", "tunnel", "anyconnect", "globalprotect",
                   "tailscale", "zerotier", "hamachi", "softether", "forticlient", "pulse secure",
                   "wan miniport", "teredo", "isatap", "l2tp", "pptp", "sstp", "virtual private",
@@ -66,7 +70,11 @@ TUNNEL_PHRASES = ("vpn", "wintun", "wireguard", "openvpn", "tunnel", "anyconnect
                   # Hypervisor networks that look exactly like a LAN and reach no router: a
                   # host-only segment, a VMware vmnet, the Hyper-V Default Switch, the KM-TEST
                   # loopback. An EXTERNAL Hyper-V switch is a real LAN and is deliberately not here.
-                  "host-only", "hostonly", "vmnet", "default switch", "km-test", "loopback adapter")
+                  "host-only", "hostonly", "vmnet", "default switch", "km-test", "loopback adapter",
+                  # Container and subsystem bridges: real Ethernet media, real private addresses, and
+                  # they reach containers rather than the house. "vEthernet (WSL)" is one of these;
+                  # "vEthernet (External)" is a genuine bridged LAN and is deliberately not matched.
+                  "docker", "vethernet (wsl", "vethernet (nat", "podman", "libvirt")
 
 # 169.254.0.0/16, RFC 3927. The OS assigns it to itself when DHCP does not answer; it means "this
 # adapter is not on a network". Rule 5: never a candidate, never a fallback, never swept.
