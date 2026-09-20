@@ -2304,3 +2304,61 @@ the suite could not, which is the argument for the habit rather than for the fix
 **Tagged and pushed.** v0.8.0, annotated, with the release notes naming both gates, the trade rotation
 makes, and the two security findings that mattered. The branch and its worktree were left in place for
 Mark to clear.
+
+## 2026-09-20 afternoon, session AB continued: "does it truly follow the default gateway?", and 0.8.1
+
+**Mark's question, verbatim:** "verify how the network discovery works. Does it truly follow the default
+gateway?" He was checking a claim the session had made in passing, and the claim was loose.
+
+**The answer was no, and the checking mattered.** The code never read a gateway and never parsed a routing
+table. It opened a UDP socket towards a reserved address, asked the socket which local address it had been
+bound to, and took that. That is a route lookup for one destination, and the answer lands on the default
+route only because nothing more specific matches. Verified from both ends: the operating system's own route
+query named the same tunnel interface for that destination, and the same call towards an address on the
+house LAN named the Ethernet instead, which is what proves it is per-destination rather than a gateway
+read. The "no packet is sent" line in the docstring also held: two thousand connect-and-read cycles moved
+the machine's UDP datagram counter no more than an idle window of the same length did.
+
+Three limitations came out of that check, and the third is the one that mattered. The prefix was assumed to
+be a /24 and never read. The fallback path resolved the machine's own hostname, which is name resolution
+rather than routing. And the morning's security fix, which refused address ranges that are not private, was
+the right fix for the VPN in front of it and the wrong test in general.
+
+**Mark's instruction, verbatim:** "make the subnet size checked via the router's data! DOn't assume
+anything, and write hard rules to NEVER use the VPN to determine address ranges. LAN is LAN. No Further
+reach." Then, while the work was running: "Put a special rule that 169.254 prefix addresses are NEVER used.
+By definition those are not connected, so don't even consider them. Think about any other 'smart, network
+first principles rules' should be applied to not do stupid things when I've lost LAN or Internet
+connectivity, or if there are other exceptional conditions."
+
+**He was right about the hole, and it was a real one.** A corporate or WireGuard VPN hands out private
+addresses. They pass every "is it private" test and are exactly as wrong to sweep as a public range. The
+test had to become what the interface *is*, not what it carries.
+
+**What was built.** A new module whose only job is to say what this machine's network is, reading the
+operating system's interface table: the address, the prefix the router handed out over DHCP, the interface
+type, the medium, the driver and the link state. Nine rules, each with a test, and the rules were written
+into the repository's own agent instructions so the next session meets them before the code. A tunnel is
+never a source of a range. The prefix is read, never assumed. The routing table is not consulted, and a
+test reads the module's own source to keep it that way. Link-local addresses are never a network, in either
+direction: not chosen, and refused even when asked for by name. A disconnected link is not a network, since
+a lease outlives its cable and sits in the table looking healthy. A LAN that overlaps a tunnel's own range
+is refused rather than preferred. Two candidate LANs are a question. Nothing resolves a name or needs the
+internet. And a sweep where every address fails at once reports a dead network with its own exit code,
+rather than reporting no miner found and sending the owner to look at a miner that is fine.
+
+**The judgement call worth recording.** Container and subsystem bridges carry private addresses on Ethernet
+media and would have passed every rule, so they are excluded by name. The line was drawn deliberately on
+the other side of a bridged network interface: that is the real network on a machine whose owner bridged
+their card, and excluding it would have broken the setup of the person most likely to have one.
+
+**Two ideas considered and not built,** both additions rather than rules: seeding a sweep from the
+neighbour table as a fast first pass, which only knows hosts that have spoken recently and needs a parser
+per platform; and testing the gateway before sweeping, which invents a failure mode on any network that
+drops that kind of probe.
+
+**Verified on the machine, then released.** The sweep now names the interface its range came from before it
+asks anything. The interface query was checked against both editions of the Windows shell, since the newer
+one is not present on a default install. Suites 573 and 68, green. Tagged 0.8.1 and pushed at Mark's word.
+The running service was left on the previous version: nothing in the poller or the server changed, and only
+the discover command behaves differently.
