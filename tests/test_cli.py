@@ -432,6 +432,23 @@ class DiscoverCommandTest(unittest.TestCase):
                 code = e.code or 0
         return out.getvalue() + err.getvalue(), code
 
+    def test_it_says_what_it_is_about_to_sweep_before_it_asks_anything(self):
+        """An operator gets one chance to stop a sweep of the wrong network: this line, printed first."""
+        text, _ = self.run_cli("discover", "--target", self.fm.address, "--timeout", "5")
+        first = text.splitlines()[0]
+        self.assertIn("sweeping 1 given address, one request each", first)
+        self.assertNotIn("1 address,", first)          # the target path already carries the count
+
+    def test_a_subnet_sweep_names_the_subnet_and_the_number_of_addresses(self):
+        from gbox import discover as discovermod
+        self.addCleanup(setattr, discovermod, "sweep", discovermod.sweep)
+        self.addCleanup(setattr, discovermod, "targets_for", discovermod.targets_for)
+        discovermod.targets_for = lambda cidr: ["10.9.9.%d" % i for i in range(1, 255)]
+        discovermod.sweep = lambda *a, **k: []         # nothing is probed: this test is about the line
+        text, code = self.run_cli("discover", "--subnet", "10.9.9.0/24")
+        self.assertEqual(code, 1)
+        self.assertIn("sweeping 10.9.9.0/24, 254 addresses, one request each", text.splitlines()[0])
+
     def test_a_hit_is_one_line_carrying_the_address_model_name_and_firmware(self):
         text, code = self.run_cli("discover", "--target", self.fm.address, "--timeout", "5")
         self.assertEqual(code, 0)
