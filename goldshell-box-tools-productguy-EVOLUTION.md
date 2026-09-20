@@ -2155,3 +2155,55 @@ pushed; no restart, since no Python changed and the service serves the page file
 was read once more afterwards and still showed its 65 °C target and its control, so the fix touched only the unit
 it was for. The gate 2 worktree and its branches were then removed, the pre-rebase backup last and at Mark's word,
 because its rewritten commits needed a forced delete. Main is the only branch. Gate 3 is next, in a fresh session.
+
+## 2026-09-19 late evening into 2026-09-20, session AA: gate 3, four tasks of six, and two bugs only running found
+
+Mark opened with "open the goldshell project" and one line of scope: "STATUS.md's top block and
+`~/.claude/plans/gate3-0.8.0.md` carry everything it needs." The session restated the brief before acting, checked
+the repo, the live service and the machine's memory headroom rather than trusting the status file, and offered
+three ways in. Mark picked the first: make the worktree, take a baseline, start task 1. The baseline mattered more
+than it looked, because the previous session had left one module unrerun and the machine had hit its commit limit
+that afternoon; run one module at a time, the suite came back at 411 Python and 67 Node, matching the checkpoint
+exactly. That is the first checkpoint in a while whose numbers were right.
+
+**Task 1 corrected a fiction in the test double.** The firmware answers `/mcb/status` with no token, read off the
+real unit the evening before, but the fake miner demanded one on that path. Every `discover` test would have agreed
+with a fake that behaved unlike the thing it stands for. Three tests now pin the corrected shape, including one
+that keeps the fake strict about a *wrong* token, which nobody has ever tested against the firmware and which is
+labelled unverified in the test, in the commit and in `docs/firmware-api.md`, whose "all need the token" heading
+was simply wrong.
+
+**Task 2 built the module, and a test caught the design.** The first cut matched the skip list on the host part
+alone, which is right on a real network where every address is bare, and wrong in the suite, where two fake miners
+share a loopback address and differ only by port: skipping one skipped both. The rule became host and port, with
+either side lacking a port matching any port on that host. One reading of the plan needed a decision. "More than
+1022 hosts (/22) is refused" can mean a /22 is the widest allowed or the first refused; the session implemented the
+former, said so in the commit and asked. Mark: "1, carry on with task 3."
+
+**Task 3 found a bug that was not this gate's, by running the command instead of only testing it.** The plan carried
+that instruction forward from the previous session, and it paid twice. Pointed at the SC5 Pro II fixture, the new
+command died with a character-encoding error and lost the row. The cause was old: that unit's model string holds a
+Unicode roman numeral, recorded in the model table as the exact bytes from a friend's machine, and a Windows console
+cannot encode it. Printing it raised `UnicodeEncodeError`, which is a `ValueError`, which the command line already
+caught and turned into a terse error and a non-zero exit. The same path runs under `status` and `chips`, so those
+commands had been failing that way on Windows against that model for as long as the table has held the string, and
+no test saw it because tests print to a buffer that accepts anything. Output now falls back to the stream's own
+encoding with replacement, and three tests hold it against a real code-page stream. The same run prompted stripping
+non-printable characters and capping field lengths in the probe: a sweep asks every address on the subnet, anything
+can answer port 80, and whatever answers gets printed to a terminal.
+
+**Task 4's margin came from real data, not from the plan.** `rotate` carries the recent rows into a fresh file and
+archives the whole old one, so no reader changes. Run against a copy of the live log, never the live one, the
+24-hour series was identical across a rotation and the 72-hour series was not: of 145 half-hour buckets exactly one
+differed, the oldest, with 29 samples where it had had 60. Carrying exactly the window leaves a reader asking for
+exactly that window with a half-full bucket at the edge, and the three-day errors chart asks for exactly 72 hours,
+so the plan's own done-when was failing by two rows. A two-hour carry margin fixed it and both series now match.
+The session also widened the plan's `PermissionError` to `OSError`, because the same failure is a different
+exception on macOS, and because catching the base class is what let the failure path be provoked by standing a
+directory in the working file's place, in a suite that contains no mocks and should not gain its first one here.
+Reported and accepted in the same breath: the trials table reads the whole file, so it drops from 93 segments to
+19, 75 of them older than the carry by Mark's earlier choice, and the oldest survivor clipped at the boundary.
+
+Left for the next session: the wiring, the release, and the one security pass. Nothing is wired yet, so the running
+service is unaffected by any of it. No sweep was ever run against the real network, no test touched the live data
+directory, and the service that has been logging since the previous evening was not stopped or restarted.
