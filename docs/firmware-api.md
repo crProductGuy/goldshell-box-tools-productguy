@@ -31,7 +31,14 @@ No Goldshell code is reproduced here, only observed behavior.
   (checked 2026-09-06). So a page opened from disk or another origin can PUT
   settings and restart the miner, which is what the dashboard's buttons do.
 
-## Endpoints (all need the token)
+## Endpoints (all need the token except `/mcb/status`)
+
+Every path below needs the token except `GET /mcb/status`, which answers 200 with
+no `Authorization` header at all: one `curl` between two service polls returned
+`{"hardware":"40.40.HA","model":"Goldshell-SCBox","mcbversion":"MCB_V5_4","firmware":"2.2.5"}`
+(verified on the SC-BOX, 2026-09-19; **unverified on the SC5 Pro II**). That is what
+`gbox discover` probes with, so a sweep reads no credential and sends none. A *wrong*
+token on that path is untested either way.
 
 | Path | Method | Notes |
 |---|---|---|
