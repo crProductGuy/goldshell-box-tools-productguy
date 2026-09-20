@@ -57,7 +57,7 @@ BOARDS_COLUMNS = ["time", "board", "elapsed", "mhs_20s", "mhs_av", "accepted", "
 BOARD_SOURCES = ("auto", "4028", "minerinfo")
 
 
-def sample(miner, source, devs4028_port=4028):
+def sample(miner, source, devs4028_port=4028, icinfo_optional=False):
     """One sample as a dict keyed by COLUMNS. Raises MinerError on failure.
 
     `source` picks the transport for the per-board data: "4028" reads cgminer-style port 4028
@@ -67,7 +67,10 @@ def sample(miner, source, devs4028_port=4028):
     Two extra keys ride along under names `COLUMNS` does not list, so `_append` ignores them:
     `_boards` (the per-board list, for `boards.csv` and `/api/boards`) and `_icinfo_locked` (True when
     `/dbg/icinfo`'s 401 persisted this sample, so the chip-level columns are blank rather than losing the
-    whole row -- unproven on the SC5 Pro II).
+    whole row -- unproven on the SC5 Pro II). With `icinfo_optional`, an HTTP error status (a 404 or 500 from
+    a model without the endpoint) is taken the same way and `_icinfo_locked` holds the status as text; the
+    Poller allows that only until icinfo has answered once, so on a unit that has it a failure stays a
+    failed sample. A miner that does not answer at all is never tolerated here.
     """
     boards = miner.devs4028(port=devs4028_port) if source == "4028" else miner.minerinfo_boards()
     info = api.board_totals(boards)
@@ -77,6 +80,11 @@ def sample(miner, source, devs4028_port=4028):
     except api.AuthError:
         chip_boards = []
         icinfo_locked = True
+    except api.HttpStatusError as e:
+        if not icinfo_optional:
+            raise
+        chip_boards = []
+        icinfo_locked = "HTTP %d" % e.code
     setting = miner.setting()
     weak = ";".join("%d:%d/%d" % (c["chip"], c["good"], c["bad"])
                     for board in chip_boards for c in api.weak_chips(board))
@@ -176,6 +184,7 @@ class Poller(threading.Thread):
         self.devs4028_port = devs4028_port
         self._source = None if board_source == "auto" else board_source   # resolved transport, once decided
         self._icinfo_locked = False   # one event line the first time /dbg/icinfo's 401 persists, never again
+        self._icinfo_seen = False     # True once icinfo has answered in this run; from then its failure is an error
 
     def _sample(self):
         """One sample via the transport `board_source` picks. "auto": the very first sample probes port
@@ -184,16 +193,17 @@ class Poller(threading.Thread):
         run, with one event line. Once resolved, by success or by fallback, the source never changes
         again for this poller."""
         if self._source is not None:
-            return sample(self.miner, self._source, devs4028_port=self.devs4028_port)
+            return sample(self.miner, self._source, devs4028_port=self.devs4028_port,
+                          icinfo_optional=not self._icinfo_seen)
         try:
             self.miner.devs4028(port=self.devs4028_port)   # probe; sample() below reads it again, once
         except api.MinerError:
             self._source = "minerinfo"
             if self.events:
                 self.events.write("miner: port 4028 closed or silent; reading boards from /dbg/minerinfo")
-            return sample(self.miner, "minerinfo")
+            return sample(self.miner, "minerinfo", icinfo_optional=not self._icinfo_seen)
         self._source = "4028"
-        return sample(self.miner, "4028", devs4028_port=self.devs4028_port)
+        return sample(self.miner, "4028", devs4028_port=self.devs4028_port, icinfo_optional=not self._icinfo_seen)
 
     def _append_boards(self, now, boards):
         """boards.csv beside log.csv: one row per board per poll, header on create. Only called when the
@@ -270,10 +280,13 @@ class Poller(threading.Thread):
             row = self._sample()
             self.samples += 1
             self.last_error = None
-            if row.get("_icinfo_locked") and not self._icinfo_locked:
+            if not row.get("_icinfo_locked"):
+                self._icinfo_seen = True
+            elif not self._icinfo_locked:
                 self._icinfo_locked = True
+                why = "401 persisted" if row["_icinfo_locked"] is True else "answered %s" % row["_icinfo_locked"]
                 if self.events:
-                    self.events.write("miner: /dbg/icinfo 401 persisted; chip-level columns blank until it answers")
+                    self.events.write("miner: /dbg/icinfo %s; chip-level columns blank until it answers" % why)
             if self.miner_status is None:            # one extra request, once, after the sample (never concurrent)
                 try:
                     self.miner_status = self.miner.status()
