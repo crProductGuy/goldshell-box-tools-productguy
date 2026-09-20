@@ -101,7 +101,9 @@ def cmd_discover(args, cfg, data_dir):
 
     configured = cfg.host or ""
     skipping = bool(configured) and not args.include_configured
-    _out("sweeping %s, %d address%s, one request each" % (where, len(targets), "" if len(targets) == 1 else "es"))
+    # The --target path already says how many addresses it was given, so only a subnet needs the count.
+    _out("sweeping %s, one request each" % where if args.target else
+         "sweeping %s, %d addresses, one request each" % (where, len(targets)))
     if configured and args.include_configured:
         _out("probing the configured miner as well; do this only while `gbox serve` is stopped,")
         _out("because the firmware answers one caller at a time")
