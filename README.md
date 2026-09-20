@@ -140,8 +140,25 @@ minutes. `docs/clock-tuning.md` has the method, by hand and with
 `gbox trials run`, and explains why accepted shares per hour is a worse
 throughput number than it looks.
 
-Own a different Box model? `docs/capture-request.md` says which seven
-read-only requests to capture, what to redact, and where to send them,
+## Which miners
+
+Support is claimed only where someone has run gbox on the unit. Everything
+else in the table is what the code was built from, stated as that.
+
+| Model | Standing | Built from |
+|---|---|---|
+| SC-BOX | supported | developed and run daily on one unit |
+| SC5 Pro II | built, not yet run on a unit | a friend's capture (four boards, four fans, firmware 2.2.0): every board read, logged to `boards.csv` and shown, plus the firmware's own DC power figure. Claimed when the owner runs it |
+| SC5 Pro | assumed | the spec sheet, and the SC5 Pro II's behavior; the model string has not been read from a unit |
+| SC-BOX II | assumed | retailer listings; the model string has not been read from a unit |
+| SC Lite | not yet | another developer's notes and synthetic fixtures; the per-board read for this model is not built |
+
+Any other Goldshell unit gets the SC-BOX path with the optional features
+off, and the page says so under its title.
+
+Own one of the unclaimed models, or a different one?
+`docs/capture-request.md` says which read-only requests to capture (two
+socket reads, seven `curl` reads), what to redact, and where to send them,
 so gbox can learn your unit without one on the bench.
 
 ## Rules the tools follow, and you should too
