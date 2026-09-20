@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from gbox import api, config, poller
+from gbox import api, config, poller, series, trials
 from gbox.events import EventLog
 from gbox.watchdog import Watchdog
 from tests.fake_miner import FakeMiner
@@ -857,3 +857,338 @@ class RotateTest(unittest.TestCase):
         self.carried.write_bytes(b"stale")
         poller.migrate_columns(self.csv)
         self.assertEqual(self.carried.read_bytes(), b"stale")
+
+
+class LogConfigTest(unittest.TestCase):
+    """config.json's "log" block: the cap that fires a rotation and the window it carries."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_defaults_are_25_mb_and_72_hours(self):
+        cfg = config.load(self.tmp.name)
+        self.assertEqual(cfg.log["max_mb"], 25)
+        self.assertEqual(cfg.log["keep_hours"], 72)
+        cfg.validate()
+
+    def test_round_trip_and_a_partial_block_keeps_the_other_default(self):
+        config.save(config.Config(host="h", log={"max_mb": 50}), self.tmp.name)
+        with open(Path(self.tmp.name) / "config.json", encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["log"], {"max_mb": 50, "keep_hours": 72})
+        back = config.load(self.tmp.name)
+        self.assertEqual(back.log["max_mb"], 50)
+        self.assertEqual(back.log["keep_hours"], 72)
+
+    def test_zero_turns_rotation_off_and_is_valid(self):
+        config.Config(log={"max_mb": 0}).validate()
+
+    def test_a_cap_too_small_or_too_large_is_refused(self):
+        for mb in (4, 1001, -1):
+            with self.assertRaises(ValueError):
+                config.Config(log={"max_mb": mb}).validate()
+
+    def test_a_window_outside_24_to_168_hours_is_refused(self):
+        for hours in (23, 169):
+            with self.assertRaises(ValueError):
+                config.Config(log={"keep_hours": hours}).validate()
+        config.Config(log={"keep_hours": 24}).validate()
+        config.Config(log={"keep_hours": 168}).validate()
+
+
+class RotationWiringTest(unittest.TestCase):
+    """The poller rotates log.csv and boards.csv before a write that would take them past the cap.
+
+    Nothing here touches ~/.gbox: every test polls a fake miner into a temp directory.
+    """
+
+    def setUp(self):
+        self.fm = FakeMiner().start()
+        self.addCleanup(self.fm.stop)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.data = Path(self.tmp.name)
+        self.csv = self.data / "log.csv"
+        self.events = EventLog(self.data / "events.log")
+
+    def seed(self, rows, ages_hours=1):
+        """A log of `rows` rows, all `ages_hours` old, so a rotation carries every one of them."""
+        stamp = (datetime.datetime.now() - datetime.timedelta(hours=ages_hours)).strftime(poller.STAMP)
+        blanks = "," * (len(poller.COLUMNS) - 1)
+        with open(self.csv, "w", encoding="utf-8", newline="") as f:
+            f.write(",".join(poller.COLUMNS) + chr(10))
+            for _ in range(rows):
+                f.write(stamp + blanks + chr(10))
+        return self.csv.stat().st_size
+
+    def append_rows(self, rows, ages_hours):
+        """More rows on the end of the seeded log, at whatever age the test needs."""
+        stamp = (datetime.datetime.now() - datetime.timedelta(hours=ages_hours)).strftime(poller.STAMP)
+        with open(self.csv, "a", encoding="utf-8", newline="") as f:
+            for _ in range(rows):
+                f.write(stamp + "," * (len(poller.COLUMNS) - 1) + chr(10))
+        return self.csv.stat().st_size
+
+    def poller_with(self, max_bytes):
+        return poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30,
+                             events=self.events, max_bytes=max_bytes, keep_hours=72)
+
+    def last_row(self):
+        with open(self.csv, encoding="utf-8", newline="") as f:
+            return [ln for ln in f.read().splitlines() if ln][-1]
+
+    def test_a_log_at_the_cap_is_rotated_and_the_new_sample_still_lands(self):
+        self.seed(20)
+        size = self.append_rows(200, ages_hours=200)
+        p = self.poller_with(size)
+        row = p.poll_once()
+        self.assertTrue((self.data / "log.csv.1").is_file())
+        self.assertEqual((self.data / "log.csv.1").stat().st_size, size)
+        self.assertEqual(self.last_row().split(",")[0], row["time"])
+        self.assertLess(self.csv.stat().st_size, size / 2)
+
+    def test_rows_older_than_the_window_do_not_survive_the_rotation(self):
+        old = (datetime.datetime.now() - datetime.timedelta(hours=200)).strftime(poller.STAMP)
+        size = self.seed(200)
+        with open(self.csv, "a", encoding="utf-8", newline="") as f:
+            f.write(old + "," * (len(poller.COLUMNS) - 1) + chr(10))
+        self.poller_with(size).poll_once()
+        self.assertNotIn(old, self.csv.read_text(encoding="utf-8"))
+        self.assertIn(old, (self.data / "log.csv.1").read_text(encoding="utf-8"))
+
+    def test_under_the_cap_nothing_is_rotated(self):
+        size = self.seed(10)
+        self.poller_with(size * 100).poll_once()
+        self.assertFalse((self.data / "log.csv.1").exists())
+
+    def test_a_cap_of_zero_never_rotates(self):
+        self.seed(200)
+        self.poller_with(0).poll_once()
+        self.assertFalse((self.data / "log.csv.1").exists())
+
+    def test_one_event_line_per_rotation_names_the_sizes_and_the_rows_carried(self):
+        self.seed(20)                                  # recent: carried
+        size = self.append_rows(200, ages_hours=200)   # older than the window: archived, so the carry is small
+        p = self.poller_with(size)
+        p.poll_once()
+        lines = [ln for ln in self.events.tail(50) if "rotat" in ln]
+        self.assertEqual(len(lines), 1)
+        self.assertIn("log.csv", lines[0])
+        self.assertIn("20 rows carried", lines[0])
+        p.poll_once()                                  # well under the cap again: no second rotation
+        self.assertEqual(len([ln for ln in self.events.tail(50) if "rotat" in ln]), 1)
+
+    def test_a_rotation_that_cannot_run_defers_and_the_sample_is_still_appended(self):
+        """A reader holding the file open is a PermissionError on Windows; a directory in the working
+        file's place provokes the same OSError portably, and the poll must not lose its sample."""
+        size = self.seed(200)
+        (self.data / "log.csv.tmp").mkdir()
+        row = self.poller_with(size).poll_once()
+        self.assertFalse((self.data / "log.csv.1").exists())
+        self.assertEqual(self.last_row().split(",")[0], row["time"])
+        self.assertTrue([ln for ln in self.events.tail(50) if "deferred" in ln])
+
+
+class BoardsRotationTest(unittest.TestCase):
+    """boards.csv is capped the same way, with the same window."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.data = Path(self.tmp.name)
+        self.boards = self.data / "boards.csv"
+        self.events = EventLog(self.data / "events.log")
+
+    def test_boards_csv_over_the_cap_is_rotated_before_the_rows_are_written(self):
+        now = datetime.datetime.now()
+        stamp = (now - datetime.timedelta(hours=1)).strftime(poller.STAMP)
+        with open(self.boards, "w", encoding="utf-8", newline="") as f:
+            f.write(",".join(poller.BOARDS_COLUMNS) + chr(10))
+            for _ in range(200):
+                f.write(stamp + "," * (len(poller.BOARDS_COLUMNS) - 1) + chr(10))
+        size = self.boards.stat().st_size
+        p = poller.Poller(object(), self.data / "log.csv", 30, events=self.events,
+                          max_bytes=size, keep_hours=72)
+        board = {"board": 0, "elapsed": 1, "mhs_20s": 1.0, "mhs_av": 1.0, "accepted": 1, "rejected": 0,
+                 "hw_errors": 0, "hw_pct": 0.0, "clock": 1, "chip_temp": 50, "board_temp": 40,
+                 "rebootcnt": 0, "overheat": 0}
+        p._append_boards(now.strftime(poller.STAMP), [board, dict(board, board=1)])
+        self.assertTrue((self.data / "boards.csv.1").is_file())
+        self.assertTrue([ln for ln in self.events.tail(50) if "boards.csv" in ln and "rotat" in ln])
+        with open(self.boards, encoding="utf-8", newline="") as f:
+            rows = [ln for ln in f.read().splitlines() if ln]
+        self.assertEqual(len(rows), 1 + 200 + 2)       # header, the carried rows, this poll's two boards
+
+
+class RotationIsInvisibleToReadersTest(unittest.TestCase):
+    """The gate's done-when: the readers return the same last 72 h after a rotation as before it.
+
+    A bare rename would have blanked the 24 h charts, the three-day errors chart and the trials table
+    at the moment rotation fired. The carry is what makes a rotation a non-event on the page, and this
+    is the test that says so. `trials.table` reads the whole file, so its whole-file result legitimately
+    changes (the segments older than the carry are archived, the deliberate trade); the comparison here
+    is the 72 h window every chart actually draws.
+    """
+
+    HOURS = 144            # six days of log, so the carry drops half of it
+    SPACING_MINUTES = 5
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.data = Path(self.tmp.name)
+        self.csv = self.data / "log.csv"
+        self.now = datetime.datetime.now().replace(second=0, microsecond=0)
+        self.seed()
+
+    def seed(self):
+        """A plausible log: every column trials and series need, counters that only climb."""
+        rows, acc, hw, elapsed = [], 0, 0, 0
+        t = self.now - datetime.timedelta(hours=self.HOURS)
+        while t <= self.now:
+            acc += 7
+            hw += 1
+            elapsed += self.SPACING_MINUTES * 60
+            row = {"time": t.strftime(poller.STAMP), "http": "ok", "elapsed": elapsed, "mhs_av": 700000.0,
+                   "mhs_20s": 701000.0, "hwerr": hw, "hwerr_pct": 0.008, "accepted": acc, "rejected": 0,
+                   "clock": 550.0, "fan0": 1200, "fan1": 1210, "tstemp0": 55, "tstemp1": 50, "tstemp2": 45,
+                   "rebootcnt": 3, "weak_chips": "", "nonces_good": acc * 9, "nonces_bad": hw,
+                   "temp_target": 70, "overheat": 0, "watts": 184.0, "chips": "", "hot_peak": "",
+                   "hot_level": "", "chip_avg": "", "watts_dc": ""}
+            rows.append(",".join(str(row[c]) for c in poller.COLUMNS))
+            t += datetime.timedelta(minutes=self.SPACING_MINUTES)
+        with open(self.csv, "w", encoding="utf-8", newline="") as f:
+            f.write(",".join(poller.COLUMNS) + chr(10) + chr(10).join(rows) + chr(10))
+
+    def window(self, hours):
+        """What the readers draw for the last `hours`: the series buckets and the trials segments in it."""
+        floor = self.now - datetime.timedelta(hours=hours)
+        rows = [r for r in trials.read_rows(self.csv) if r["t"] >= floor]
+        summaries = [trials.summarize(s) for s in trials.segments(rows)]
+        return {
+            "series": series.buckets(series.read_rows(self.csv), hours, 30, now=self.now),
+            "trials": [(s["clock"], s["start"], s["end"], s["samples"], s["d_accepted"], s["d_hw"]) for s in summaries],
+        }
+
+    def test_the_24_h_and_72_h_windows_are_identical_across_a_rotation(self):
+        before24, before72 = self.window(24), self.window(72)
+        note = poller.rotate(self.csv, 72, now=self.now)
+        self.assertTrue(note)
+        self.assertTrue((self.data / "log.csv.1").is_file())
+        oldest = self.now - datetime.timedelta(hours=72 + poller.CARRY_MARGIN_HOURS)
+        kept = [r["t"] for r in series.read_rows(self.csv)]
+        self.assertGreaterEqual(min(kept), oldest)                     # the older half is gone from the log
+        self.assertLess(len(kept), len(series.read_rows(self.data / "log.csv.1")))   # and archived in full
+        self.assertEqual(self.window(24), before24)
+        self.assertEqual(self.window(72), before72)
+
+    def test_the_errors_chart_asks_for_exactly_72_h_and_sees_every_bucket_whole(self):
+        before = series.buckets(series.read_rows(self.csv), 72, 30, now=self.now)
+        poller.rotate(self.csv, 72, now=self.now)
+        after = series.buckets(series.read_rows(self.csv), 72, 30, now=self.now)
+        self.assertEqual(len(after["buckets"]), len(before["buckets"]))
+        self.assertEqual([b.get("samples") for b in after["buckets"]],
+                         [b.get("samples") for b in before["buckets"]])
+
+
+class EventLogRotationTest(unittest.TestCase):
+    """events.log is capped too: the last lines are carried, the whole old file is archived as .1.
+
+    Lines, not hours: the watchdog seeds its daily caps from the last 4000 lines at start, so that is
+    what has to survive a rotation for the service to come back knowing what it did today.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "events.log"
+
+    def fill(self, lines):
+        with open(self.path, "w", encoding="utf-8") as f:
+            for i in range(lines):
+                f.write("2026-09-20 10:00:00 filler %d%s" % (i, chr(10)))
+        return self.path.stat().st_size
+
+    def test_over_the_cap_the_last_lines_are_carried_and_the_rest_archived(self):
+        size = self.fill(500)
+        log = EventLog(self.path, max_bytes=size, keep_lines=100)
+        log.write("service: the line that tripped it")
+        kept = self.path.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(kept[0], "2026-09-20 10:00:00 filler 400")
+        self.assertIn("the line that tripped it", kept[-1])
+        self.assertTrue([ln for ln in kept if "rotated events.log" in ln])
+        archived = (Path(self.tmp.name) / "events.log.1").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(archived), 500)
+
+    def test_the_watchdogs_seed_still_reads_what_it_needs_after_a_rotation(self):
+        size = self.fill(9000)
+        log = EventLog(self.path, max_bytes=size, keep_lines=4000)
+        log.write("service: started")
+        self.assertGreaterEqual(len(log.tail(4000)), 4000)
+
+    def test_under_the_cap_or_with_no_cap_nothing_rotates(self):
+        size = self.fill(500)
+        EventLog(self.path, max_bytes=size * 10, keep_lines=100).write("service: small")
+        EventLog(self.path, max_bytes=0, keep_lines=100).write("service: uncapped")
+        self.assertFalse((Path(self.tmp.name) / "events.log.1").exists())
+        self.assertEqual(len(self.path.read_text(encoding="utf-8").splitlines()), 502)
+
+    def test_a_rotation_that_cannot_run_still_writes_the_line(self):
+        size = self.fill(500)
+        (Path(self.tmp.name) / "events.log.tmp").mkdir()
+        log = EventLog(self.path, max_bytes=size, keep_lines=100)
+        log.write("service: the line that must not be lost")
+        self.assertIn("the line that must not be lost", self.path.read_text(encoding="utf-8"))
+        self.assertFalse((Path(self.tmp.name) / "events.log.1").exists())
+
+
+class InterruptedRotationRecoveryTest(unittest.TestCase):
+    """A crash between a rotation's two moves leaves the carried rows in a .tmp and no live file.
+
+    `log.csv` is put right at service start by `migrate_columns`. `boards.csv` and `events.log` have
+    no equivalent, so each finishes its own interrupted rotation at the next write; without that the
+    stranded .tmp holds the only copy of the carried rows and a fresh empty file grows beside it.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.data = Path(self.tmp.name)
+        self.events = EventLog(self.data / "events.log")
+
+    def test_boards_csv_finishes_its_interrupted_rotation_at_the_next_write(self):
+        boards = self.data / "boards.csv"
+        with open(boards, "w", encoding="utf-8", newline="") as f:
+            f.write(",".join(poller.BOARDS_COLUMNS) + chr(10) + "the carried rows" + chr(10))
+        boards.replace(self.data / "boards.csv.tmp")           # the crash state: .tmp, and no boards.csv
+        p = poller.Poller(object(), self.data / "log.csv", 30, events=self.events,
+                          max_bytes=5 * 1024 * 1024, keep_hours=72)
+        board = {"board": 0, "elapsed": 1, "mhs_20s": 1.0, "mhs_av": 1.0, "accepted": 1, "rejected": 0,
+                 "hw_errors": 0, "hw_pct": 0.0, "clock": 1, "chip_temp": 50, "board_temp": 40,
+                 "rebootcnt": 0, "overheat": 0}
+        p._append_boards(datetime.datetime.now().strftime(poller.STAMP), [board])
+        self.assertFalse((self.data / "boards.csv.tmp").exists())
+        lines = [ln for ln in boards.read_text(encoding="utf-8").splitlines() if ln]
+        self.assertEqual(lines[1], "the carried rows")         # not lost, and not a fresh empty file
+        self.assertEqual(len(lines), 3)
+        self.assertTrue([ln for ln in self.events.tail(20) if "interrupted" in ln])
+
+    def test_events_log_finishes_its_interrupted_rotation_at_the_next_line(self):
+        path = self.data / "events.log"
+        path.write_text("2026-09-20 10:00:00 the carried lines" + chr(10), encoding="utf-8")
+        path.replace(self.data / "events.log.tmp")
+        log = EventLog(path, max_bytes=5 * 1024 * 1024, keep_lines=4000)
+        log.write("service: the next line")
+        self.assertFalse((self.data / "events.log.tmp").exists())
+        lines = path.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(lines[0], "2026-09-20 10:00:00 the carried lines")
+        self.assertIn("a rotation had been interrupted", lines[1])
+        self.assertIn("the next line", lines[2])
+
+    def test_with_rotation_off_nothing_is_promoted(self):
+        boards = self.data / "boards.csv"
+        (self.data / "boards.csv.tmp").write_text("stranded" + chr(10), encoding="utf-8")
+        p = poller.Poller(object(), self.data / "log.csv", 30, events=self.events, max_bytes=0)
+        p._append_boards(datetime.datetime.now().strftime(poller.STAMP), [])
+        self.assertTrue((self.data / "boards.csv.tmp").exists())
+        self.assertEqual(boards.read_text(encoding="utf-8").splitlines()[0], ",".join(poller.BOARDS_COLUMNS))

@@ -243,6 +243,14 @@ class ServerTest(unittest.TestCase):
         h = json.loads(self.get("/api/health")[2])
         self.assertEqual((h["temps"]["hot_serious"], h["temps"]["hot_critical"], h["syslog_interval"]), (80, 90, 120))
 
+    def test_health_carries_the_log_size_and_its_cap(self):
+        """The page's "log 8.4 of 25 MB" line: bytes now, and the cap that will rotate it."""
+        h = json.loads(self.get("/api/health")[2])
+        self.assertEqual(h["log"], {"bytes": 0, "max_mb": 25})
+        (self.data / "log.csv").write_bytes(b"x" * 4096)
+        self.state.cfg = config.Config(host=self.fm.address, port=0, log={"max_mb": 50})
+        self.assertEqual(json.loads(self.get("/api/health")[2])["log"], {"bytes": 4096, "max_mb": 50})
+
     def test_health_power_block_when_no_plug(self):
         p = json.loads(self.get("/api/health")[2])["power"]
         self.assertFalse(p["configured"])

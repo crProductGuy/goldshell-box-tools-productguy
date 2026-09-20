@@ -89,6 +89,19 @@ Start at logon:
   script. Without systemd (Devuan, Alpine), run `python3 -m gbox serve`
   from the clone under your init's supervisor; the script says as much.
 
+The data directory does not grow without limit. At a 30-second poll the log
+gains about half a megabyte a day, so `log.csv` is capped: when it reaches
+`log.max_mb` in `config.json` (25 MB, about six weeks), the last
+`log.keep_hours` of rows are carried into a fresh file and the whole old one
+is kept beside it as `log.csv.1`. Nothing reads `.1`, so the charts, the
+errors chart and the trials table show exactly what they showed a moment
+before: the rotation is invisible on the page, and the only sign of it is a
+line in the event log. What it does cost is history: trial segments older
+than the carry are archived rather than shown. `boards.csv` is capped the
+same way, `events.log` at 5 MB with its last 4000 lines carried, and
+`"max_mb": 0` turns all of it off if you would rather keep everything and
+watch the disk yourself. Delete or move a `.1` file whenever you like.
+
 ## Power-cycling a hung miner
 
 A frozen controller drops off the network and cannot take the watchdog's

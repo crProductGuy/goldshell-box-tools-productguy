@@ -54,6 +54,16 @@ DEFAULT_TEMPS = {
     "hot_serious": 85,           # sustained level at or above this: the tile and the header badge turn serious
     "hot_critical": 90,          # and critical
 }
+# 0.8.0: the data directory stops growing without limit. At the cap, log.csv and boards.csv carry the last
+# keep_hours into a fresh file and the whole old one becomes .1 (gbox.poller.rotate); events.log carries its
+# last lines the same way. 25 MB is about six weeks of log.csv at a 30 s poll. max_mb 0 turns all of it off.
+DEFAULT_LOG = {
+    "max_mb": 25,                # 0 (off), or 5 to 1000
+    "keep_hours": 72,            # 24 to 168; the three-day errors chart asks for exactly 72
+}
+MIN_LOG_MB, MAX_LOG_MB = 5, 1000
+MIN_KEEP_HOURS, MAX_KEEP_HOURS = 24, 168
+
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 # 0.8.0: which transport a multi-board unit's per-board data comes from. "auto" probes port 4028 once
@@ -91,13 +101,15 @@ def validate_schedule(sched):
 class Config:
     def __init__(self, host="", poll_interval=30, bind="127.0.0.1", port=8765,
                  password_hex=None, watchdog=None, power=None, syslog_interval=DEFAULT_SYSLOG_INTERVAL, temps=None,
-                 board_source="auto"):
+                 board_source="auto", log=None):
         self.host = host
         self.poll_interval = int(poll_interval)
         self.syslog_interval = int(syslog_interval)
         self.board_source = board_source
         self.temps = dict(DEFAULT_TEMPS)
         self.temps.update(temps or {})
+        self.log = dict(DEFAULT_LOG)
+        self.log.update(log or {})
         self.bind = bind
         self.port = int(port)
         self.password_hex = password_hex
@@ -130,6 +142,11 @@ class Config:
         serious, critical = int(self.temps["hot_serious"]), int(self.temps["hot_critical"])
         if not 40 <= serious < critical <= 120:
             raise ValueError("temps.hot_serious must be below temps.hot_critical, both between 40 and 120")
+        max_mb, keep_hours = int(self.log["max_mb"]), int(self.log["keep_hours"])
+        if max_mb != 0 and not MIN_LOG_MB <= max_mb <= MAX_LOG_MB:
+            raise ValueError("log.max_mb must be 0 (no rotation) or %d to %d" % (MIN_LOG_MB, MAX_LOG_MB))
+        if not MIN_KEEP_HOURS <= keep_hours <= MAX_KEEP_HOURS:
+            raise ValueError("log.keep_hours must be %d to %d" % (MIN_KEEP_HOURS, MAX_KEEP_HOURS))
         if self.power is not None:
             p = self.power
             if p.get("driver") not in PLUG_DRIVERS:
@@ -164,7 +181,7 @@ class Config:
     def to_dict(self, include_secret=True):
         d = {"host": self.host, "poll_interval": self.poll_interval, "bind": self.bind,
              "port": self.port, "watchdog": self.watchdog, "syslog_interval": self.syslog_interval, "temps": self.temps,
-             "board_source": self.board_source}
+             "log": self.log, "board_source": self.board_source}
         if self.power is not None:
             d["power"] = self.power
         if include_secret and self.password_hex:
@@ -174,7 +191,7 @@ class Config:
     @classmethod
     def from_dict(cls, d):
         known = {k: d[k] for k in ("host", "poll_interval", "bind", "port", "password_hex", "watchdog", "power",
-                                   "syslog_interval", "temps", "board_source") if k in d}
+                                   "syslog_interval", "temps", "board_source", "log") if k in d}
         return cls(**known)
 
 

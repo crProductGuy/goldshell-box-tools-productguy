@@ -127,9 +127,18 @@ class ServiceState:
             "power": self.power_health(),
             "ladder": self.ladder(),
             "temps": dict(self.cfg.temps),           # 0.7.0: the hottest-chip thresholds on the sustained level
+            "log": self.log_health(),
             "syslog_interval": self.cfg.syslog_interval,
             "hold": w.hold_info() if w else None,
         }
+
+    def log_health(self):
+        """What log.csv weighs now and the cap that will rotate it, for the page's "log 8.4 of 25 MB"."""
+        try:
+            size = (self.data_dir / "log.csv").stat().st_size
+        except OSError:
+            size = 0
+        return {"bytes": size, "max_mb": int(self.cfg.log["max_mb"])}
 
     def ladder(self):
         """The watchdog's timings and caps as configured, and the file they live in, so the page can say

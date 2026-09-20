@@ -28,7 +28,7 @@ import sys
 import threading
 
 from . import __version__, api, config, discover as discovermod, pidfile, plug as plugmod, series, trials
-from .events import EventLog
+from .events import MAX_BYTES as EVENTS_MAX_BYTES, EventLog
 from .poller import COLUMNS, Poller, migrate_columns
 from .power import PowerControl, Scheduler
 from .server import ServiceState, make_server
@@ -534,7 +534,10 @@ def cmd_serve(args, cfg, data_dir):
         _out("stored password removed")
 
     config.ensure_dir(data_dir)
-    events = EventLog(data_dir / "events.log")
+    # log.max_mb 0 turns rotation off for all three files; otherwise log.csv and boards.csv are capped
+    # there and events.log at its own 5 MB (gbox.events.MAX_BYTES).
+    max_bytes = int(cfg.log["max_mb"]) * 1024 * 1024
+    events = EventLog(data_dir / "events.log", max_bytes=EVENTS_MAX_BYTES if max_bytes else 0)
     note = migrate_columns(data_dir / "log.csv")
     if note:
         events.write("service: log.csv header updated to %d columns (%s)" % (len(COLUMNS), note))
@@ -568,7 +571,8 @@ def cmd_serve(args, cfg, data_dir):
         scheduler = Scheduler(cfg.power["schedule"], control, events)
         events.write("service: schedule %s" % scheduler.describe())
     poller = Poller(miner, data_dir / "log.csv", cfg.poll_interval, watchdog=wd, events=events, plug=plug, scheduler=scheduler,
-                    syslog_interval=cfg.syslog_interval, board_source=cfg.board_source)
+                    syslog_interval=cfg.syslog_interval, board_source=cfg.board_source,
+                    max_bytes=max_bytes, keep_hours=int(cfg.log["keep_hours"]))
     state.poller, state.watchdog, state.power_control = poller, wd, control
 
     url = "http://%s:%d/" % ("127.0.0.1" if cfg.bind in ("0.0.0.0", "") else cfg.bind, cfg.port)
