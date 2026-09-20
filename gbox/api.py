@@ -26,6 +26,15 @@ class MinerError(Exception):
     """The miner could not be reached or answered with an error."""
 
 
+class HttpStatusError(MinerError):
+    """The miner answered, with an HTTP error status other than 401 (a 404 or 500 on an endpoint this
+    model lacks). Distinct from a miner that did not answer at all."""
+
+    def __init__(self, message, code):
+        super().__init__(message)
+        self.code = code
+
+
 class AuthError(MinerError):
     """Login rejected, or 401 persisted after retries and re-login."""
 
@@ -468,7 +477,7 @@ class Miner:
         except urllib.error.HTTPError as e:
             if e.code == 401:
                 return 401, ""
-            raise MinerError("%s %s: HTTP %d" % (method, path, e.code)) from None
+            raise HttpStatusError("%s %s: HTTP %d" % (method, path, e.code), e.code) from None
         except (urllib.error.URLError, OSError) as e:
             raise MinerError("%s %s: %s" % (method, path, _describe(e))) from None
 

@@ -520,6 +520,37 @@ class IcinfoLockedTest(unittest.TestCase):
         lines = [l for l in events.tail() if "icinfo" in l]
         self.assertEqual(len(lines), 1)               # once, not once per sample
 
+    def test_icinfo_that_never_answers_costs_the_chip_columns_not_the_row(self):
+        # The sc5proii folder has no icinfo capture, so the fake answers 404: a unit without the endpoint.
+        with FakeMiner(fixtures="sc5proii", port4028=True) as fm:
+            events = EventLog(Path(self.tmp.name) / "events.log")
+            p = poller.Poller(api.Miner(fm.address, password="password"), self.csv, 30, events=events,
+                              devs4028_port=fm.devs4028_port)
+            row = p.poll_once()
+            p.poll_once()
+        self.assertEqual(p.errors, 0)
+        self.assertEqual(len(row["_boards"]), 4)
+        r = self.rows()
+        self.assertEqual([x["http"] for x in r], ["ok", "ok"])
+        self.assertEqual(r[0]["chips"], "")
+        lines = [l for l in events.tail() if "icinfo" in l]
+        self.assertEqual(len(lines), 1)
+        self.assertIn("HTTP 404", lines[0])
+
+    def test_icinfo_failing_after_it_has_answered_is_still_an_error(self):
+        # The SC-BOX path: once icinfo has answered in this run, a failure is a failed sample, as it always
+        # was. A blank row here would put a zero in nonces_good: series.inc reads that as a counter reset and
+        # adds the run's whole count again on the next row, and the trials' first-to-last difference breaks.
+        with FakeMiner() as fm:
+            p = poller.Poller(api.Miner(fm.address, password="password"), self.csv, 30)
+            p.poll_once()
+            fm.icinfo = None                          # the fake now answers 404 on /dbg/icinfo
+            p.poll_once()
+        self.assertEqual(p.errors, 1)
+        r = self.rows()
+        self.assertEqual(r[0]["http"], "ok")
+        self.assertTrue(r[1]["http"].startswith("ERR"), r[1]["http"])
+
 
 class BoardsCsvTest(unittest.TestCase):
     """boards.csv beside log.csv: written only for more than one board (section B, task 5)."""
