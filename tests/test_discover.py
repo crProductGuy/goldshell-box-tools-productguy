@@ -53,6 +53,33 @@ class ProbeTest(unittest.TestCase):
         self.assertIsNone(discover.probe(self.fm.address, timeout=5))
 
 
+class UntrustedBodyTest(unittest.TestCase):
+    """Anything on the LAN can answer port 80. A sweep prints what it is told, so what it is told is cleaned."""
+
+    ESC, CR, BEL = chr(27), chr(13), chr(7)
+
+    def setUp(self):
+        self.fm = FakeMiner().start()
+        self.addCleanup(self.fm.stop)
+
+    def test_control_characters_never_reach_the_caller(self):
+        self.fm.status = dict(self.fm.status,
+                              model="Goldshell" + self.ESC + "[2J" + self.CR + "-SCBox",
+                              firmware="2.2.5" + self.BEL)
+        hit = discover.probe(self.fm.address, timeout=5)
+        self.assertTrue(all(ch.isprintable() for ch in hit["model"]), repr(hit["model"]))
+        self.assertNotIn(self.ESC, hit["model"])
+        self.assertNotIn(self.BEL, hit["firmware"])
+
+    def test_a_very_long_model_string_is_cut(self):
+        self.fm.status = dict(self.fm.status, model="Goldshell-" + "A" * 500)
+        self.assertLessEqual(len(discover.probe(self.fm.address, timeout=5)["model"]), discover.MAX_FIELD)
+
+    def test_a_model_that_is_only_control_characters_is_a_miss(self):
+        self.fm.status = dict(self.fm.status, model=self.ESC * 3)
+        self.assertIsNone(discover.probe(self.fm.address, timeout=5))
+
+
 class SweepTest(unittest.TestCase):
     def setUp(self):
         self.a = FakeMiner().start()

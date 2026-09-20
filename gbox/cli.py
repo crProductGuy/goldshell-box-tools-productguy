@@ -1,5 +1,6 @@
 """The gbox command line.
 
+    gbox discover                  find Goldshell miners on the local network, no password needed
     gbox init                      write config.json (miner address, poll interval)
     gbox status                    hashrate, errors, fans, temperatures, reset counter
     gbox chips                     per-chip good/bad nonce table with weak/failing flags
@@ -26,7 +27,7 @@ import os
 import sys
 import threading
 
-from . import __version__, api, config, pidfile, plug as plugmod, series, trials
+from . import __version__, api, config, discover as discovermod, pidfile, plug as plugmod, series, trials
 from .events import EventLog
 from .poller import COLUMNS, Poller, migrate_columns
 from .power import PowerControl, Scheduler
@@ -34,12 +35,32 @@ from .server import ServiceState, make_server
 from .watchdog import Watchdog
 
 
+def _printable(text, stream):
+    """`text` with whatever the stream's encoding cannot carry replaced.
+
+    A model string comes off the miner, and `gbox discover` reads them off units nobody here has
+    seen. The SC5 Pro II's is "Goldshell-SC5Pro" + U+2161 and a Windows console is cp1252, so
+    printing it raised UnicodeEncodeError, which is a ValueError, which main() turned into
+    `gbox: 'charmap' codec ...` and exit 1. A question mark beats losing the command."""
+    enc = getattr(stream, "encoding", None) or "utf-8"
+    return str(text).encode(enc, "replace").decode(enc, "replace")
+
+
 def _out(*a):
-    print(*a)
+    try:
+        print(*a)
+    except UnicodeEncodeError:
+        print(*[_printable(x, sys.stdout) for x in a])
+
+
+_DISCOVER_ROW = "%-21s %-20s %-20s %-9s %s"
 
 
 def _die(msg, code=1):
-    print("gbox: " + str(msg), file=sys.stderr)
+    try:
+        print("gbox: " + str(msg), file=sys.stderr)
+    except UnicodeEncodeError:
+        print("gbox: " + _printable(msg, sys.stderr), file=sys.stderr)
     sys.exit(code)
 
 
@@ -69,6 +90,37 @@ def _miner(args, cfg, need_password=True):
 
 
 # ---------------------------------------------------------------- commands
+
+def cmd_discover(args, cfg, data_dir):
+    """One tokenless GET /mcb/status per address on the subnet. No password, no login, no settings read."""
+    if args.target:
+        targets, where = list(args.target), "%d given address%s" % (len(args.target), "" if len(args.target) == 1 else "es")
+    else:
+        where = args.subnet or discovermod.local_subnet()
+        targets = discovermod.targets_for(where)          # a bad or too-wide subnet raises ValueError: main exits 1
+
+    configured = cfg.host or ""
+    skipping = bool(configured) and not args.include_configured
+    if configured and args.include_configured:
+        _out("probing the configured miner as well; do this only while `gbox serve` is stopped,")
+        _out("because the firmware answers one caller at a time")
+
+    hits = discovermod.sweep(targets, timeout=args.timeout, skip=(configured,) if skipping else ())
+
+    if hits:
+        _out(_DISCOVER_ROW % ("address", "model", "name", "firmware", "hardware"))
+        for h in hits:
+            _out(_DISCOVER_ROW % (h["address"], h["model"], h["name"], h["firmware"] or "?", h["hardware"] or "?"))
+    if skipping:
+        _out("%-21s configured, not probed (--include-configured asks it too)" % configured)
+    if not hits:
+        _out("no %sGoldshell miner answered in %s" % ("other " if skipping else "", where))
+        _out("(a miner on another subnet needs --subnet; one that is off or still booting will not answer)")
+        sys.exit(1)
+    if not cfg.host:
+        _out("")
+        _out("next: gbox init --host %s" % hits[0]["address"])
+
 
 def cmd_init(args, cfg, data_dir):
     def ask(label, current):
@@ -561,6 +613,14 @@ def build_parser():
     p.add_argument("--version", action="version", version="gbox " + __version__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    sp = sub.add_parser("discover", help="find Goldshell miners on the local network (no password needed)")
+    sp.add_argument("--subnet", help="CIDR to sweep, e.g. 192.168.1.0/24 (default: this machine's own /24)")
+    sp.add_argument("--target", action="append", help="probe this address only; repeatable, overrides --subnet")
+    sp.add_argument("--timeout", type=float, default=discovermod.DEFAULT_TIMEOUT,
+                    help="seconds to wait per address (default: %(default)s)")
+    sp.add_argument("--include-configured", action="store_true",
+                    help="also probe the miner in config.json; only while `gbox serve` is stopped")
+    sp.set_defaults(fn=cmd_discover)
     sp = sub.add_parser("init", help="write config.json")
     sp.add_argument("--interval", type=int, help="poll interval in seconds (min %d)" % config.MIN_POLL_INTERVAL)
     sp.set_defaults(fn=cmd_init)

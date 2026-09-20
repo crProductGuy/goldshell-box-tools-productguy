@@ -43,12 +43,25 @@ stock UI offered no way to see it or to lower the clock. The story is in
 Python 3.8 or newer, nothing else. Clone, then:
 
 ```
+python -m gbox discover             # find the miner on your network; no password needed
 python -m gbox init                 # miner address, poll interval -> ~/.gbox/config.json
 python -m gbox status               # prompts for the miner's web UI password
 python -m gbox serve                # dashboard at http://127.0.0.1:8765/
 ```
 
 Or `pipx install .` to get a `gbox` command on your PATH.
+
+If you do not know the miner's address, `gbox discover` sweeps your own /24
+and prints a line per unit it finds: address, the model string the firmware
+gave, the name this project knows it by, firmware and hardware. It asks each
+address one thing, `GET /mcb/status`, which the firmware answers without a
+token, so nothing is logged in to and no password is read or sent. Use
+`--subnet 192.168.1.0/24` if the miner is on another segment, and `--timeout`
+if your network is slow. The miner already in your `config.json` is listed but
+not probed, because a running `gbox serve` may have a request in flight to it
+and the firmware wants one caller at a time; `--include-configured` asks it
+anyway, and is for when the service is stopped. The command exits 1 when it
+finds nothing.
 
 Open the dashboard, log in once with the miner's web UI password. The page
 keeps only the session token, in your browser, and hands it to the local

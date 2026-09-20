@@ -404,5 +404,138 @@ class HoldAndPowerCommandTest(unittest.TestCase):
         self.assertEqual(self.wd.hold_info()["reason"], "power cycle by hand")
 
 
+class DiscoverCommandTest(unittest.TestCase):
+    """`gbox discover`. Every test passes --target, so no test here sweeps a real subnet."""
+
+    def setUp(self):
+        from gbox import config
+        from tests.fake_miner import FakeMiner
+        self.fm = FakeMiner().start()
+        self.addCleanup(self.fm.stop)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.data = Path(self.tmp.name)
+        self.config = config
+        self.dead = "127.0.0.1:1"
+
+    def configure(self, host):
+        self.config.save(self.config.Config(host=host, port=0), self.data)
+
+    def run_cli(self, *argv):
+        """(combined stdout+stderr, exit code). A command that returns normally exits 0."""
+        out, err = io.StringIO(), io.StringIO()
+        code = 0
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                cli.main(["--data", self.tmp.name] + list(argv))
+            except SystemExit as e:
+                code = e.code or 0
+        return out.getvalue() + err.getvalue(), code
+
+    def test_a_hit_is_one_line_carrying_the_address_model_name_and_firmware(self):
+        text, code = self.run_cli("discover", "--target", self.fm.address, "--timeout", "5")
+        self.assertEqual(code, 0)
+        rows = [ln for ln in text.splitlines() if "Goldshell-SCBox" in ln]
+        self.assertEqual(len(rows), 1, text)              # one row per unit, not one per address probed
+        for field in (self.fm.address, "SC-BOX", "2.2.5", "40.40.HA"):
+            self.assertIn(field, rows[0])
+
+    def test_with_no_config_the_first_hit_is_offered_to_gbox_init(self):
+        text, _ = self.run_cli("discover", "--target", self.fm.address, "--timeout", "5")
+        self.assertIn("gbox init --host %s" % self.fm.address, text)
+
+    def test_with_a_config_already_written_nothing_is_offered_to_gbox_init(self):
+        self.configure("10.9.9.9")
+        text, _ = self.run_cli("discover", "--target", self.fm.address, "--timeout", "5")
+        self.assertNotIn("gbox init --host", text)
+
+    def test_nothing_found_says_so_and_exits_1(self):
+        text, code = self.run_cli("discover", "--target", self.dead, "--timeout", "0.5")
+        self.assertEqual(code, 1)
+        self.assertIn("--subnet", text)
+
+    def test_an_address_that_did_not_answer_is_never_named(self):
+        text, _ = self.run_cli("discover", "--target", self.dead, "--timeout", "0.5")
+        self.assertNotIn(self.dead, text)
+
+    def test_the_configured_miner_is_listed_but_not_probed(self):
+        self.configure(self.fm.address)
+        text, _ = self.run_cli("discover", "--target", self.fm.address, "--timeout", "5")
+        self.assertIn("configured, not probed", text)
+        self.assertEqual(self.fm.requests, [])
+
+    def test_include_configured_probes_it_and_warns_about_the_running_service(self):
+        self.configure(self.fm.address)
+        text, code = self.run_cli("discover", "--include-configured", "--target", self.fm.address, "--timeout", "5")
+        self.assertEqual(code, 0)
+        self.assertIn("stopped", text)
+        self.assertEqual([p for _, p in self.fm.requests], ["/mcb/status"])
+
+    def test_a_subnet_too_wide_is_refused_before_anything_is_probed(self):
+        text, code = self.run_cli("discover", "--subnet", "10.1.0.0/21", "--timeout", "0.5")
+        self.assertEqual(code, 1)
+        self.assertIn("1022", text)
+        self.assertEqual(self.fm.requests, [])
+
+    def test_a_subnet_that_is_not_a_subnet_is_refused(self):
+        _, code = self.run_cli("discover", "--subnet", "not a subnet", "--timeout", "0.5")
+        self.assertEqual(code, 1)
+
+    def test_the_command_never_logs_in_and_never_sends_a_token(self):
+        self.run_cli("discover", "--target", self.fm.address, "--timeout", "5")
+        self.assertEqual(self.fm.logins, 0)
+        self.assertEqual([h for _, _, h in self.fm.seen_headers], [None])
+
+
+class ConsoleEncodingTest(unittest.TestCase):
+    """A model string can hold a character the console cannot encode.
+
+    The SC5 Pro II answers "Goldshell-SC5Pro" + U+2161, the exact bytes off a real unit
+    (gbox/models.py). A Windows console is cp1252 and cannot encode it, and UnicodeEncodeError
+    is a ValueError, so main() used to turn it into `gbox: 'charmap' codec ...` and exit 1.
+    Found by running `gbox discover` against the sc5proii fixture, not by a test.
+    """
+
+    ROMAN_TWO = chr(0x2161)
+
+    def cp1252_stdout(self):
+        buf = io.BytesIO()
+        return buf, io.TextIOWrapper(buf, encoding="cp1252", newline="")
+
+    def test_out_prints_what_it_can_and_does_not_raise(self):
+        buf, stream = self.cp1252_stdout()
+        with contextlib.redirect_stdout(stream):
+            cli._out("Goldshell-SC5Pro" + self.ROMAN_TWO)
+            stream.flush()
+        self.assertIn(b"Goldshell-SC5Pro", buf.getvalue())
+
+    def test_die_still_reports_on_a_console_that_cannot_encode_the_message(self):
+        buf, stream = self.cp1252_stdout()
+        with contextlib.redirect_stderr(stream):
+            with self.assertRaises(SystemExit):
+                cli._die("miner " + self.ROMAN_TWO + " is unhappy")
+            stream.flush()
+        self.assertIn(b"is unhappy", buf.getvalue())
+
+    def test_discover_lists_the_sc5_pro_ii_on_such_a_console(self):
+        from tests.fake_miner import FakeMiner
+        fm = FakeMiner(fixtures="sc5proii").start()
+        self.addCleanup(fm.stop)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        buf, stream = self.cp1252_stdout()
+        code = 0
+        with contextlib.redirect_stdout(stream):
+            try:
+                cli.main(["--data", tmp.name, "discover", "--target", fm.address, "--timeout", "5"])
+            except SystemExit as e:
+                code = e.code or 0
+            stream.flush()
+        text = buf.getvalue().decode("cp1252")
+        self.assertEqual(code, 0, text)
+        self.assertIn("SC5 Pro II", text)
+        self.assertIn("30.50.SA", text)
+
+
 if __name__ == "__main__":
     unittest.main()
