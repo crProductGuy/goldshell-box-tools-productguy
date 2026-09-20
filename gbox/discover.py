@@ -32,9 +32,28 @@ DEFAULT_WORKERS = 32
 MAX_FIELD = 40              # any host on the LAN can answer port 80; its strings go to a terminal
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A sweep contacts the addresses it was given and no others.
+
+    urllib follows redirects by default, so one LAN device answering the probe with a Location header
+    could otherwise point the sweep at an address outside the range being swept. Returning None makes
+    urllib raise the 3xx as an HTTPError, which `probe` already reads as a miss."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def _split(addr):
-    """("host", port or None) out of "host" or "host:port"."""
+    """("host", port or None) out of "host", "host:port", "http://host/path" and the like.
+
+    `config.json`'s `host` is never validated or normalised, so it may carry a scheme or a trailing
+    path. The skip list is matched against it, and a skip that silently stops matching would put a
+    request on the configured miner while `gbox serve` is polling it."""
     text = addr if isinstance(addr, str) else ""
+    text = text.split("://", 1)[-1].split("/", 1)[0].strip()
     if text.count(":") == 1:
         host, _, port = text.rpartition(":")
         if port.isdigit():
@@ -76,20 +95,64 @@ def sort_key(addr):
         return (1, 0, str(addr))
 
 
-def local_subnet():
-    """This machine's own /24 as a CIDR string.
+def _routed_address():
+    """The address the default route would send from.
 
-    No packet is sent: `connect` on a UDP socket only picks the route, and the
-    route is what names the local address. The target is TEST-NET-1, which is
-    reserved and unrouted, so nothing is contacted even if the call were to
-    send."""
+    No packet is sent: `connect` on a UDP socket only picks the route, and the route is what names
+    the local address. The target is TEST-NET-1, which is reserved and unrouted, so nothing is
+    contacted even if the call were to send."""
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         try:
             s.connect(("192.0.2.1", 9))
-            addr = s.getsockname()[0]
+            return s.getsockname()[0]
         except OSError:
-            addr = "127.0.0.1"
-    return str(ipaddress.ip_network(addr + "/24", strict=False))
+            return "127.0.0.1"
+
+
+def private_addresses():
+    """Every private IPv4 this machine holds, the link-local ones last.
+
+    `getaddrinfo` on the machine's own name returns the interface addresses. 169.254.x sorts last
+    because Windows hands one to every idle adapter, and none of them is ever the miner's network."""
+    found = []
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            try:
+                ip = ipaddress.IPv4Address(info[4][0])
+            except ValueError:
+                continue
+            if ip.is_private and not ip.is_loopback and ip not in found:
+                found.append(ip)
+    except OSError:
+        pass
+    found.sort(key=lambda ip: (ip.is_link_local, int(ip)))
+    return [str(ip) for ip in found]
+
+
+def local_subnet():
+    """The /24 of this machine's own LAN address, as a CIDR string.
+
+    The default route is asked first, because on an ordinary machine that is the LAN. It is not
+    always: a VPN client takes the default route, and then the routed address is the provider's, in
+    a public range, with the miner nowhere near it. Sweeping that would send one request per address
+    into a stranger's network through the tunnel, so a routed address that is not private is
+    discarded and the machine's own private addresses are used instead. Found on the machine this
+    was built on, 2026-09-20: the route named an address belonging to a VPN provider, in a public
+    range, while the miner sat on an ordinary private LAN.
+
+    Raises ValueError when no private address can be found, because guessing is worse than asking
+    for --subnet."""
+    routed = _routed_address()
+    try:
+        ip = ipaddress.IPv4Address(routed)
+        if ip.is_private and not ip.is_loopback:
+            return str(ipaddress.ip_network(routed + "/24", strict=False))
+    except ValueError:
+        pass
+    for addr in private_addresses():
+        return str(ipaddress.ip_network(addr + "/24", strict=False))
+    raise ValueError("cannot tell which network to sweep from this machine's own addresses (the "
+                     "default route is %s, which is not a private network); give --subnet" % routed)
 
 
 def targets_for(cidr):
@@ -100,6 +163,12 @@ def targets_for(cidr):
         net = ipaddress.ip_network(str(cidr).strip(), strict=False)
     except ValueError as e:
         raise ValueError("not a subnet: %r (%s)" % (cidr, e))
+    if net.version != 4:
+        raise ValueError("%s is IPv6 and the probe speaks IPv4 only; give an IPv4 --subnet" % net)
+    if not net.is_private:
+        raise ValueError("%s is not a private network. This sweeps a home LAN, and a public range is a "
+                         "typo here: it would send one request per address to somebody else's network "
+                         "from your own address." % net)
     hosts = [str(h) for h in net.hosts()]
     if len(hosts) > MAX_HOSTS:
         raise ValueError("%s holds %d hosts and %d is the most this will sweep; "
@@ -110,12 +179,14 @@ def targets_for(cidr):
 def probe(addr, timeout=DEFAULT_TIMEOUT):
     """One tokenless GET /mcb/status against one address.
 
+    Redirects are not followed and a 3xx is a miss.
+
     A JSON object whose `model` names the vendor is a hit and comes back as a
     dict; anything else, including every error and every timeout, is a miss and
     comes back as None. No credential is read, stored or sent."""
     req = urllib.request.Request("http://%s/mcb/status" % addr)      # no Authorization header, ever
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with _OPENER.open(req, timeout=timeout) as r:
             body = json.loads(r.read(65536).decode("utf-8", "replace"))
     except (urllib.error.URLError, OSError, ValueError):
         return None

@@ -101,9 +101,16 @@ def cmd_discover(args, cfg, data_dir):
 
     configured = cfg.host or ""
     skipping = bool(configured) and not args.include_configured
+    _out("sweeping %s, %d address%s, one request each" % (where, len(targets), "" if len(targets) == 1 else "es"))
     if configured and args.include_configured:
         _out("probing the configured miner as well; do this only while `gbox serve` is stopped,")
         _out("because the firmware answers one caller at a time")
+    elif pidfile.running(data_dir):
+        # The usual reason to run this is that the miner MOVED, and then config.json names its old
+        # address, the skip does not match its new one, and the sweep reaches it while the service is
+        # polling it. The firmware answers one caller at a time, so say so before asking.
+        _out("note: `gbox serve` is running. If the miner's address has changed, this sweep will reach")
+        _out("it at the new one while the service polls it; stop the service first for a clean sweep.")
 
     hits = discovermod.sweep(targets, timeout=args.timeout, skip=(configured,) if skipping else ())
 
@@ -705,8 +712,8 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
     data_dir = config.ensure_dir(args.data) if args.data else config.default_data_dir()
-    cfg = config.load(data_dir)
     try:
+        cfg = config.load(data_dir)      # inside the handler: a hand-edited config.json is an error, not a traceback
         args.fn(args, cfg, data_dir)
     except api.NoCredentials:
         _die("no credentials")
@@ -716,7 +723,7 @@ def main(argv=None):
         _die("miner: %s" % e)
     except plugmod.PlugError as e:
         _die("plug: %s" % e, 2)
-    except ValueError as e:
+    except (TypeError, ValueError) as e:      # a config key of the wrong type reaches int() as a TypeError
         _die(e)
 
 

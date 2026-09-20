@@ -64,9 +64,20 @@ class EventLog:
                     working.unlink()
                 except OSError:
                     pass
-            return "service: event-log rotation deferred: %s (%s); the next line tries again" % (self.path.name, e)
-        return ("service: rotated %s: %d bytes to %d, the last %d lines carried, old file kept as %s"
-                % (self.path.name, before, self.path.stat().st_size, len(kept), archive.name))
+            # Not str(e): the exception text carries the full path on Windows, and this file is served
+            # to the dashboard. The kind of failure is what a reader needs.
+            return ("service: event-log rotation deferred: %s (%s: %s); the next line tries again"
+                    % (self.path.name, type(e).__name__, getattr(e, "strerror", None) or "no detail"))
+        after = self.path.stat().st_size
+        note = ("service: rotated %s: %d bytes to %d, the last %d lines carried, old file kept as %s"
+                % (self.path.name, before, after, len(kept), archive.name))
+        if after >= self.max_bytes:
+            # The same trap the poller guards: if the carried lines do not fit under the cap, every
+            # further line would rotate again and replace .1 with what it just carried.
+            self.max_bytes = 0
+            note += (". It is still at the cap after carrying %d lines, so rotation is off until the "
+                     "service restarts." % len(kept))
+        return note
 
     def write(self, message):
         line = "%s %s" % (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), message)
