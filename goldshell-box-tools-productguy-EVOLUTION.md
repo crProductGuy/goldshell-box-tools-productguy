@@ -2081,3 +2081,43 @@ treated as data.
 Shipped as 0.7.4. A patch: nothing here touches the log schema, the CLI surface
 or the HTTP API, and 0.8.0 stays reserved for gate 2 and gate 3, which this
 session was told to stop before and did.
+
+## 2026-09-19 evening, session Z: gate 2's docs, and the bug a plain scratch run found
+
+**The goal, in Mark's words:** "pick up the goldshell project, let's build the rest of the things in the plan."
+Read as: finish 0.8.0. Gate 2 had two tasks left (docs; verify and ship). Gate 3 (`gbox discover`, log rotation)
+has never had a written plan, so it was scoped as the next gate, not squeezed into this one.
+
+**The rebase was a non-event.** The plan and AGENTS.md both warn that `gate2-pga` holds CRLF blobs. It no longer
+did: session X had already rebased it past the line-ending commit, so it was simply eleven commits behind main. The
+renormalizing recipe ran clean anyway, eight commits, no conflict, and the diff against main was byte-identical to
+the diff against the old merge base. A warning that outlives its cause still costs a reader a check.
+
+**Task 7, docs.** `firmware-api.md` needed nothing; sessions U and V had covered it. The capture request now leads
+with the two port-4028 reads, which need no token, and "skip this on Windows" is gone: a bash `/dev/tcp` form and a
+PowerShell `TcpClient` loop replace it. Both were run as written against the fake miner's 4028 listener before they
+went into a public how-to. The README gained a "Which miners" table that claims support for the SC-BOX only and
+says what every other row was built from. The plan was asking for an edit to a supported-models table that did not
+exist; it was written rather than skipped.
+
+**The finding.** Task 8 calls for a scratch service on the fake SC5 Pro II. Run against the fixtures exactly as
+they are, it logged nothing: the capture has no icinfo file, the fake answers 404, and the poller tolerated only a
+persisted 401. Every SC5 test had set `dbg_locked_icinfo=True`, so 409 green tests never saw it, and the page side
+already swallowed any icinfo failure. On the friend's unit, where icinfo is unproven, a 404 or 500 would have cost
+every row. Fixed narrowly: an HTTP error status on icinfo blanks the chip columns only until icinfo has answered
+once in the run. The alternative, tolerate it always, was rejected because on the SC-BOX a blank row writes a zero
+into `nonces_good`, which `series.inc` reads as a counter reset before adding the run's whole count again. That
+claim was first written from memory with the wrong module named, then checked against the code and corrected.
+The fix is its own commit so it can be dropped. Known edge, not handled: a unit whose icinfo fails first and
+answers later gets one inflated bucket on the errors chart.
+
+**Not done, and why.** The page check of the scratch service did not run. The browser extension was connected to
+a browser on a different machine, whose 127.0.0.1 is not this one; the subagent reported connection refused while
+`curl` on this machine got 200. Left unverified and said so, not replaced with a weaker check. Merge, service
+restart, the live page check and the push all wait for Mark. The security pass stays deferred to 0.8.0
+feature-complete, which is after gate 3.
+
+**The machine got in the way.** The first full suite run hung on a `MemoryError` at 192 tests. Commit charge was
+60.5 GB against a 60.6 GB limit, with 8.4 GB of it in nonpaged kernel pool after about 39 days of uptime. The rerun,
+one module at a time under a timeout so a memory failure would show per module, was green: 409 Python, then 411
+with the two new tests across the modules the fix touches, and 66 Node.
