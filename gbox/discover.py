@@ -29,6 +29,7 @@ VENDOR = "Goldshell"
 MAX_HOSTS = 1022            # a /22. Wider than that is a typo, not a home LAN.
 DEFAULT_TIMEOUT = 1.5
 DEFAULT_WORKERS = 32
+MAX_FIELD = 40              # any host on the LAN can answer port 80; its strings go to a terminal
 
 
 def _split(addr):
@@ -55,9 +56,16 @@ def _names(target, entry):
     return t_host == e_host and (t_port is None or e_port is None or t_port == e_port)
 
 
-def _text(value):
-    """A string field out of the miner's untrusted JSON, or None if it was not a string."""
-    return value if isinstance(value, str) else None
+def _text(value, limit=MAX_FIELD):
+    """A string field out of the miner's untrusted JSON: printable, single-line and short, or None.
+
+    A sweep asks every address on the subnet, and whatever answers decides what these strings hold.
+    Printing an escape sequence straight to the operator's terminal is not a risk worth carrying for
+    a field that only ever names a model."""
+    if not isinstance(value, str):
+        return None
+    clean = "".join(ch if ch.isprintable() else " " for ch in value).strip()
+    return clean[:limit] or None
 
 
 def sort_key(addr):

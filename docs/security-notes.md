@@ -120,3 +120,12 @@ the same power a forged `/api/event` line never had but a LAN client with
 - Keep the miner on a LAN segment you trust, do not port-forward it, and
   change the default password. `gbox serve` binds to 127.0.0.1 for the
   same reason.
+- `gbox discover` (0.8.0) sends one `GET /mcb/status` to each address on
+  the subnet, with no `Authorization` header. It reads no credential out
+  of `config.json`, sends none, logs into nothing and never touches port
+  4028. It is a sweep of your own network, so it is as noisy as a ping
+  sweep and no noisier: one short HTTP request per address, nothing
+  logged per address, and it refuses a range wider than 1022 hosts. What
+  comes back is untrusted -- any host on the LAN can answer port 80 --
+  so the model, firmware and hardware strings are stripped of
+  non-printable characters and cut to 40 before anything prints them.
