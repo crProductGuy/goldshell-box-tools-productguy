@@ -2207,3 +2207,68 @@ Reported and accepted in the same breath: the trials table reads the whole file,
 Left for the next session: the wiring, the release, and the one security pass. Nothing is wired yet, so the running
 service is unaffected by any of it. No sweep was ever run against the real network, no test touched the live data
 directory, and the service that has been logging since the previous evening was not stopped or restarted.
+
+## 2026-09-20 morning, session AB: gate 3 finished, and a security pass that found the sweep pointing at a VPN
+
+**The goal, in Mark's words:** "pick up goldshell project", and a minute later, while the baseline suite
+ran, "verify the service started". No other instruction all session. The previous checkpoint named the
+next action precisely enough that none was needed: finish gate 3, task 5 then task 6.
+
+**The service had restarted itself, and that was worth saying out loud.** The machine rebooted at 10:01
+after the previous session's memory trouble, and the service came back at 10:06 on its own. Verified
+rather than assumed: the pid in its own data directory names a live process, that process owns the
+listening socket, the sample count advanced over seven minutes, and the log grew. The reboot also cleared
+the leaked kernel pool that had been squeezing the last session, so the suites ran one module at a time
+out of caution rather than necessity.
+
+**Task 5 was the wiring, and it was uneventful, which is what a plan is for.** The config block, the cap
+checked before every append for both CSVs, the event log carrying lines rather than hours because that is
+what the watchdog seeds its daily caps from, the health field, the page line. The continuity test is the
+gate's done-when made executable: over a seeded six-day log, the 24 h and 72 h series and the trials
+segments inside those windows are identical before and after a rotation. It compares the windows the
+charts draw and not the whole-file trials result, because the addendum had already established that the
+whole-file result legitimately changes.
+
+**One thing was built that the plan did not ask for, for the reason the plan had already accepted once.**
+Task 4 closed the crash window for `log.csv` by promoting a stranded working file at service start.
+`boards.csv` and `events.log` had no equivalent, so the same crash would have left the only copy of the
+carried rows in a working file while a fresh empty one grew beside it. Each now finishes its own
+interrupted rotation at its next write.
+
+**Then the security pass, and it earned its place twice over.** It ran as a fresh-eyes review over the
+whole gate, and the two findings that mattered were both things the tests could not have caught, because
+both were about the world outside the test directory.
+
+The first: `gbox discover` with no arguments asked the default route which network to sweep. That is right
+on an ordinary machine and wrong on this one, where a VPN client owns the default route, so the answer was
+a public address belonging to the VPN provider. A bare `gbox discover` would have sent one request per
+address into a stranger's network through the tunnel, while the miner sat on the LAN two feet away. This
+was one command away from being found at any point in the gate and nobody ran it, because the plan
+reserved the live run for Mark and the agent honoured that; the sweep was never run, but the address it
+would have swept could have been printed at any time. The command now discards a routed address that is
+not private, falls back to the machine's own private addresses, asks for `--subnet` rather than guessing
+when there is none, and prints the subnet and the address count before it starts.
+
+The second: rotation could run on every poll. If the carried window does not fit under the cap, the fresh
+file is born over the cap, so the next poll rotates again, and each rotation replaces the archive with the
+rows it has just carried. Everything the first rotation set out to preserve would have lived for one poll
+cycle. The settings that reach it are ones the validator accepts. It was reproduced before it was fixed,
+three rotations in three polls, then fixed by stopping after a rotation that did not help and saying which
+of the two settings to change. The distinction that makes that safe is between a rotation that could not
+run, which is transient and must be retried, and one that ran and did not help, which must not.
+
+Four smaller findings were fixed the same way: any range on earth was an acceptable `--subnet`, redirects
+were followed so one device could point the sweep elsewhere, the skip of the configured miner was defeated
+by a scheme or a path in a config value nothing validates, and deferred-rotation event lines carried the
+Windows exception text, which names the data directory and the account, into a log the dashboard serves.
+Four more were written down and deliberately not built, each with its reason, in `docs/security-notes.md`.
+
+**What was left for Mark, and why.** The branch is not merged and not pushed. The live service still runs
+the previous version. The one live `gbox discover` run is his, as the plan always said. Merging is his call
+for a reason that is easy to miss: the running service serves the web files from the main checkout on every
+request, so a merge changes the dashboard in front of him before anything is restarted.
+
+**Housekeeping worth recording.** Two real addresses reached code comments, a test and a commit message
+while writing up the VPN finding, one of them a public address tied to Mark's own VPN session. The repo is
+public. They were scrubbed and the commit amended before anything was pushed. The finding reads the same
+without them.
