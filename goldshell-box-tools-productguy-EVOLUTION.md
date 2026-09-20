@@ -2272,3 +2272,35 @@ request, so a merge changes the dashboard in front of him before anything is res
 while writing up the VPN finding, one of them a public address tied to Mark's own VPN session. The repo is
 public. They were scrubbed and the commit amended before anything was pushed. The finding reads the same
 without them.
+
+## 2026-09-20 midday, session AB continued: 0.8.0 landed
+
+**Mark's word, in full:** "do all, one at a time starting with merge". The four things the checkpoint had
+listed as his: merge, restart, his live sweep, tag and push.
+
+**Merge and restart.** The fast-forward was clean and the suites ran again from the main checkout, which is
+the tree the live service actually runs from. Between those two moments the dashboard was already serving
+the new page against the old service, which is the hazard that made the merge his call rather than an
+agent's; the page degraded exactly as designed, printing nothing where the log line goes, because the old
+health payload has no log block. The service was then stopped by the pid in its own data directory and
+restarted from the Startup launcher, and came back on 0.8.0 with the watchdog on, the plug armed, and the
+log line reporting 9.1 MB against the 25 MB cap. Nothing rotated, and nothing will for weeks.
+
+**The live sweep, at last, and it behaved.** It named the subnet and the address count before asking
+anything, said that a service was running, skipped the configured miner and found no other unit. That
+leaves the gate's own done-when half met, because the plan asks for the sweep to list the SC-BOX and the
+default path deliberately does not probe it. Rather than stop the live service for a clean sweep, one
+probe was sent to the configured address alone, timed into the gap right after a sample landed, which is
+the same single-request treatment session Z used to establish that the status path answers without a
+token. It listed the unit with its model, firmware and hardware, and the next poll was clean: no error, no
+gap in the log.
+
+**Running the release found one thing no test had.** The line the security pass added, the one that gives
+an operator their single chance to stop a sweep of the wrong network, repeated itself on the single-target
+path: "sweeping 1 given address, 1 address, one request each". Fixed, with a test for each of the two
+shapes. It is a small thing and it is also the fourth time this gate that running the code found something
+the suite could not, which is the argument for the habit rather than for the fix.
+
+**Tagged and pushed.** v0.8.0, annotated, with the release notes naming both gates, the trade rotation
+makes, and the two security findings that mattered. The branch and its worktree were left in place for
+Mark to clear.
