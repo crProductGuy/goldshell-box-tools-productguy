@@ -149,6 +149,7 @@ def migrate_columns(csv_path):
 
 
 STAMP = "%Y-%m-%d %H:%M:%S"
+DEFERRED = "log rotation deferred: "    # the note prefix; a caller tells "could not run" from "did not help"
 CARRY_MARGIN_HOURS = 2      # carried beyond keep_hours, so a reader at exactly keep_hours sees whole buckets
 
 
@@ -161,6 +162,12 @@ def _promote_orphan_tmp(csv_path):
     """
     working = csv_path.with_name(csv_path.name + ".tmp")
     if csv_path.exists() or not working.is_file():
+        return False
+    try:        # only something that carries one of our headers; never install a stray file as the log
+        with open(working, encoding="utf-8", newline="") as f:
+            if not f.readline().startswith("time,"):
+                return False
+    except OSError:
         return False
     working.replace(csv_path)
     return "recovered %s from %s; a rotation had been interrupted" % (csv_path.name, working.name)
@@ -178,8 +185,10 @@ def _rotation_failed(csv_path, working, archive, error):
             working.unlink()
         except OSError:
             pass
-    return ("log rotation deferred: %s (%s); this poll appends as usual and the next one tries again"
-            % (csv_path.name, error))
+    # The exception text carries full paths on Windows ("[WinError 32] ...: C:\Users\<name>\.gbox\log.csv"),
+    # and the event log is served to the dashboard, so name the kind of failure and not the path.
+    return DEFERRED + "%s (%s: %s); this poll appends as usual and the next one tries again" % (
+        csv_path.name, type(error).__name__, getattr(error, "strerror", None) or "no detail")
 
 
 def rotate(csv_path, keep_hours, now=None):
@@ -257,6 +266,7 @@ class Poller(threading.Thread):
         # 0 is no rotation, which is what every test that does not care about it gets.
         self.max_bytes = int(max_bytes or 0)
         self.keep_hours = int(keep_hours)
+        self._rotation_off = set()   # paths whose carry does not fit under the cap; see _rotate_if_full
         self.interval = float(interval)
         self.watchdog = watchdog
         self.events = events
@@ -424,11 +434,14 @@ class Poller(threading.Thread):
         Checked before each write, so a file passes the cap by at most one poll, and it is also where a
         rotation interrupted by a crash is finished: `log.csv` gets that at start from `migrate_columns`,
         but `boards.csv` has no equivalent, and a stranded `.tmp` holds the only copy of the carried rows.
+        A carry larger than the cap would rotate on every poll and replace the archive each time, so
+        that case turns rotation of this file off with one line saying which setting to change.
+
         A rotation that cannot
         run writes its own line and leaves every file as it was; either way the caller then appends this
         poll's rows, because a sample is never worth losing to housekeeping.
         """
-        if not self.max_bytes:
+        if not self.max_bytes or path in self._rotation_off:
             return
         recovered = _promote_orphan_tmp(path)      # a rotation of THIS file interrupted by a crash
         if recovered and self.events:
@@ -438,6 +451,19 @@ class Poller(threading.Thread):
         note = rotate(path, self.keep_hours)
         if note and self.events:
             self.events.write("service: " + note)
+        if note and not str(note).startswith(DEFERRED) and path.is_file() and path.stat().st_size >= self.max_bytes:
+            # The carry is bigger than the cap, so the fresh file is born over it and the next poll would
+            # rotate again, and every poll after that -- each one replacing .1 with what it just carried,
+            # so the history the first rotation archived would live for one poll. Stop, and say what to
+            # change. Nothing is lost by stopping: the file simply keeps growing, as it did before 0.8.0.
+            self._rotation_off.add(path)
+            if self.events:
+                self.events.write(
+                    "service: %s is still %.1f MB after carrying %d h, which is at or over the %.1f MB cap, "
+                    "so rotating again would only overwrite %s.1 with the same rows. Rotation of this file "
+                    "is off until the service restarts: raise log.max_mb or cut log.keep_hours."
+                    % (path.name, path.stat().st_size / (1024.0 * 1024), self.keep_hours,
+                       self.max_bytes / (1024.0 * 1024), path.name))
 
     def _append(self, row):
         self.csv_path.parent.mkdir(parents=True, exist_ok=True)

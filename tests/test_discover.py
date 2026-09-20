@@ -153,5 +153,118 @@ class LocalSubnetTest(unittest.TestCase):
         self.assertGreaterEqual(len(discover.targets_for(str(net))), 254)
 
 
+
+
+class PrivateNetworksOnlyTest(unittest.TestCase):
+    """A sweep is a home-LAN tool. Refuse anything else, because a typo should not send 254 requests
+    to somebody else's network from the operator's own address."""
+
+    def test_the_private_ranges_a_home_lan_uses_are_allowed(self):
+        for cidr in ("192.168.8.0/24", "10.1.2.0/24", "172.16.9.0/24", "127.0.0.0/24", "169.254.7.0/24"):
+            self.assertTrue(discover.targets_for(cidr))
+
+    def test_a_public_range_is_refused_and_the_message_says_why(self):
+        for cidr in ("8.8.8.0/24", "1.1.1.0/24", "93.184.216.0/24"):
+            with self.assertRaises(ValueError) as e:
+                discover.targets_for(cidr)
+            self.assertIn("private", str(e.exception))
+
+    def test_ipv6_is_refused_outright_rather_than_sweeping_255_addresses_that_cannot_be_probed(self):
+        with self.assertRaises(ValueError) as e:
+            discover.targets_for("fd00::/120")
+        self.assertIn("IPv4", str(e.exception))
+
+    def test_the_machines_own_subnet_is_always_acceptable_to_itself(self):
+        discover.targets_for(discover.local_subnet())
+
+
+class ConfiguredHostMatchingTest(unittest.TestCase):
+    """The skip list is matched against whatever `config.json` holds, which is not always a bare address."""
+
+    def test_a_configured_host_carrying_a_scheme_or_a_path_still_matches_the_bare_address(self):
+        for entry in ("http://192.168.8.148", "http://192.168.8.148/", "192.168.8.148/mcb", "https://192.168.8.148:80"):
+            self.assertTrue(discover._names("192.168.8.148", entry), entry)
+
+    def test_a_different_address_is_not_matched_by_a_scheme(self):
+        self.assertFalse(discover._names("192.168.8.149", "http://192.168.8.148"))
+
+
+class RedirectTest(unittest.TestCase):
+    """A device that answers the probe with a redirect must not send the sweep somewhere else.
+
+    urllib follows redirects by default, so without a handler one LAN device could point the sweep at
+    an address the operator never asked it to contact.
+    """
+
+    def setUp(self):
+        import http.server
+        import threading
+        elsewhere = []
+
+        class Redirector(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                elsewhere.append(self.path)
+                self.send_response(302)
+                self.send_header("Location", "http://127.0.0.1:1/somewhere-else")
+                self.end_headers()
+
+            def log_message(self, *a):
+                pass
+
+        self.seen = elsewhere
+        self.srv = http.server.HTTPServer(("127.0.0.1", 0), Redirector)
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.addCleanup(self.srv.server_close)
+        self.addCleanup(self.srv.shutdown)
+        self.addr = "127.0.0.1:%d" % self.srv.server_address[1]
+
+    def test_a_redirect_is_a_miss_and_is_not_followed(self):
+        self.assertIsNone(discover.probe(self.addr, timeout=5))
+        self.assertEqual(self.seen, ["/mcb/status"])       # asked once, and nothing was chased
+
+
+class LocalSubnetChoiceTest(unittest.TestCase):
+    """Which network a bare `gbox discover` sweeps.
+
+    A VPN client owns the default route, so the routed address belongs to the provider and is public.
+    Sweeping it would send one request per address into somebody else's network through the tunnel.
+    Real on the machine this was built on: the route named a VPN provider's public address while
+    the miner was on a private LAN.
+    """
+
+    def patch(self, routed, private):
+        self.addCleanup(setattr, discover, "_routed_address", discover._routed_address)
+        self.addCleanup(setattr, discover, "private_addresses", discover.private_addresses)
+        discover._routed_address = lambda: routed
+        discover.private_addresses = lambda: list(private)
+
+    def test_a_private_route_is_the_answer(self):
+        self.patch("192.168.8.182", ["10.0.0.5"])
+        self.assertEqual(discover.local_subnet(), "192.168.8.0/24")
+
+    def test_a_vpn_route_is_discarded_for_this_machines_own_private_address(self):
+        self.patch("93.184.216.70", ["192.168.8.182"])
+        self.assertEqual(discover.local_subnet(), "192.168.8.0/24")
+
+    def test_with_no_private_address_anywhere_it_asks_for_a_subnet_rather_than_guessing(self):
+        self.patch("93.184.216.70", [])
+        with self.assertRaises(ValueError) as e:
+            discover.local_subnet()
+        self.assertIn("--subnet", str(e.exception))
+
+    def test_a_link_local_address_is_the_last_resort_not_the_first_choice(self):
+        """Windows hands 169.254.x to every idle adapter; none of them is ever the miner's network."""
+        self.patch("93.184.216.70", ["192.168.8.182"])
+        self.assertEqual(discover.local_subnet(), "192.168.8.0/24")
+        ordered = discover.private_addresses
+        discover.private_addresses = lambda: ["169.254.7.1"]
+        self.assertEqual(discover.local_subnet(), "169.254.7.0/24")
+        discover.private_addresses = ordered
+
+    def test_this_machines_real_addresses_are_read_without_probing_anything(self):
+        for addr in discover.private_addresses():
+            self.assertTrue(ipaddress.IPv4Address(addr).is_private)
+
+
 if __name__ == "__main__":
     unittest.main()

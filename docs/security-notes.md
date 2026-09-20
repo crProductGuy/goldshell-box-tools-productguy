@@ -129,3 +129,67 @@ the same power a forged `/api/event` line never had but a LAN client with
   comes back is untrusted -- any host on the LAN can answer port 80 --
   so the model, firmware and hardware strings are stripped of
   non-printable characters and cut to 40 before anything prints them.
+
+## What the 0.8.0 security pass changed, and what it deliberately left
+
+One adversarial review at feature-complete, 2026-09-20, over everything gate 3
+added. Five findings were fixed in the same session; the rest are written down
+here rather than built, because each costs more than it buys today.
+
+Fixed:
+
+- **A sweep of the wrong network.** `gbox discover` with no flags asked the
+  default route which address to sweep. On a machine running a VPN client the
+  default route is the tunnel, so the answer was a public address belonging to
+  the VPN provider, and a bare `gbox discover` would have sent one request per
+  address into a stranger's /24 through the tunnel. Measured on the machine
+  this was built on: the route named a public address belonging to a VPN
+  provider while the miner sat on an ordinary private LAN. The route is still
+  asked first, but a routed address that is not private is discarded in favour
+  of this machine's own private addresses, and when there is none the command
+  asks for `--subnet` instead of guessing.
+- **`--subnet` accepted any range on earth**, including public ones. It now
+  refuses anything that is not a private IPv4 network, and says why. An IPv6
+  CIDR is refused outright rather than sweeping addresses the probe cannot
+  build a URL for.
+- **Redirects were followed.** One LAN device answering the probe with a
+  `Location` header could send the sweep to an address the operator never
+  named. A 3xx is now a miss.
+- **The skip of the configured miner was defeated by a scheme or a path** in
+  `config.json`'s `host`, which nothing validates. Host matching now
+  normalises both sides. The related case it cannot fix is worth knowing: the
+  usual reason to run `discover` is that the miner moved, and then the
+  configured address names where it used to be, so the sweep reaches it at its
+  new one while the service polls it. The command now says so when a service
+  is running, and names the subnet and the address count before it starts.
+- **Rotation could loop on every poll.** When the carried window is larger
+  than the cap -- reachable with settings the config accepts, such as a 5 MB
+  cap with a 72 h window at a 10 s poll -- the fresh file is born over the cap,
+  so the next poll rotates again, each rotation replacing `log.csv.1` with the
+  rows it has just carried. The history the first rotation archived would have
+  survived one poll cycle. Rotation of that file now stops after one such
+  rotation, with a line naming the two settings to change; the same guard
+  covers `events.log`.
+- **Event lines carried full paths.** A Windows `PermissionError` text names
+  the data directory and the account, and the event log is served to the
+  dashboard, which matters on a `--bind` deployment. Deferred-rotation lines
+  now name the kind of failure and the file, never the path.
+
+Left, with reasons:
+
+- **A slow host can stall a sweep.** `--timeout` is a per-socket-operation
+  timeout, not a budget, so a host that answers one byte at a time holds its
+  worker open; `sweep` waits for every target. The read is capped at 64 KB, so
+  memory is bounded and only time is not. A per-address deadline needs a
+  supervisor thread, which is more machinery than a LAN sweep of 254 addresses
+  is worth. Stop it with Ctrl-C.
+- **No `fsync` in either rotation.** `os.replace` is atomic for ordering but
+  not durable, so a power cut in the wrong millisecond can leave a short
+  `log.csv` with the archive already in place. The fix costs a flush on a
+  multi-megabyte file on a machine that is also polling a miner.
+- **A symlinked `log.csv`** would have its link replaced rather than its
+  target. Nobody has one.
+- **Two services sharing a data directory** take no cross-process lock. On
+  Windows the loser gets a `PermissionError` and defers, which is safe; on
+  POSIX the two could interleave. `gbox.pid` exists to stop that arrangement
+  in the first place.

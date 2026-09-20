@@ -1192,3 +1192,123 @@ class InterruptedRotationRecoveryTest(unittest.TestCase):
         p._append_boards(datetime.datetime.now().strftime(poller.STAMP), [])
         self.assertTrue((self.data / "boards.csv.tmp").exists())
         self.assertEqual(boards.read_text(encoding="utf-8").splitlines()[0], ",".join(poller.BOARDS_COLUMNS))
+
+
+class RotationThatCannotHelpTest(unittest.TestCase):
+    """A carry bigger than the cap would rotate on every single poll.
+
+    Found by the gate's security pass, reproduced before it was fixed: with every row inside the
+    window, the fresh file is born over the cap, so the next poll rotates again, and each rotation
+    replaces log.csv.1 with the rows it has just carried. The history the first rotation archived
+    then lives for one poll cycle. It is reachable from settings `validate()` accepts (max_mb 5 with
+    keep_hours 72 at a 10 s poll), so the code has to refuse rather than the config.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.data = Path(self.tmp.name)
+        self.csv = self.data / "log.csv"
+        self.archive = self.data / "log.csv.1"
+        self.events = EventLog(self.data / "events.log")
+        self.now = datetime.datetime.now()
+
+    def seed_all_recent(self, rows):
+        """Every row inside the window, so the carry keeps the whole file and rotation cannot shrink it."""
+        blanks = "," * (len(poller.COLUMNS) - 1)
+        with open(self.csv, "w", encoding="utf-8", newline="") as f:
+            f.write(",".join(poller.COLUMNS) + chr(10))
+            for i in range(rows):
+                f.write((self.now - datetime.timedelta(minutes=i % 60)).strftime(poller.STAMP) + blanks + chr(10))
+        return self.csv.stat().st_size
+
+    def poller_with(self, max_bytes):
+        p = poller.Poller(object(), self.csv, 30, events=self.events, max_bytes=max_bytes, keep_hours=72)
+        return p
+
+    def lines(self, word):
+        return [ln for ln in self.events.tail(50) if word in ln]
+
+    def test_it_rotates_once_then_turns_itself_off_with_one_line(self):
+        size = self.seed_all_recent(400)
+        p = self.poller_with(size // 2)
+        for _ in range(4):
+            p._rotate_if_full(self.csv)
+        self.assertEqual(len(self.lines("rotated log.csv")), 1)
+        self.assertEqual(len(self.lines("Rotation of this file is off")), 1)
+
+    def test_the_archive_is_not_overwritten_by_the_polls_that_follow(self):
+        size = self.seed_all_recent(400)
+        p = self.poller_with(size // 2)
+        p._rotate_if_full(self.csv)
+        archived = self.archive.read_bytes()
+        for _ in range(3):
+            p._rotate_if_full(self.csv)
+        self.assertEqual(self.archive.read_bytes(), archived)
+
+    def test_the_line_names_both_settings_the_owner_can_change(self):
+        size = self.seed_all_recent(400)
+        p = self.poller_with(size // 2)
+        p._rotate_if_full(self.csv)
+        said = self.lines("Rotation of this file is off")[0]
+        self.assertIn("log.max_mb", said)
+        self.assertIn("log.keep_hours", said)
+
+    def test_a_deferred_rotation_is_not_mistaken_for_one_that_did_not_help(self):
+        """A reader holding the file is transient: the next poll must try again, not give up for good."""
+        size = self.seed_all_recent(400)
+        (self.data / "log.csv.tmp").mkdir()
+        p = self.poller_with(size)
+        p._rotate_if_full(self.csv)
+        self.assertTrue(self.lines("deferred"))
+        self.assertFalse(self.lines("Rotation of this file is off"))
+        (self.data / "log.csv.tmp").rmdir()
+        p._rotate_if_full(self.csv)                      # the obstruction is gone: it tries again
+        self.assertTrue(self.archive.is_file())
+
+    def test_a_rotation_that_does_help_leaves_rotation_on(self):
+        blanks = "," * (len(poller.COLUMNS) - 1)
+        with open(self.csv, "w", encoding="utf-8", newline="") as f:
+            f.write(",".join(poller.COLUMNS) + chr(10))
+            for i in range(400):
+                age = 1 if i % 4 == 0 else 300
+                f.write((self.now - datetime.timedelta(hours=age)).strftime(poller.STAMP) + blanks + chr(10))
+        p = self.poller_with(self.csv.stat().st_size)
+        p._rotate_if_full(self.csv)
+        self.assertFalse(self.lines("Rotation of this file is off"))
+        self.assertNotIn(self.csv, p._rotation_off)
+
+    def test_a_deferred_line_names_the_kind_of_failure_and_never_a_path(self):
+        """events.log is served to the dashboard, so a Windows PermissionError text would hand the OS
+        user name and the data directory to anyone who can open the page."""
+        self.seed_all_recent(400)
+        (self.data / "log.csv.tmp").mkdir()
+        self.poller_with(self.csv.stat().st_size)._rotate_if_full(self.csv)
+        said = self.lines("deferred")[0]
+        self.assertNotIn(str(self.data), said)
+        self.assertNotIn("\\", said.replace(chr(10), ""))
+        self.assertIn("log.csv", said)
+
+    def test_a_stray_tmp_is_never_installed_as_the_log(self):
+        """_promote_orphan_tmp puts a crash-interrupted rotation right; it must not adopt a file that
+        is not one of ours."""
+        (self.data / "log.csv.tmp").write_text("nothing like a log" + chr(10), encoding="utf-8")
+        p = self.poller_with(5 * 1024 * 1024)
+        p._rotate_if_full(self.csv)
+        self.assertFalse(self.csv.exists())
+        self.assertTrue((self.data / "log.csv.tmp").is_file())
+
+    def test_the_event_log_stops_rotating_when_its_carry_does_not_fit_either(self):
+        """Same trap, same answer: 4000 long lines could exceed a 5 MB cap on their own."""
+        path = self.data / "own-events.log"
+        with open(path, "w", encoding="utf-8") as f:
+            for i in range(500):
+                f.write("2026-09-20 10:00:00 " + "x" * 200 + chr(10))
+        log = EventLog(path, max_bytes=path.stat().st_size // 2, keep_lines=4000)
+        log.write("service: the line that tripped it")
+        log.write("service: and another")
+        archived = (self.data / "own-events.log.1").read_bytes()
+        log.write("service: and a third")
+        said = path.read_text(encoding="utf-8")
+        self.assertEqual(said.count("rotation is off until the service restarts"), 1)
+        self.assertEqual((self.data / "own-events.log.1").read_bytes(), archived)
