@@ -2149,3 +2149,9 @@ unit's settings carry no fan target, and the page printed "target NaN °C", "und
 model table, and checked again in the real page. Second defect of the evening found only by running the thing
 against the fixtures as they are; both had green suites above them. Left on branch `sc5-no-target` for Mark's
 word, since merging web files changes the live dashboard at once.
+
+**Merged the same evening.** Mark: "yes, merge and push it." The fan-target fix went to main by fast-forward and was
+pushed; no restart, since no Python changed and the service serves the page files from disk. The live SC-BOX page
+was read once more afterwards and still showed its 65 °C target and its control, so the fix touched only the unit
+it was for. The gate 2 worktree and its branches were then removed, the pre-rebase backup last and at Mark's word,
+because its rewritten commits needed a forced delete. Main is the only branch. Gate 3 is next, in a fresh session.
