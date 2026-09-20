@@ -193,3 +193,32 @@ Left, with reasons:
   Windows the loser gets a `PermissionError` and defers, which is safe; on
   POSIX the two could interleave. `gbox.pid` exists to stop that arrangement
   in the first place.
+
+## The LAN rules, and why address-based checks were not enough (0.8.1)
+
+The 0.8.0 pass fixed a sweep that followed the default route onto a VPN by
+refusing ranges that are not private. That was the right fix for the case in
+front of it and the wrong test in general: **a corporate or WireGuard VPN hands
+out RFC1918 addresses**, which are as private as a home LAN and just as wrong to
+sweep. The owner spotted it. The test is now what the interface *is*, read from
+the operating system, and the decision moved into `gbox/netiface.py`, which
+holds nine rules and the tests that enforce them. The headline ones:
+
+- A tunnel is never a source of an address range: tunnels are recognised by
+  interface type, medium, driver and name, not by the address they carry.
+- The prefix comes from the interface. Nothing assumes /24 any more.
+- The routing table is not consulted at all; a test reads the module's own
+  source to keep it that way.
+- 169.254.0.0/16 is never a network, in either direction: never a candidate,
+  and refused as an explicit `--subnet`. It means DHCP did not answer.
+- A disconnected link or an address the OS has stopped preferring is not a
+  network, so a stale lease on an unplugged adapter cannot become a sweep.
+- A LAN that overlaps a tunnel's range is refused rather than preferred: which
+  way a packet would leave is not knowable from here.
+- A sweep where every address is unreachable reports a dead network and exits
+  2, rather than reporting "no miner found" and sending the owner to look at a
+  miner that is fine.
+
+None of this needs the internet, and none of it resolves a name: a machine
+whose uplink is down still knows its own LAN, which is the only question being
+asked.

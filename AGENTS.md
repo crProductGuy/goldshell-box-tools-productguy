@@ -137,6 +137,53 @@ scan ran on, count `"model"` values in its transcript under
 - Bump the minor version when the log format, the CLI surface, or the HTTP
   API changes; tag every release `vX.Y.Z`.
 
+## Network discovery: hard rules
+
+These bound anything in this project that works out which addresses to talk to.
+They are rules, not defaults, and no flag, config key or future feature may get
+around them. They exist because 0.8.0 shipped with the opposite of each one and
+a security pass caught it before the first live sweep.
+
+**LAN is LAN. No further reach.**
+
+1. **A tunnel is never a source of an address range.** VPN, tap, tun, PPP,
+   WireGuard, Teredo, ISATAP, ZeroTier, Tailscale and their kin are excluded by
+   what the interface *is*, never by what address it carries. A corporate VPN
+   hands out RFC1918 and passes every "is it private" test, which is exactly why
+   that test is not the one to use.
+2. **The prefix is read from the interface, never assumed.** The router handed
+   this machine an address and a prefix over DHCP; that prefix is the network. A
+   /22 LAN is a /22 and a /27 is a /27. Nothing appends /24 to anything.
+3. **The routing table is never consulted.** The UDP-connect trick (open a
+   socket, see which source address the route picks) answers with the *default
+   route*, which on a machine running a VPN client is the tunnel. A test asserts
+   `gbox/netiface.py` contains no socket call at all. It must not come back.
+4. **Ambiguity is reported, not resolved.** Two LAN interfaces on two networks is
+   a question for the owner, not a coin toss: name both and ask for `--subnet`.
+5. **169.254.0.0/16 is never a network.** An APIPA address is the OS saying DHCP
+   never answered. By definition nothing is on the other side, so it is not a
+   candidate, not a fallback and not sweepable, not even when asked for
+   explicitly. Windows hands one to every idle adapter, so a machine with no LAN
+   can show ten.
+6. **A disconnected interface is not a network.** An address outlives its link:
+   the lease stays in the table while the cable is out. Where the platform says
+   (`MediaConnectionState` and `AddressState` on Windows, `operstate` and
+   `carrier` on Linux, `RUNNING` in the BSD flags), both must say yes.
+7. **A LAN that overlaps a tunnel's range is refused, not preferred.** When the
+   VPN hands out the same range as the house router, which way a packet leaves
+   is not knowable here. Say so and ask for an explicit subnet.
+8. **Nothing in discovery needs the internet, and nothing may use it.** No DNS,
+   no name resolution, no reachability test against anything outside. A machine
+   with its uplink down still knows its own LAN, and that is the only question.
+9. **A network that is entirely unreachable is reported as that**, not as "no
+   miner found". Every address failing at once means the LAN is gone; `gbox
+   discover` exits 2 for that and 1 for "nothing answered", so a script can tell
+   a dead switch from a missing miner.
+
+The rules live in `gbox/netiface.py`, which is the only place allowed to decide
+what this machine's network is. `tests/test_netiface.py` holds each of them,
+including one that reads the module's own source to enforce rule 3.
+
 ## Working on the owner's machine
 
 The live service runs from the main checkout and serves the web files from

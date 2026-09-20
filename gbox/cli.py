@@ -93,17 +93,23 @@ def _miner(args, cfg, need_password=True):
 
 def cmd_discover(args, cfg, data_dir):
     """One tokenless GET /mcb/status per address on the subnet. No password, no login, no settings read."""
+    source = ""
     if args.target:
         targets, where = list(args.target), "%d given address%s" % (len(args.target), "" if len(args.target) == 1 else "es")
+    elif args.subnet:
+        where, targets = args.subnet, discovermod.targets_for(args.subnet)
     else:
-        where = args.subnet or discovermod.local_subnet()
-        targets = discovermod.targets_for(where)          # a bad or too-wide subnet raises ValueError: main exits 1
+        # No guessing: netiface reads the OS interface table and refuses tunnels, link-local
+        # addresses and dead links outright. A ValueError here carries what the OS reported.
+        where, interface = discovermod.local_lan()
+        source = " (%s)" % interface
+        targets = discovermod.targets_for(where)
 
     configured = cfg.host or ""
     skipping = bool(configured) and not args.include_configured
     # The --target path already says how many addresses it was given, so only a subnet needs the count.
-    _out("sweeping %s, one request each" % where if args.target else
-         "sweeping %s, %d addresses, one request each" % (where, len(targets)))
+    _out("sweeping %s%s, one request each" % (where, source) if args.target else
+         "sweeping %s%s, %d addresses, one request each" % (where, source, len(targets)))
     if configured and args.include_configured:
         _out("probing the configured miner as well; do this only while `gbox serve` is stopped,")
         _out("because the firmware answers one caller at a time")
@@ -113,6 +119,12 @@ def cmd_discover(args, cfg, data_dir):
         # polling it. The firmware answers one caller at a time, so say so before asking.
         _out("note: `gbox serve` is running. If the miner's address has changed, this sweep will reach")
         _out("it at the new one while the service polls it; stop the service first for a clean sweep.")
+
+    if configured and not args.target:
+        elsewhere = discovermod.outside(configured, where)
+        if elsewhere:
+            _out("note: the configured miner %s is not on %s, so this sweep cannot find it;" % (configured, where))
+            _out("      give --subnet for its network if that is where you expect it to be")
 
     hits = discovermod.sweep(targets, timeout=args.timeout, skip=(configured,) if skipping else ())
 
@@ -725,6 +737,8 @@ def main(argv=None):
         _die("miner: %s" % e)
     except plugmod.PlugError as e:
         _die("plug: %s" % e, 2)
+    except discovermod.NetworkDown as e:      # exit 2: no network, as distinct from exit 1, no miner
+        _die(e, 2)
     except (TypeError, ValueError) as e:      # a config key of the wrong type reaches int() as a TypeError
         _die(e)
 
