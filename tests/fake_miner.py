@@ -142,6 +142,10 @@ class FakeMiner:
                         return self._reply(200, json.dumps({"code": 1, "msg": "password error"}))
                     if url.path == "/dbg/icinfo" and outer.dbg_locked_icinfo:
                         return self._reply(401, "Debug access is locked", "text/plain")
+                    if url.path == "/mcb/status" and self.headers.get("Authorization") is None:
+                        # The firmware answers this one without a token (verified on the
+                        # SC-BOX, 2026-09-19). It is what `gbox discover` probes with.
+                        return self._reply(200, json.dumps(outer.status))
                     if not self._authed():
                         return self._reply(401, "Check Token Error", "text/plain")
                     routes = {

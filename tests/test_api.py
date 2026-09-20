@@ -1,7 +1,10 @@
 """The serialized session against the fake miner."""
+import json
 import os
 import threading
 import unittest
+import urllib.error
+import urllib.request
 
 from gbox import api
 from tests.fake_miner import FakeMiner, TOKEN
@@ -204,3 +207,40 @@ class VerifyPasswordTest(unittest.TestCase):
         m = api.Miner("127.0.0.1:1", token=TOKEN, timeout=1)
         with self.assertRaises(api.MinerError):
             m.verify_password_hex(self.fm.password_hex)
+
+
+class FakeFidelityTest(unittest.TestCase):
+    """Where the real firmware was read from a unit, the fake answers the same way."""
+
+    def setUp(self):
+        self.fm = FakeMiner().start()
+        self.addCleanup(self.fm.stop)
+
+    def get(self, path, token=None):
+        req = urllib.request.Request("http://%s%s" % (self.fm.address, path))
+        if token:
+            req.add_header("Authorization", "Bearer " + token)
+        return urllib.request.urlopen(req, timeout=5)
+
+    def test_status_answers_a_request_that_carries_no_token(self):
+        # Verified on the SC-BOX 2026-09-19 with one curl between two polls:
+        # GET /mcb/status returns 200 and the model string with no Authorization
+        # header. Unverified on the SC5 Pro II. This is what `gbox discover` probes.
+        with self.get("/mcb/status") as r:
+            self.assertEqual(r.status, 200)
+            body = json.loads(r.read().decode())
+        self.assertEqual(body["model"], "Goldshell-SCBox")
+        self.assertEqual(self.fm.logins, 0)
+
+    def test_the_other_paths_still_refuse_a_request_with_no_token(self):
+        for path in ("/mcb/setting", "/dbg/minerinfo", "/cpb/hshistory"):
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                self.get(path)
+            self.assertEqual(caught.exception.code, 401, path)
+
+    def test_status_still_refuses_a_wrong_token(self):
+        # Unverified against the firmware; kept strict so nothing is invented,
+        # and discover never sends a token at all.
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.get("/mcb/status", token=TOKEN[:-1] + "x")
+        self.assertEqual(caught.exception.code, 401)
