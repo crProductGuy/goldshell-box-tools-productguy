@@ -363,6 +363,14 @@ function powerLine(service) {
   return " · plug " + (p.model || "?") + " " + reading + ", " + (p.cycle ? "armed" : "dry run") + ", " +
     p.cycles_today + (p.cycles_today === 1 ? " cycle" : " cycles") + " today";
 }
+// The data directory's size in the Service line: what log.csv weighs now, and the cap that rotates it
+// (0.8.0; an older service sends no log block, and then the line is simply absent).
+function logLine(service) {
+  const l = service && service.log;
+  if (!l || l.bytes == null) return "";
+  const mb = (l.bytes / (1024 * 1024)).toFixed(1);
+  return " · log " + mb + (l.max_mb ? " of " + l.max_mb + " MB" : " MB, no cap");
+}
 // ---- clock trials table (rows come from /api/trials; rollup rows carry bad_pct_min/max and segments, segment rows carry bad_pct) ----
 const TRIAL_COLUMNS = ["clock", "fan target", "from", "held", "worst chip, bad share", "bad/hour", "board resets", "HW error", "accepted/hr", "hashrate", "watts", "GH/s per W", "chip temp · fans"];
 function trialDuration(minutes) {
@@ -756,7 +764,7 @@ function holdLine(h) {
 if (typeof module !== "undefined") module.exports = { VERSION, hottestChip, clockLabel, newestFirst, ladderLine, encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, withMhz, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
   powerActionRequest, holdRequest, holdReleaseRequest, holdLine, seriesRows, errorTip, resetsTip, clockTip, axisTicks, parseStamp, errorFacts, markerWords,
-  markerGlyph, markerRow, dropClose, markerKind, markerTitle, chartKey, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf, alarmBucket, resetsSuffix, profileFor, modelNote,
+  markerGlyph, markerRow, dropClose, markerKind, markerTitle, chartKey, powerLine, logLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf, alarmBucket, resetsSuffix, profileFor, modelNote,
   powerTile, envRowsFrom, lastHour, recentHashrate, interventions, interventionCounts,
   parseMinerInfoBoards, boardTotals, boardRow, hottestIndex, fmtNum, fansTileText, hotsubText, fanTargetText };
 
@@ -811,7 +819,7 @@ async function probeService() {
     const w = service.watchdog || {};
     $("svcsub").textContent = "gbox " + service.version + " · poll every " + service.poll_interval + " s · " + service.samples + " samples, " + service.errors + " errors" +
       (service.latest_time ? " · last " + service.latest_time : "") + " · watchdog " + (w.enabled ? "on, " + w.restarts_today + " restarts today" : "off") +
-      (service.has_token || service.can_login ? "" : " · waiting for login") + powerLine(service);
+      (service.has_token || service.can_login ? "" : " · waiting for login") + powerLine(service) + logLine(service);
     if (service.last_error) $("svcsub").textContent += " · " + service.last_error;
     $("ladder").textContent = ladderLine(service);
   }

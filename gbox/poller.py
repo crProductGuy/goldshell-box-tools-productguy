@@ -243,7 +243,7 @@ def error_row(exc):
 
 class Poller(threading.Thread):
     def __init__(self, miner, csv_path, interval, watchdog=None, events=None, clock=time.time, plug=None, scheduler=None,
-                 syslog_interval=0, board_source="auto", devs4028_port=4028):
+                 syslog_interval=0, board_source="auto", devs4028_port=4028, max_bytes=0, keep_hours=72):
         super().__init__(name="gbox-poller", daemon=True)
         self.miner = miner
         self.syslog_interval = float(syslog_interval or 0)   # 0: never read the cgminer log
@@ -253,6 +253,10 @@ class Poller(threading.Thread):
         self.scheduler = scheduler  # gbox.power.Scheduler: ticked once per sample, after the watchdog
         self.csv_path = Path(csv_path)
         self.boards_csv_path = self.csv_path.with_name("boards.csv")
+        # 0.8.0: the cap that fires a rotation, in bytes (config.log.max_mb), and the window it carries.
+        # 0 is no rotation, which is what every test that does not care about it gets.
+        self.max_bytes = int(max_bytes or 0)
+        self.keep_hours = int(keep_hours)
         self.interval = float(interval)
         self.watchdog = watchdog
         self.events = events
@@ -298,6 +302,7 @@ class Poller(threading.Thread):
     def _append_boards(self, now, boards):
         """boards.csv beside log.csv: one row per board per poll, header on create. Only called when the
         unit has more than one board; a single-board unit never gets this file."""
+        self._rotate_if_full(self.boards_csv_path)
         new = not self.boards_csv_path.exists() or self.boards_csv_path.stat().st_size == 0
         with open(self.boards_csv_path, "a", encoding="utf-8", newline="") as f:
             if new:
@@ -413,8 +418,30 @@ class Poller(threading.Thread):
                     self.events.write("service: schedule tick failed: %s" % e)
         return row
 
+    def _rotate_if_full(self, path):
+        """Rotate `path` when it has reached the cap, with one event line saying what moved where.
+
+        Checked before each write, so a file passes the cap by at most one poll, and it is also where a
+        rotation interrupted by a crash is finished: `log.csv` gets that at start from `migrate_columns`,
+        but `boards.csv` has no equivalent, and a stranded `.tmp` holds the only copy of the carried rows.
+        A rotation that cannot
+        run writes its own line and leaves every file as it was; either way the caller then appends this
+        poll's rows, because a sample is never worth losing to housekeeping.
+        """
+        if not self.max_bytes:
+            return
+        recovered = _promote_orphan_tmp(path)      # a rotation of THIS file interrupted by a crash
+        if recovered and self.events:
+            self.events.write("service: " + recovered)
+        if not path.is_file() or path.stat().st_size < self.max_bytes:
+            return
+        note = rotate(path, self.keep_hours)
+        if note and self.events:
+            self.events.write("service: " + note)
+
     def _append(self, row):
         self.csv_path.parent.mkdir(parents=True, exist_ok=True)
+        self._rotate_if_full(self.csv_path)
         new = not self.csv_path.exists() or self.csv_path.stat().st_size == 0
         with open(self.csv_path, "a", encoding="utf-8", newline="") as f:
             if new:

@@ -738,6 +738,13 @@ const tests = {
     assert.deepStrictEqual(app.presetList(s, { plan_names: null }).map(p => p.name), [null, null]);
     assert.deepStrictEqual(app.presetList(s), app.presetList(s, undefined));             // no profile at all: today's exact shape, no name key
   },
+  "logLine: the Service line says how big log.csv is and what will rotate it"() {
+    assert.strictEqual(app.logLine({ log: { bytes: 8825000, max_mb: 25 } }), " · log 8.4 of 25 MB");
+    assert.strictEqual(app.logLine({ log: { bytes: 8825000, max_mb: 0 } }), " · log 8.4 MB, no cap");
+    assert.strictEqual(app.logLine({ log: { bytes: 0, max_mb: 25 } }), " · log 0.0 of 25 MB");
+    assert.strictEqual(app.logLine({}), "");            // an older service, before the log block
+    assert.strictEqual(app.logLine(null), "");
+  },
 };
 
 let failed = 0;
