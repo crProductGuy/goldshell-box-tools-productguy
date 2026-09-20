@@ -2121,3 +2121,18 @@ feature-complete, which is after gate 3.
 60.5 GB against a 60.6 GB limit, with 8.4 GB of it in nonpaged kernel pool after about 39 days of uptime. The rerun,
 one module at a time under a timeout so a memory failure would show per module, was green: 409 Python, then 411
 with the two new tests across the modules the fix touches, and 66 Node.
+
+**Later the same evening: merged, restarted, and gate 3 planned.** Mark's answers, verbatim: "1. yes, merge and
+restart; 2. keep it 3. yes size cap is OK. yes, hold the security pass." The whole suite ran once more on the final
+branch (411 Python, 66 Node), main was fast-forwarded, and the live service was restarted by the pid its own pid
+file and the port's listener agreed on. About fifteen seconds down. The proof of the restart could not be the
+version string, which stays 0.7.4 until gate 3, so it was the new start time, the log header migrated to 27
+columns, `/api/boards` answering, and the absence of a "port 4028 closed" line: the SC-BOX is now read over 4028.
+
+The "yes" to question 3 bought one read of the SC-BOX, timed between two polls: `/mcb/status` answers with no
+token and carries the model string. So `gbox discover` needs no credential at all. The agent lost the first
+reply's body to a path slip between two shells and said so before making a second single read. On rotation, Mark
+chose a size cap over monthly files. The agent then changed the simple version it had offered: a bare rename would
+blank the 24-hour charts and the trials table at the moment of rotation, so the plan carries the last 72 hours into
+the new file, which needs no reader changes. That change is flagged in the plan for Mark, along with the one open
+number, the default cap. Not pushed; the page checks still wait for a browser on this machine.
