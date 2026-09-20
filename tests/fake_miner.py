@@ -70,6 +70,7 @@ class FakeMiner:
         self.restarts = 0
         self.logins = 0
         self.requests = []                      # (method, path) in arrival order
+        self.seen_headers = []                  # (method, path, the Authorization header or None)
         self.unauthorized_next = 0              # answer 401 to this many upcoming authed requests
         self.in_flight = 0
         self.max_in_flight = 0
@@ -114,6 +115,7 @@ class FakeMiner:
                     outer.in_flight += 1
                     outer.max_in_flight = max(outer.max_in_flight, outer.in_flight)
                     outer.requests.append((self.command, self.path.split("?")[0]))
+                    outer.seen_headers.append((self.command, self.path.split("?")[0], self.headers.get("Authorization")))
                 if outer.delay:
                     time.sleep(outer.delay)
 
