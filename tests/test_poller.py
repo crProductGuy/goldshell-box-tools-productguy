@@ -1,5 +1,6 @@
 """Poller and config: one sample to CSV, error rows, config round trip."""
 import csv
+import datetime
 import json
 import os
 import tempfile
@@ -725,3 +726,134 @@ class ConfigTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RotateTest(unittest.TestCase):
+    """`rotate`: cap a growing log, keep the recent rows in place, archive the whole old file as .1.
+
+    Nothing here touches ~/.gbox. Every test works in a temp directory and passes an explicit `now`,
+    so no test depends on the clock.
+    """
+
+    STAMP = "%Y-%m-%d %H:%M:%S"
+    LF = chr(10)
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.data = Path(self.tmp.name)
+        self.csv = self.data / "log.csv"
+        self.archive = self.data / "log.csv.1"
+        self.carried = self.data / "log.csv.tmp"
+        self.now = datetime.datetime(2026, 9, 19, 12, 0, 0)
+
+    def stamp(self, age_hours):
+        return (self.now - datetime.timedelta(hours=age_hours)).strftime(self.STAMP)
+
+    def write_log(self, ages, header=None, junk=()):
+        """A log with one row per age in `ages` (hours before `self.now`), plus any `junk` lines verbatim."""
+        head = header if header is not None else ",".join(poller.COLUMNS)
+        blanks = "," * (len(head.split(",")) - 1)
+        lines = [head] + [self.stamp(a) + blanks for a in ages] + list(junk)
+        with open(self.csv, "w", encoding="utf-8", newline="") as f:
+            f.write(self.LF.join(lines) + self.LF)
+        return self.csv.read_bytes()
+
+    def body(self, path):
+        with open(path, encoding="utf-8", newline="") as f:
+            return [ln.strip() for ln in f if ln.strip()]
+
+    def test_rows_inside_the_window_are_carried_and_older_ones_are_not(self):
+        self.write_log([100, 80, 71, 10, 0.5])
+        self.assertTrue(poller.rotate(self.csv, 72, now=self.now))
+        rows = self.body(self.csv)[1:]
+        self.assertEqual([r.split(",")[0] for r in rows], [self.stamp(71), self.stamp(10), self.stamp(0.5)])
+
+    def test_a_little_more_than_the_window_is_carried_so_an_edge_reader_sees_whole_buckets(self):
+        """Carrying exactly keep_hours leaves the oldest bucket of a keep_hours reader half full.
+
+        Measured on a copy of the real 8.5 MB log: of 145 half-hour buckets over 72 h, exactly one
+        differed across a rotation, the oldest, 29 samples where it had been 60. The three-day errors
+        chart asks for exactly 72 h, so the margin is what keeps a rotation invisible.
+        """
+        margin = poller.CARRY_MARGIN_HOURS
+        self.assertGreater(margin, 0)
+        self.write_log([72 + margin + 1, 72 + margin - 0.5, 1])
+        poller.rotate(self.csv, 72, now=self.now)
+        kept = [r.split(",")[0] for r in self.body(self.csv)[1:]]
+        self.assertEqual(kept, [self.stamp(72 + margin - 0.5), self.stamp(1)])
+
+    def test_the_header_is_kept_verbatim_and_not_rewritten_to_the_current_columns(self):
+        self.write_log([1], header="time,http,elapsed")
+        poller.rotate(self.csv, 72, now=self.now)
+        self.assertEqual(self.body(self.csv)[0], "time,http,elapsed")
+
+    def test_the_whole_old_file_is_archived_byte_for_byte(self):
+        before = self.write_log([100, 1])
+        poller.rotate(self.csv, 72, now=self.now)
+        self.assertEqual(self.archive.read_bytes(), before)
+
+    def test_an_archive_from_an_earlier_rotation_is_replaced(self):
+        self.archive.write_bytes(b"an older archive")
+        before = self.write_log([1])
+        poller.rotate(self.csv, 72, now=self.now)
+        self.assertEqual(self.archive.read_bytes(), before)
+
+    def test_a_row_whose_time_cannot_be_read_is_dropped_from_the_carry_but_kept_in_the_archive(self):
+        self.write_log([1], junk=["not-a-time,,,", ",,,", "   "])
+        poller.rotate(self.csv, 72, now=self.now)
+        self.assertEqual([r.split(",")[0] for r in self.body(self.csv)[1:]], [self.stamp(1)])
+        self.assertIn("not-a-time", self.archive.read_text(encoding="utf-8"))
+
+    def test_a_window_that_holds_nothing_leaves_a_header_and_still_archives(self):
+        before = self.write_log([100, 90])
+        poller.rotate(self.csv, 72, now=self.now)
+        self.assertEqual(len(self.body(self.csv)), 1)
+        self.assertEqual(self.archive.read_bytes(), before)
+
+    def test_no_working_file_is_left_behind(self):
+        self.write_log([1])
+        poller.rotate(self.csv, 72, now=self.now)
+        self.assertFalse(self.carried.exists())
+
+    def test_the_note_names_the_row_count_the_window_and_the_archive(self):
+        self.write_log([100, 100, 1])
+        note = poller.rotate(self.csv, 72, now=self.now)
+        self.assertIn("log.csv.1", note)
+        self.assertIn("1 row", note)
+        self.assertIn("72", note)
+
+    def test_a_missing_file_is_nothing_to_do(self):
+        self.assertFalse(poller.rotate(self.csv, 72, now=self.now))
+
+    def test_an_empty_file_is_nothing_to_do(self):
+        self.csv.write_bytes(b"")
+        self.assertFalse(poller.rotate(self.csv, 72, now=self.now))
+
+    def test_an_os_error_leaves_every_file_exactly_as_it_was(self):
+        """A reader holding log.csv open is a PermissionError on Windows. Standing a directory in the
+        working file's place is the portable way to provoke the same class of failure."""
+        before = self.write_log([100, 1])
+        self.carried.mkdir()
+        note = poller.rotate(self.csv, 72, now=self.now)
+        self.assertIn("deferred", note)
+        self.assertEqual(self.csv.read_bytes(), before)
+        self.assertFalse(self.archive.exists())
+
+    def test_a_rotation_interrupted_between_the_two_moves_is_finished_at_start(self):
+        """The crash window: log.csv has become .1 and the carried rows are still in .tmp."""
+        self.write_log([100, 1])
+        poller.rotate(self.csv, 72, now=self.now)
+        carried = self.csv.read_bytes()
+        self.csv.replace(self.carried)              # back into the crash state
+        self.assertFalse(self.csv.exists())
+        note = poller.migrate_columns(self.csv)
+        self.assertTrue(note)
+        self.assertEqual(self.csv.read_bytes(), carried)
+        self.assertFalse(self.carried.exists())
+
+    def test_a_working_file_beside_a_healthy_log_is_left_alone(self):
+        self.write_log([1])
+        self.carried.write_bytes(b"stale")
+        poller.migrate_columns(self.csv)
+        self.assertEqual(self.carried.read_bytes(), b"stale")
