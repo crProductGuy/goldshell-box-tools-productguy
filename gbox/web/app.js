@@ -222,7 +222,15 @@ function fanRange(setting) {
   const t = Array.isArray(setting.temp_targets) && setting.temp_targets.length >= 2 ? setting.temp_targets : [65, 75];
   return { min: t[0], max: t[1], current: setting.temp_target === undefined ? null : setting.temp_target };
 }
+// "65 °C", or null on a firmware whose settings carry no fan target (the SC5 Pro II's `mcb/setting` has no
+// `temp_target`). Decided on what the unit wrote, not on the model table, as the plan dialect is.
+function fanTargetText(setting) {
+  const v = setting && setting.temp_target;
+  if (v === null || v === undefined || v === "" || !Number.isFinite(Number(v))) return null;
+  return Number(v) + " °C";
+}
 function fanTargetRequest(setting, temp) {
+  if (fanTargetText(setting) === null) throw new Error("this firmware has no fan target to set");
   const range = fanRange(setting);
   if (typeof temp !== "number" || !Number.isInteger(temp) || temp < range.min || temp > range.max)
     throw new Error("fan target must be a whole number between " + range.min + " and " + range.max + " C on this firmware");
@@ -750,7 +758,7 @@ if (typeof module !== "undefined") module.exports = { VERSION, hottestChip, cloc
   powerActionRequest, holdRequest, holdReleaseRequest, holdLine, seriesRows, errorTip, resetsTip, clockTip, axisTicks, parseStamp, errorFacts, markerWords,
   markerGlyph, markerRow, dropClose, markerKind, markerTitle, chartKey, powerLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf, alarmBucket, resetsSuffix, profileFor, modelNote,
   powerTile, envRowsFrom, lastHour, recentHashrate, interventions, interventionCounts,
-  parseMinerInfoBoards, boardTotals, boardRow, hottestIndex, fmtNum, fansTileText, hotsubText };
+  parseMinerInfoBoards, boardTotals, boardRow, hottestIndex, fmtNum, fansTileText, hotsubText, fanTargetText };
 
 // ---- presentation (skipped under Node, where the data layer above is unit-tested) ----
 if (typeof document !== "undefined") {
@@ -963,7 +971,8 @@ function render(d) {
   const rated = ratedFor(lastModel), fanMaxRpm = rated && rated.fan_max_rpm;
   const ft = fansTileText(info.fans && info.fans.length ? info.fans : [info.fan0, info.fan1], fanPct, fanMaxRpm);
   $("fans").textContent = ft.value;
-  $("fansub").innerHTML = ft.sub + " · target <b class=\"v2\">" + Number(setting.temp_target) + " °C</b>";
+  const target = fanTargetText(setting);
+  $("fansub").innerHTML = ft.sub + (target ? " · target <b class=\"v2\">" + target + "</b>" : "");
   $("accepted").textContent = fmt(info.accepted); $("rejected").textContent = "rejected " + fmt(info.rejected);
   const planText = setting.manual ? setting.manualPowerplan : "preset " + setting.select;
   $("clock").textContent = fmt(info.clock) + " MHz"; $("plan").textContent = "plan " + planText;
@@ -977,7 +986,7 @@ function render(d) {
   const dl = $("info"); dl.innerHTML = "";
   [["model", status.model], ["firmware", status.firmware], ["hardware", status.hardware], ["controller", status.mcbversion],
    ["power plan", planText + (setting.manual ? " (manual)" : "")],
-   ["fan target temp", setting.temp_target + " °C (steers on the board sensor, not the chips)"],
+   ["fan target temp", target ? target + " (steers on the board sensor, not the chips)" : "none on this firmware"],
    ["boards / chips", d.boards.length + " / " + chips.length],
    ["overheat shutdown", setting.tempcontrol === undefined ? "—" : (setting.tempcontrol ? "on" : "OFF (the firmware will not stop the miner when it overheats)")],
    ["uptime", upText], ["overheat flag", info.overheat]]
@@ -1406,6 +1415,8 @@ function renderControls(setting) {
   const cr = clockRange(setting), fr = fanRange(setting);
   fillSelect($("clocksel"), rangeList(cr.min, cr.max, cr.step), cr.current, v => v + " MHz" + (v === cr.current ? " (now)" : ""));
   fillSelect($("fansel"), rangeList(fr.min, fr.max, 1), fr.current, v => v + " °C" + (v === fr.current ? " (now)" : ""));
+  const fanCtrl = $("fansel").closest(".ctrl");
+  if (fanCtrl) fanCtrl.hidden = fanTargetText(setting) === null;   // no control for a setting the unit does not have
   const presets = presetList(setting, profileFor(lastModel)), sel = $("presetsel");
   fillSelect(sel, presets.map(p => p.level), setting.select,
     lvl => { const p = presets.find(q => q.level === lvl); return "preset " + lvl + ": " + (p.name ? p.name + " (" + p.info + ")" : p.info) + (p.unverified ? " (unverified)" : "") + (!setting.manual && lvl === setting.select ? " (now)" : ""); });

@@ -695,6 +695,15 @@ const tests = {
     assert.ok(Math.abs(info.wattsDc - 3042.4275) < 1e-6, info.wattsDc);
     assert.ok(Math.abs(info.mhsAv - 14021719.646) < 1e-6, info.mhsAv);
   },
+  "fanTargetText: a firmware with no temp_target (the SC5 Pro II) gets no target text, never NaN or undefined"() {
+    const sc5 = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "sc5proii", "mcb_setting.json"), "utf8"));
+    assert.strictEqual(sc5.temp_target, undefined);                       // the fixture is the premise
+    assert.strictEqual(app.fanTargetText(sc5), null);
+    assert.strictEqual(app.fanTargetText({ temp_target: 65 }), "65 °C");
+    assert.strictEqual(app.fanTargetText({ temp_target: "70" }), "70 °C");
+    for (const v of [null, "", "x", NaN]) assert.strictEqual(app.fanTargetText({ temp_target: v }), null);
+    assert.throws(() => app.fanTargetRequest(sc5, 70), /no fan target/);   // the button must not write a field the unit lacks
+  },
   "fansTileText: two fans with a known fan_max_rpm show the duty-cycle percent; the SC5 Pro II's four fans (no fan_max_rpm) never claim a percent"() {
     assert.deepStrictEqual(app.fansTileText([3120, 3060], 72, 4900), { value: "72 % · 3,120 / 3,060", sub: "% · RPM fan0 / fan1" });
     assert.deepStrictEqual(app.fansTileText([3120, 3060], null, 4900), { value: "3,120 / 3,060", sub: "RPM fan0 / fan1" });
