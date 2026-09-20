@@ -30,6 +30,15 @@ The exact set and names of the page's sections have only been checked on an
 SC-BOX with the `MCB_V5` cloud-box firmware. If your model shows something
 else, the endpoint table in `firmware-api.md` is the authoritative list.
 
+The page also works on the larger units. On an SC5 Pro II (`MCB_V3_3`,
+firmware 2.2.0) its owner reported the MINER, CHIPS and MINERSYSLOG tabs
+working when logged in, and on 2026-09-15 `/dbg/minerinfo` behind it
+answered 200 to the browser and to `curl`, with four `[PGAn]` blocks, one
+per hashboard. Another developer's SC Lite notes describe a "debug lock" on
+these endpoints. No unit gbox has data from has shown one; a single 401 on
+a `/dbg/` request is the token race described in `firmware-api.md`, and a
+retry clears it.
+
 ## Two cautions
 
 - **The page is heavy on the miner.** Each `/dbg/` file is regenerated on
