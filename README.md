@@ -63,6 +63,18 @@ and the firmware wants one caller at a time; `--include-configured` asks it
 anyway, and is for when the service is stopped. The command exits 1 when it
 finds nothing.
 
+`gbox discover` works out which network to sweep by reading this machine's own
+interface table, and it is careful about it. The range comes from the adapter,
+prefix and all, so a /22 LAN is swept as a /22 rather than assumed to be a /24.
+A VPN or other tunnel is never used to pick a range, however private its
+addresses look, and neither is a 169.254 address (that is the OS saying DHCP
+never answered, so there is nothing on that wire) or an adapter whose cable is
+out. If this machine is on two networks at once it says so and asks you to pick
+with `--subnet` rather than guessing. If the whole network is unreachable it
+says that too, and exits 2, so you are not left looking for a miner when the
+problem is the switch. `--subnet` overrides the choice but not the rules: a
+public range, a link-local range or a range carried by a tunnel is refused.
+
 Open the dashboard, log in once with the miner's web UI password. The page
 keeps only the session token, in your browser, and hands it to the local
 service so the logger and watchdog can run without a password on disk. If the

@@ -5,8 +5,9 @@ every case, and `targets_for` is exercised on its arithmetic, never probed.
 """
 import ipaddress
 import unittest
+from pathlib import Path
 
-from gbox import discover
+from gbox import discover, netiface
 from tests.fake_miner import FakeMiner
 
 DEAD = "127.0.0.1:1"          # nothing listens on port 1
@@ -160,7 +161,7 @@ class PrivateNetworksOnlyTest(unittest.TestCase):
     to somebody else's network from the operator's own address."""
 
     def test_the_private_ranges_a_home_lan_uses_are_allowed(self):
-        for cidr in ("192.168.8.0/24", "10.1.2.0/24", "172.16.9.0/24", "127.0.0.0/24", "169.254.7.0/24"):
+        for cidr in ("192.168.8.0/24", "10.1.2.0/24", "172.16.9.0/24", "127.0.0.0/24"):
             self.assertTrue(discover.targets_for(cidr))
 
     def test_a_public_range_is_refused_and_the_message_says_why(self):
@@ -223,47 +224,89 @@ class RedirectTest(unittest.TestCase):
         self.assertEqual(self.seen, ["/mcb/status"])       # asked once, and nothing was chased
 
 
-class LocalSubnetChoiceTest(unittest.TestCase):
-    """Which network a bare `gbox discover` sweeps.
+class LocalSubnetIsReadFromTheOsTest(unittest.TestCase):
+    """`local_subnet` no longer decides anything: it asks `netiface`, which reads the OS.
 
-    A VPN client owns the default route, so the routed address belongs to the provider and is public.
-    Sweeping it would send one request per address into somebody else's network through the tunnel.
-    Real on the machine this was built on: the route named a VPN provider's public address while
-    the miner was on a private LAN.
+    The route-based version this replaces asked the default route which network to sweep, and on a
+    machine running a VPN client the default route is the tunnel. The rules now live in netiface and
+    are tested there; what matters here is that discover delegates and does not second-guess.
     """
 
-    def patch(self, routed, private):
-        self.addCleanup(setattr, discover, "_routed_address", discover._routed_address)
-        self.addCleanup(setattr, discover, "private_addresses", discover.private_addresses)
-        discover._routed_address = lambda: routed
-        discover.private_addresses = lambda: list(private)
+    def use(self, rows):
+        self.addCleanup(setattr, netiface, "interfaces", netiface.interfaces)
+        netiface.interfaces = lambda: rows
 
-    def test_a_private_route_is_the_answer(self):
-        self.patch("192.168.8.182", ["10.0.0.5"])
-        self.assertEqual(discover.local_subnet(), "192.168.8.0/24")
+    def test_it_returns_what_the_interface_table_says_prefix_and_all(self):
+        self.use([{"name": "Ethernet", "address": "192.168.52.9", "prefixlen": 22, "medium": "802.3"}])
+        self.assertEqual(discover.local_subnet(), "192.168.52.0/22")
 
-    def test_a_vpn_route_is_discarded_for_this_machines_own_private_address(self):
-        self.patch("93.184.216.70", ["192.168.8.182"])
-        self.assertEqual(discover.local_subnet(), "192.168.8.0/24")
+    def test_a_tunnel_is_never_the_answer_even_carrying_a_private_address(self):
+        self.use([
+            {"name": "tun0", "address": "10.8.0.6", "prefixlen": 24, "medium": ""},
+            {"name": "Ethernet", "address": "192.168.50.7", "prefixlen": 24, "medium": "802.3"},
+        ])
+        self.assertEqual(discover.local_subnet(), "192.168.50.0/24")
 
-    def test_with_no_private_address_anywhere_it_asks_for_a_subnet_rather_than_guessing(self):
-        self.patch("93.184.216.70", [])
+    def test_no_lan_asks_for_a_subnet_rather_than_guessing(self):
+        self.use([{"name": "Ethernet", "address": "169.254.9.9", "prefixlen": 16, "medium": "802.3"}])
         with self.assertRaises(ValueError) as e:
             discover.local_subnet()
         self.assertIn("--subnet", str(e.exception))
 
-    def test_a_link_local_address_is_the_last_resort_not_the_first_choice(self):
-        """Windows hands 169.254.x to every idle adapter; none of them is ever the miner's network."""
-        self.patch("93.184.216.70", ["192.168.8.182"])
-        self.assertEqual(discover.local_subnet(), "192.168.8.0/24")
-        ordered = discover.private_addresses
-        discover.private_addresses = lambda: ["169.254.7.1"]
-        self.assertEqual(discover.local_subnet(), "169.254.7.0/24")
-        discover.private_addresses = ordered
+    def test_nothing_in_discover_reaches_for_the_route_table_any_more(self):
+        source = Path(discover.__file__).read_text(encoding="utf-8")
+        for banned in ("SOCK_DGRAM", "getsockname", "gethostname", "getaddrinfo", "_routed_address"):
+            self.assertNotIn(banned, source)
 
-    def test_this_machines_real_addresses_are_read_without_probing_anything(self):
-        for addr in discover.private_addresses():
-            self.assertTrue(ipaddress.IPv4Address(addr).is_private)
+
+class SweepRefusesTunnelsAndDeadNetworksTest(unittest.TestCase):
+    """Two refusals that matter more than any hit: never sweep a tunnel, and say when the LAN is gone."""
+
+    def use(self, rows):
+        self.addCleanup(setattr, netiface, "interfaces", netiface.interfaces)
+        netiface.interfaces = lambda: rows
+
+    def test_an_explicit_subnet_that_belongs_to_a_tunnel_is_refused(self):
+        """Not even on request. The range belongs to the far end of the VPN, not to this network."""
+        self.use([{"name": "tun0", "address": "10.8.0.6", "prefixlen": 24, "medium": ""}])
+        with self.assertRaises(ValueError) as e:
+            discover.targets_for("10.8.0.0/24")
+        said = str(e.exception)
+        self.assertIn("tunnel", said)
+        self.assertIn("not a LAN", said)
+
+    def test_a_link_local_subnet_is_refused_however_it_is_asked_for(self):
+        for cidr in ("169.254.0.0/16", "169.254.7.0/24", "169.254.7.5/32"):
+            with self.assertRaises(ValueError) as e:
+                discover.targets_for(cidr)
+            self.assertIn("DHCP", str(e.exception))
+
+    def test_a_sweep_where_every_address_is_unreachable_says_the_network_is_down(self):
+        """The machine with its cable out: every probe fails at once, and "no miner found" would be
+        the wrong answer -- it would send the owner looking at a miner that is probably fine."""
+        self.addCleanup(setattr, discover, "_probe", discover._probe)
+        discover._probe = lambda addr, timeout=None: ("down", None)
+        with self.assertRaises(discover.NetworkDown) as e:
+            discover.sweep(["192.168.50.%d" % i for i in range(1, 20)], timeout=0.1)
+        said = str(e.exception)
+        self.assertIn("not reachable", said)
+        self.assertIn("19 addresses", said)
+
+    def test_one_unreachable_address_among_misses_is_just_a_miss(self):
+        """A single dead host is ordinary. Only a network that is entirely absent is an error."""
+        answers = {"192.168.50.1": ("down", None)}
+        self.addCleanup(setattr, discover, "_probe", discover._probe)
+        discover._probe = lambda addr, timeout=None: answers.get(addr, ("miss", None))
+        self.assertEqual(discover.sweep(["192.168.50.1", "192.168.50.2"], timeout=0.1), [])
+
+    def test_a_hit_beside_unreachable_addresses_is_still_returned(self):
+        hit = {"address": "192.168.50.5", "model": "Goldshell-SCBox"}
+        self.addCleanup(setattr, discover, "_probe", discover._probe)
+        discover._probe = lambda addr, timeout=None: ("hit", hit) if addr.endswith(".5") else ("down", None)
+        self.assertEqual(discover.sweep(["192.168.50.4", "192.168.50.5"], timeout=0.1), [hit])
+
+    def test_the_network_down_error_is_a_value_error_so_the_cli_exits_cleanly(self):
+        self.assertTrue(issubclass(discover.NetworkDown, ValueError))
 
 
 if __name__ == "__main__":

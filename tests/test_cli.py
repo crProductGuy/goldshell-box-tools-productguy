@@ -449,6 +449,77 @@ class DiscoverCommandTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("sweeping 10.9.9.0/24, 254 addresses, one request each", text.splitlines()[0])
 
+    def lan(self, rows):
+        """Stand in for the OS interface table, so no test here depends on this machine's network."""
+        from gbox import netiface
+        self.addCleanup(setattr, netiface, "interfaces", netiface.interfaces)
+        netiface.interfaces = lambda: rows
+
+    def test_the_sweep_line_names_the_interface_the_range_came_from(self):
+        """The range is the adapter's own, so say which adapter: it is how an operator spots a sweep
+        pointed at the wrong network before a single request goes out."""
+        from gbox import discover as discovermod
+        self.lan([{"name": "Ethernet", "address": "192.168.77.5", "prefixlen": 24, "medium": "802.3"}])
+        self.addCleanup(setattr, discovermod, "sweep", discovermod.sweep)
+        discovermod.sweep = lambda *a, **k: []
+        text, code = self.run_cli("discover")
+        self.assertEqual(code, 1)
+        self.assertIn("sweeping 192.168.77.0/24 (Ethernet), 254 addresses, one request each",
+                      text.splitlines()[0])
+
+    def test_the_prefix_is_the_adapters_own_not_a_24(self):
+        from gbox import discover as discovermod
+        self.lan([{"name": "Ethernet", "address": "192.168.76.5", "prefixlen": 22, "medium": "802.3"}])
+        self.addCleanup(setattr, discovermod, "sweep", discovermod.sweep)
+        discovermod.sweep = lambda *a, **k: []
+        text, _ = self.run_cli("discover")
+        self.assertIn("192.168.76.0/22", text)
+        self.assertIn("1022 addresses", text)
+
+    def test_no_lan_is_an_error_that_says_what_the_os_reported(self):
+        """Cable out: every adapter holds a 169.254 address and there is nothing to sweep."""
+        self.lan([{"name": "Ethernet", "address": "169.254.9.9", "prefixlen": 16, "medium": "802.3"}])
+        text, code = self.run_cli("discover")
+        self.assertEqual(code, 1)
+        self.assertIn("169.254.0.0/16", text)
+        self.assertIn("--subnet", text)
+
+    def test_a_network_that_is_entirely_unreachable_exits_2_not_1(self):
+        """Exit 1 means no miner answered. A missing network is a different fact and a different code,
+        so a script does not read 'the miner is gone' when the truth is 'the switch is off'."""
+        from gbox import discover as discovermod
+        self.lan([{"name": "Ethernet", "address": "192.168.77.5", "prefixlen": 24, "medium": "802.3"}])
+        self.addCleanup(setattr, discovermod, "_probe", discovermod._probe)
+        discovermod._probe = lambda addr, timeout=None: ("down", None)
+        text, code = self.run_cli("discover")
+        self.assertEqual(code, 2)
+        self.assertIn("not reachable", text)
+
+    def test_a_configured_miner_on_another_segment_is_said_out_loud(self):
+        from gbox import discover as discovermod
+        self.configure("10.20.30.40")
+        self.lan([{"name": "Ethernet", "address": "192.168.77.5", "prefixlen": 24, "medium": "802.3"}])
+        self.addCleanup(setattr, discovermod, "sweep", discovermod.sweep)
+        discovermod.sweep = lambda *a, **k: []
+        text, _ = self.run_cli("discover")
+        self.assertIn("is not on 192.168.77.0/24", text)
+        self.assertIn("--subnet", text)
+
+    def test_a_configured_miner_on_this_lan_draws_no_such_note(self):
+        from gbox import discover as discovermod
+        self.configure("192.168.77.40")
+        self.lan([{"name": "Ethernet", "address": "192.168.77.5", "prefixlen": 24, "medium": "802.3"}])
+        self.addCleanup(setattr, discovermod, "sweep", discovermod.sweep)
+        discovermod.sweep = lambda *a, **k: []
+        text, _ = self.run_cli("discover")
+        self.assertNotIn("is not on", text)
+
+    def test_an_explicit_subnet_that_is_a_tunnel_is_refused_by_the_command(self):
+        self.lan([{"name": "tun0", "address": "10.8.0.6", "prefixlen": 24, "medium": ""}])
+        text, code = self.run_cli("discover", "--subnet", "10.8.0.0/24")
+        self.assertEqual(code, 1)
+        self.assertIn("tunnel", text)
+
     def test_a_hit_is_one_line_carrying_the_address_model_name_and_firmware(self):
         text, code = self.run_cli("discover", "--target", self.fm.address, "--timeout", "5")
         self.assertEqual(code, 0)
