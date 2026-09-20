@@ -2136,3 +2136,16 @@ chose a size cap over monthly files. The agent then changed the simple version i
 blank the 24-hour charts and the trials table at the moment of rotation, so the plan carries the last 72 hours into
 the new file, which needs no reader changes. That change is flagged in the plan for Mark, along with the one open
 number, the default cap. Not pushed; the page checks still wait for a browser on this machine.
+
+**The page checks, once a browser on this machine was connected.** Mark: "push it; 72h carry-over and 25 MB are
+fine. Chrome is running. check it first to verify you can control it." Pushed. Three browsers were connected and
+the session still pointed at one on another machine; the one Windows browser was selected on Mark's instruction
+and confirmed by device id and by the page reporting its own platform, because the tool's reply named it
+"Browser 1", the label the Mac had carried a moment earlier. Both checks were done as DOM reads, no screenshots.
+The live SC-BOX page passed: boards table hidden, two fans, plug watts, no stray NaN. The scratch SC5 Pro II page
+passed on boards, fans, the DC power figure and the plan names, and failed on something nobody had listed: the
+unit's settings carry no fan target, and the page printed "target NaN °C", "undefined °C", and offered a working
+"set target" button that would have written a field the firmware lacks. Fixed on the data the unit wrote, not the
+model table, and checked again in the real page. Second defect of the evening found only by running the thing
+against the fixtures as they are; both had green suites above them. Left on branch `sc5-no-target` for Mark's
+word, since merging web files changes the live dashboard at once.
