@@ -407,6 +407,23 @@ class ClassifySyslogTest(unittest.TestCase):
             rows, last = api.classify_syslog(junk)
             self.assertIsInstance(rows, list)
 
+    def test_a_timestamp_that_is_not_a_real_ascii_date_is_skipped(self):
+        # security pass: \d matched Unicode digits and nothing checked the date, so both reached minerlog.csv
+        arabic = "٢٠٢٦-٠٩-٢٠ ١٢:٠٠:٠٠"
+        for stamp in ("9999-99-99 99:99:99", arabic):
+            rows, last = api.classify_syslog(" [%s] C0: Init failed 5 Times\n" % stamp)
+            self.assertEqual((rows, last), ([], None), stamp)
+
+    def test_a_line_stamped_after_the_logs_own_last_line_is_skipped(self):
+        # a clock glitch into the future would otherwise become the cursor, and every later read would skip,
+        # reset and re-count
+        text = (" [2026-09-21 05:40:00] C0: Init failed 5 Times\n"
+                " [2099-01-01 00:00:00] C0: BistStart err\n"
+                " [2026-09-21 05:40:01] C0: Init failed 5 Times\n")
+        rows, last = api.classify_syslog(text)
+        self.assertEqual([(label, count) for label, count, _, _ in rows], [("init_failed", 2)])
+        self.assertEqual(last, "2026-09-21 05:40:01")
+
     def test_a_very_long_line_is_classified_without_backtracking(self):
         import time
         line = " [2026-09-21 05:13:23] Pool 0 " + "stratum+tcp://" * 200000 + " not quite\n"

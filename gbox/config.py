@@ -11,6 +11,7 @@ password-equivalent (see docs/firmware-api.md), so the file is created with
 owner-only permissions where the platform supports them.
 """
 import json
+import math
 import os
 import stat
 from pathlib import Path
@@ -139,7 +140,8 @@ class Config:
         if self.syslog_interval != 0 and self.syslog_interval < MIN_SYSLOG_INTERVAL:
             raise ValueError("syslog_interval must be 0 (off) or at least %d seconds" % MIN_SYSLOG_INTERVAL)
         absent = self.watchdog.get("absent_minutes")
-        if isinstance(absent, bool) or not isinstance(absent, (int, float)) or absent < 0 or 0 < absent < 1:
+        if (isinstance(absent, bool) or not isinstance(absent, (int, float)) or not math.isfinite(absent)
+                or absent < 0 or 0 < absent < 1):
             raise ValueError("watchdog.absent_minutes must be 0 (off) or at least 1")
         if self.board_source not in BOARD_SOURCES:
             raise ValueError("board_source must be one of: %s" % ", ".join(BOARD_SOURCES))

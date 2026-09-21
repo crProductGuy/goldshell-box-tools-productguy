@@ -1501,6 +1501,37 @@ class MinerLogTest(HottestChipPollerTest):
         self.assertLess(size, 150 + 200)
         self.assertEqual(sum("minerlog.csv" in l for l in lines), 1)
 
+    def test_moving_the_full_file_aside_starts_a_new_one(self):
+        # the cap's event says so; before the security pass nothing was written again until the service restarted
+        self.fm.syslog = self.incident()
+        p = self.poller()
+        p.minerlog_max_bytes = 150
+        p.poll_once()
+        path = self.csv.with_name("minerlog.csv")
+        self.fm.syslog += " [2026-09-21 06:00:00] C0: BistStart err\n"
+        self.now += 300
+        p.poll_once()                                            # full: nothing written
+        path.replace(path.with_name("minerlog-old.csv"))
+        self.fm.syslog += " [2026-09-21 06:05:00] C0: BistStart err\n"
+        self.now += 300
+        p.poll_once()
+        self.assertEqual([(r["label"], r["count"]) for r in self.minerlog()], [("bist_error", "1")])
+
+    def test_a_future_stamped_line_does_not_make_reads_repeat(self):
+        # security pass: a line stamped past the log's end used to become the cursor; the next read skipped
+        # everything, the one after re-counted the window, and the cycle repeated while the line stayed
+        self.fm.syslog = (" [2026-09-21 05:40:00] C0: Init failed 5 Times\n"
+                          " [2099-01-01 00:00:00] C0: Init failed 5 Times\n"
+                          " [2026-09-21 05:40:01] C0: Init failed 5 Times\n")
+        p = self.poller()
+        p.poll_once()
+        for m in range(1, 4):
+            self.fm.syslog += " [2026-09-21 05:4%d:00] C0: BistStart err\n" % m
+            self.now += 300
+            p.poll_once()
+        self.assertEqual([(r["label"], r["count"]) for r in self.minerlog()],
+                         [("init_failed", "2"), ("bist_error", "1"), ("bist_error", "1"), ("bist_error", "1")])
+
     def test_a_miner_clock_that_went_back_is_picked_up_on_the_next_read(self):
         self.fm.syslog = self.incident()
         p = self.poller()
