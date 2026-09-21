@@ -336,3 +336,88 @@ class SC5ProIIFixtureTest(unittest.TestCase):
         from tests.fake_miner import FakeMiner
         with FakeMiner(fixtures="sc5proii") as fm:
             self.assertIsNone(fm.devs4028_port)
+
+
+class ClassifySyslogTest(unittest.TestCase):
+    """0.9.0: the non-routine lines of the miner's log as labels and counts, never as text.
+
+    The fixture is synthetic, written from the line shapes of the 2026-09-20 incident; its pool user and
+    token are invented. The miner truncates its own log (3.8 MB to 36 KB that evening, with no restart), so
+    what is not kept at the five-minute read is gone by the time anyone asks.
+    """
+
+    EXPECTED = {
+        "process_started": 2, "init_succeeded": 4, "init_failed": 2, "chip_write_failed": 3,
+        "reg_read_error": 2, "bist_error": 1, "sendjob_reinit": 2, "readnonce_reinit": 1,
+        "addressing_failed": 2, "set_clock_failed": 1, "clock_nan": 1, "tsensor_failed": 2,
+        "pool_not_responding": 1, "stratum_interrupted": 1, "fatal_exit": 1, "thread_shutdown": 1,
+        "invalid_nonce": 1, "cpb_idle": 2, "settings_applied": 1, "other": 1,
+    }
+
+    def setUp(self):
+        self.text = fixture("dbg_minersyslog_incident.txt")
+
+    def test_every_label_is_counted_and_routine_lines_are_not(self):
+        rows, last = api.classify_syslog(self.text)
+        self.assertEqual({label: count for label, count, _, _ in rows}, self.EXPECTED)
+        self.assertEqual(last, "2026-09-21 05:33:45")            # the newest line of any kind, routine or not
+
+    def test_each_row_carries_the_first_and_last_miner_timestamp(self):
+        rows = {label: (first, newest) for label, _, first, newest in api.classify_syslog(self.text)[0]}
+        self.assertEqual(rows["chip_write_failed"], ("2026-09-21 05:13:23", "2026-09-21 05:14:45"))
+        self.assertEqual(rows["fatal_exit"], ("2026-09-21 05:27:50", "2026-09-21 05:27:50"))
+
+    def test_rows_come_in_the_order_each_label_first_appeared(self):
+        labels = [label for label, _, _, _ in api.classify_syslog(self.text)[0]]
+        self.assertEqual(labels[0], "process_started")
+        self.assertLess(labels.index("chip_write_failed"), labels.index("fatal_exit"))
+
+    def test_nothing_of_the_log_text_comes_back(self):
+        self.assertIn("inventedPoolUser", self.text)
+        rows, last = api.classify_syslog(self.text)
+        flat = repr(rows) + repr(last)
+        for leak in ("inventedPoolUser", "rig7", "Zm9vYmFy", "example.invalid", "intminer", "5.4.2"):
+            self.assertNotIn(leak, flat)
+        for label, count, first, newest in rows:
+            self.assertIn(label, api.SYSLOG_LABELS + ("other",))
+            self.assertIsInstance(count, int)
+            self.assertRegex(first, r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$")
+            self.assertRegex(newest, r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$")
+
+    def test_after_keeps_only_newer_lines(self):
+        rows, last = api.classify_syslog(self.text, after="2026-09-21 05:28:00")
+        self.assertEqual({label: count for label, count, _, _ in rows},
+                         {"process_started": 1, "init_succeeded": 2, "invalid_nonce": 1, "readnonce_reinit": 1})
+        self.assertEqual(last, "2026-09-21 05:33:45")
+        rows, last = api.classify_syslog(self.text, after="2026-09-21 05:33:45")
+        self.assertEqual(rows, [])
+        self.assertIsNone(last)                                  # nothing newer: the caller keeps its cursor
+
+    def test_first_minutes_looks_back_from_the_newest_line_only(self):
+        rows, _ = api.classify_syslog(self.text, first_minutes=5)
+        self.assertEqual({label: count for label, count, _, _ in rows},
+                         {"init_succeeded": 1, "invalid_nonce": 1, "readnonce_reinit": 1})
+        # `after` wins when both are given: first_minutes is for the first read of a service's life
+        rows, _ = api.classify_syslog(self.text, after="2026-09-21 05:33:00", first_minutes=500)
+        self.assertEqual([label for label, _, _, _ in rows], ["readnonce_reinit", "init_succeeded"])
+
+    def test_garbage_is_no_rows_and_no_exception(self):
+        for junk in ("", "\x00\x01\x02" * 50, "[not a stamp] C0: Init failed 5 Times\n", "a" * 100000,
+                     " [2026-09-21 05:13:23]", " [2026-99-99 99:99:99] C0: Init failed 5 Times"):
+            rows, last = api.classify_syslog(junk)
+            self.assertIsInstance(rows, list)
+
+    def test_a_very_long_line_is_classified_without_backtracking(self):
+        import time
+        line = " [2026-09-21 05:13:23] Pool 0 " + "stratum+tcp://" * 200000 + " not quite\n"
+        t = time.perf_counter()
+        rows, _ = api.classify_syslog(line * 3)
+        self.assertLess(time.perf_counter() - t, 2.0)
+        self.assertEqual([(label, count) for label, count, _, _ in rows], [("other", 3)])
+
+    def test_the_older_real_capture_has_no_unknown_lines(self):
+        # 2026-09-15's sanitized capture: a failure line with no "C0: " prefix, and the start banner's pool line,
+        # which names the pool user and is routine (matched by its first words only; nothing of it is kept)
+        rows, _ = api.classify_syslog(fixture("dbg_minersyslog.txt"))
+        self.assertEqual([(label, count) for label, count, _, _ in rows],
+                         [("init_succeeded", 1), ("chip_write_failed", 1)])
