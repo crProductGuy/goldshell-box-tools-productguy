@@ -222,3 +222,36 @@ holds nine rules and the tests that enforce them. The headline ones:
 None of this needs the internet, and none of it resolves a name: a machine
 whose uplink is down still knows its own LAN, which is the only question being
 asked.
+
+## The miner's log is kept as labels, never as text (0.9.0)
+
+The miner truncates its own log within hours, so the service now keeps a
+summary of each read in `minerlog.csv`. The log repeats the pool user in its
+start banner, and on some pools the user is a wallet address. Two designs
+were on the table.
+
+**Mask and store the lines** (strip anything that looks like a user, a URL
+or a long token). That is a blacklist, and a blacklist fails open: the first
+line shape nobody anticipated is written to disk whole.
+
+**Match known shapes and store our own words.** This is what was built.
+`classify_syslog` holds a fixed table of line shapes. A line that matches
+becomes a label from that table, a count, and two timestamps made of digits
+the pattern matched. A line that matches nothing is counted as `other` and
+its text is dropped. No character of the miner's text can reach the file, a
+terminal or the event log, and a test feeds the classifier an invented user
+and token and asserts neither comes back.
+
+The input is megabytes of text from a device on the LAN, so the patterns
+are anchored at the start of the message, none nests a quantifier, and each
+sees only the first 200 characters of a line. The file stops growing at 5 MB
+and says so once in the event log; a device that floods its own log cannot
+fill the disk through it. A classifier failure is counted and costs neither
+the sample nor the temperature reading.
+
+The board-absent rule added in the same release is a new reason for an
+action the watchdog could already take (a soft restart), under the same
+daily cap and the same gap between restarts. It cannot cut power: the plug
+is considered for one reason only, a miner that is unreachable. A device
+that faked the signature could cost itself `max_restarts_per_day` restarts,
+which it could already do by freezing its share counter.

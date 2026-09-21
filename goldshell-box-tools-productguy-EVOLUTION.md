@@ -2424,3 +2424,49 @@ quicker trigger would have interrupted a self-healing miner twelve times out of 
 board-absent signature its own two-minute soft restart, because waiting there buys nothing. Worth about
 0.15 percent of uptime, which the agent said plainly is small. Added to the proposal as a candidate, to be
 built only on Mark's word, and kept a soft restart rather than a power cut.
+
+## 2026-09-20 late evening, session AC continued: 0.9.0 built on a branch, from the evening's own evidence
+
+**Mark's answers set the scope.** A separate file for the miner-log summary; build the board-absent rule,
+after the other two; and on the deliberate soft restart the plan wanted as a final check: "I'm ok with 1
+soft restart, but before you do it, I want data on what % of times a soft restart appeared to cause
+additional issues within the next 30 minutes (maybe not causation, but maybe more than coincidence?)". He
+also asked what the security pass would cost and whether it belonged in another session.
+
+**The data he asked for changed the plan.** All 17 soft restarts the miner actually received in 15 days,
+classified on the following half hour: 6 clean, 6 recovered and then had another issue, 5 got worse first,
+against a 0.7 percent baseline for healthy half hours. The agent said plainly that most of that gap is
+selection, since a restart is only sent to a miner already in trouble, and picked out the subset that
+speaks to cause: of 4 restarts sent while the board was still present, 3 lost the board. Small, but it
+matches the cold-start failure this unit already had on record. So the recommendation was not to restart a
+healthy miner to test a parser, and the release's done-when was written so that it does not need one. The
+same numbers shaped the rule: only a board that is already absent gets the shorter window, because that is
+the one class a restart never left worse off.
+
+**On the security pass:** small (one new untrusted input, one new reason for an action the watchdog could
+already take) and in a fresh session, which the working rules require anyway: the session that built it
+does not verify it.
+
+**What was built, test-first, one commit per task.** The voltage column, stored exactly as the firmware
+reports it because the SC-BOX's unit is undocumented. A classifier that turns the miner log's non-routine
+lines into labels from a fixed table, and a poller change that writes them to a small file from the read
+the service already makes, so the miner sees no new request. The board-absent rule, with the model profile
+deciding where it may fire: the SC-BOX alone, because resemblance to it is not evidence. A sibling model the
+table otherwise treats as identical was deliberately left out.
+
+**Found by building.** The classifier needed its own read cursor: with the board absent the miner writes
+failures and no temperatures, so the existing cursor never moves and every read would have re-counted the
+incident. The repository refused the first fixture's name, because an ignore rule exists to stop a real
+miner log being committed; the fixture was renamed to the existing convention and the guard left alone.
+The older real capture in the fixtures showed the start banner's pool line, the very line that carries
+the user, arriving as an unknown shape, which is the case the label design exists for. And the model table
+is mirrored in the page's script, with a test that keeps the two equal, so the new profile key had to land
+in both.
+
+**A correction the agent made to its own draft.** The proposal first called this a patch release. The
+repository's own rules say a log format change is a minor bump, so it is 0.9.0. An early draft also said
+five of six board-absent episodes followed a power cycle; the event log showed two.
+
+**Left for a fresh session:** re-verify, the one security pass, merge, tag, restart the service at Mark's
+word, and confirm a voltage value and a first label row on live data. Not merged, not pushed, service
+untouched.

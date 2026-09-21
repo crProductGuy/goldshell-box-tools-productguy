@@ -229,3 +229,76 @@ Verified 2026-09-08 on the SC-BOX, from the gbox log:
   self-recovery above. Power was back to 189 to 190 W on the first good
   sample. The 2 to 3 minutes the guide quotes is the conservative figure;
   a minute is what this unit does.
+
+## The miner's own log, `/dbg/minersyslog`
+
+Plain text, one line per event, each stamped `[YYYY-MM-DD HH:MM:SS]` by the
+miner's clock. Three things about it are easy to get wrong.
+
+- **The miner truncates it, and not at a restart.** On 2026-09-20 one read
+  returned 3.8 MB reaching back 33 hours; a read 2.5 hours later returned
+  36 KB that began 24 minutes earlier, with the mining process never having
+  restarted in between. Lines about an incident are gone within hours. Since
+  0.9.0 the service keeps a summary (`minerlog.csv`, below).
+- **Its clock is not yours.** On this SC-BOX it ran 12 hours ahead of local
+  time. The stamps are good for ordering lines and for nothing else.
+- **It repeats the pool user** in the start banner (`Pool 0 <url> user
+  <user>`). Nothing that reads it may store or print its text.
+
+What a healthy SC-BOX writes all day: `Chip Avgtemp` every 5 s, `Work
+restart!`, `scanhash workid`, the `=======>` line, `Accepted`, `Hash Scan
+finished`, `detected new block`, `Auto DTFS now check!!!` every 10 minutes,
+and at a start the banner, the pool lines and a clock ramp of `ICT580 set
+Clock(req N MHz, actual N MHz)` from 50 MHz up in 10 MHz steps. Read once a
+poll, that ramp makes the `clock` field appear to wander (280, 410, 80, 300
+on 2026-09-20); it is a board being re-initialised, not retuned.
+
+The lines that mean something, and the label `classify_syslog` gives each:
+
+| line | label | seen when |
+|---|---|---|
+| `Started intminer ...` | `process_started` | the mining process started; nothing precedes it when it was killed or crashed |
+| `SCBOX Init sucessed. 16 chips, N Total goodcores` | `init_succeeded` | a board init worked. `goodcores` is a running total (+1277 a time on this unit), not a health figure |
+| `Init failed 5 Times` | `init_failed` | the board would not initialise |
+| `Write ChipN Reg N Failed` | `chip_write_failed` | the controller cannot reach that chip; at Chip0 it cannot reach the chain at all |
+| `Read reg N error, exit.` | `reg_read_error` | same family |
+| `BistStart err` | `bist_error` | the self-test would not start |
+| `!!!SEND JOB FAILD 10 TIMES, REINIT THIS CPB!!!` | `sendjob_reinit` | a board reset (`rebootcnt` counts these) |
+| `Read Nonce Faild 10 Times, Reinit Device!!!` | `readnonce_reinit` | a board reset, from the nonce side |
+| `Auto addressing failed` | `addressing_failed` | no chip answered enumeration |
+| `Set clk to NMHz Failed`, `actual nanMHz` | `set_clock_failed`, `clock_nan` | the PLL write failed |
+| `Set TSENSOR_MODE Failed`, `Read TV_ACCESS MAX Failed` | `tsensor_failed` | the board's sensor chip did not answer |
+| `WatchDog Exit for CPB Idle...` | `cpb_idle` | the firmware's own idle watchdog; every 5 s while a board is absent |
+| `gsbN devN: set device vfff, newval: V:MHz:..` | `settings_applied` | the firmware applied a voltage and clock |
+| `INCS N: invalid nonce` | `invalid_nonce` | one bad nonce |
+| `Pool N <url> not responding!`, `Stratum connection to pool N interrupted` | `pool_not_responding`, `stratum_interrupted` | the pool, not the board |
+| `INCS N failure, exiting`, `gsbN_thread_shutdown` | `fatal_exit`, `thread_shutdown` | the mining process gave up (2026-09-20, nine minutes after a start that found no chips) |
+
+Anything else is counted as `other` and its text is dropped.
+
+### Two ways a sick board looks, and they behave oppositely
+
+From 15 days of one SC-BOX's service log (2026-09-05 to 09-20):
+
+| | what `/dbg/minerinfo` or port 4028 shows | episodes | how each ended |
+|---|---|---|---|
+| reset burst | `rebootcnt` climbing by 8 or more a sample, `clock` and temperatures real (often caught mid-ramp) | 12 | all by themselves, in 0 to 2.5 minutes |
+| board absent | HTTP fine, `clock` 0, `tstemp-2` at -150 (the no-sensor value), `rebootcnt` static, a few watts at the wall | 6 | none by itself; 6 to 22 minutes, each until a soft restart |
+
+The watchdog's 5-minute share-stall window is right for the first and wasted
+on the second, which since 0.9.0 has its own 2-minute rule
+(`watchdog.absent_minutes`). A soft restart is not free on this unit: of the
+four sent while the board was still present, three lost the board and needed
+another. Of the 13 sent to a board already absent or a miner already
+unreachable, none left it in a worse state than it found it.
+
+### The voltage field
+
+`voltage` in port 4028's `devs` reads 0.41 on the SC-BOX, the same number
+the log prints as `tvout:0.410000` when the setting is applied, so it may be
+the setpoint echoed and not a measurement. **Unverified either way.** On the
+SC5 Pro II it is millivolts at the supply (11750). Since 0.9.0 the service
+logs it unconverted as `volts`. The reason: on 2026-09-20 the SC-BOX ran 80
+minutes at 162 W instead of 184 W on the same 550 MHz with all 16 chips
+producing at their normal rates, then stepped back up through a single
+221 W sample, and nothing on record could say whether the voltage had moved.
