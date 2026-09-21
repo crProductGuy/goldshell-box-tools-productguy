@@ -10,6 +10,7 @@ Two firmware quirks shape this module (details in docs/firmware-api.md):
 
 Nothing here logs a URL: the login URL carries the encrypted password.
 """
+import datetime
 import json
 import re
 import socket
@@ -204,6 +205,96 @@ def last_boot_ts(text):
         if m:
             last = m.group(1)
     return last
+
+
+# classify_syslog (0.9.0). The miner truncates its own log: 3.8 MB at 18:25 on 2026-09-20 and 36 KB two hours
+# later, with no restart, so an incident's lines are gone by the time anyone asks. These tables turn the read the
+# service already makes into labels and counts. Every pattern is matched at the start of the message, on its first
+# _SYSLOG_MSG_CHARS characters only, and none nests a quantifier: the input is megabytes of text from a device.
+_SYSLOG_TS_RE = re.compile(r"^\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] ?")
+_SYSLOG_MSG_CHARS = 200
+_SYSLOG_LABEL_RES = [(label, re.compile(pattern)) for label, pattern in (
+    ("process_started", r"Started intminer "),
+    ("init_succeeded", r"(?:C\d+: )?SCBOX Init sucessed"),
+    ("init_failed", r"(?:C\d+: )?Init failed \d+ Times"),
+    ("chip_write_failed", r"(?:C\d+: )?Write Chip\d+ Reg \d+ Failed"),
+    ("reg_read_error", r"(?:C\d+: )?Read reg \d+ error"),
+    ("bist_error", r"(?:C\d+: )?BistStart err"),
+    ("sendjob_reinit", r"(?:C\d+: )?!!!SEND JOB FAILD"),
+    ("readnonce_reinit", r"(?:C\d+: )?Read Nonce Faild"),
+    ("addressing_failed", r"(?:C\d+: )?Auto addressing failed"),
+    ("set_clock_failed", r"(?:C\d+: )?Set clk to \d+MHz Failed"),
+    ("clock_nan", r"(?:C\d+: )?ICT\d+ set Clock\(req [\d.]+MHz, actual nan"),     # before the routine clock ramp below
+    ("tsensor_failed", r"(?:C\d+: )?(?:Set TSENSOR_MODE|Read TV_ACCESS MAX) Failed"),
+    ("pool_not_responding", r"Pool \d+ \S+ not responding"),
+    ("stratum_interrupted", r"Stratum connection to pool \d+ interrupted"),
+    ("fatal_exit", r"INCS \d+ failure, exiting"),
+    ("thread_shutdown", r"(?:C\d+: )?gsb\d+_thread_shutdown"),
+    ("invalid_nonce", r"INCS \d+: invalid nonce"),
+    ("cpb_idle", r"(?:C\d+: )?WatchDog Exit for CPB Idle"),
+    ("settings_applied", r"gsb\d+ dev\d+: set device vfff"),
+)]
+SYSLOG_LABELS = tuple(label for label, _ in _SYSLOG_LABEL_RES)
+# What a healthy miner writes all day, and the banner of a start. Ignored, not counted.
+_SYSLOG_ROUTINE_RE = re.compile(
+    r"(?:C\d+: )?(?:Chip Avgtemp |Work restart!|scanhash workid |Work\(\d+\) Hash Scan finished|Auto DTFS now check"
+    r"|ICT\d+ set Clock\(|SCBOX device init\.\.\.|SCBOX scan time is |gsb\d+_reinit|gsb\d+_thread_init|tvout:|nonce#\()"
+    r"|SCBOX C\d+: =======>|Accepted |Stratum from pool \d+ detected new block|(?:====>)?Pool \d+ stratum difficulty "
+    r"|Pool \d+ \S+ (?:alive|user )|arg |Loaded configuration file |SCBox driver parse succeed|Goldshell-\S+ +Miner detected"
+    r"|Probing for an alive pool|API running in ")
+
+
+def classify_syslog(text, after=None, first_minutes=None):
+    """The non-routine lines of `/dbg/minersyslog` as `(rows, newest)`: `rows` is a list of
+    `(label, count, first_miner_timestamp, last_miner_timestamp)` in the order each label first appeared, and
+    `newest` is the newest timestamp on any line read (routine or not), or None when nothing was newer.
+
+    `after` keeps lines newer than that miner timestamp (the caller's cursor). On a first read, with no
+    cursor, `first_minutes` looks back that far from the log's own newest line instead of taking the whole log.
+
+    Nothing of a line's text is returned, ever: the labels are this module's own, the counts are ints, and the
+    timestamps are digits the pattern matched. The log repeats the pool user, and a mask would be a blacklist
+    that fails open on a line shape nobody anticipated; a line no pattern knows is counted under "other" and
+    its text is dropped. A line without the log's timestamp is skipped. Lines written later in the same second
+    as the cursor are missed, as in `parse_chiptemps`.
+    """
+    floor = None
+    if after is None and first_minutes is not None:
+        for line in reversed(text[-20000:].splitlines()):
+            m = _SYSLOG_TS_RE.match(line)
+            if m:
+                try:
+                    newest = datetime.datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    continue
+                floor = (newest - datetime.timedelta(minutes=first_minutes)).strftime("%Y-%m-%d %H:%M:%S")
+                break
+    found, newest = {}, None
+    for line in text.splitlines():
+        m = _SYSLOG_TS_RE.match(line)
+        if not m:
+            continue
+        ts = m.group(1)
+        if (after is not None and ts <= after) or (floor is not None and ts < floor):
+            continue
+        if newest is None or ts > newest:
+            newest = ts
+        msg = line[m.end():m.end() + _SYSLOG_MSG_CHARS]
+        label = None
+        for name, pattern in _SYSLOG_LABEL_RES:
+            if pattern.match(msg):
+                label = name
+                break
+        if label is None:
+            if not msg.strip() or _SYSLOG_ROUTINE_RE.match(msg):
+                continue
+            label = "other"
+        if label in found:
+            found[label][0] += 1
+            found[label][2] = max(found[label][2], ts)
+        else:
+            found[label] = [1, ts, ts]
+    return [(label, v[0], v[1], v[2]) for label, v in found.items()], newest
 
 
 def parse_chiptemps(text, after=None):
