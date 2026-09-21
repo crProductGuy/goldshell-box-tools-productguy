@@ -97,7 +97,16 @@ const tests = {
       "Set in C:\\u\\.gbox\\config.json (watchdog block); restart the service after editing.");
     assert.strictEqual(app.ladderLine({ watchdog: { enabled: false }, ladder: lad }), "Watchdog off for this run (--no-watchdog, or \"enabled\": false in C:\\u\\.gbox\\config.json).");
     assert.strictEqual(app.ladderLine({ watchdog: { enabled: true } }), "");
-    const sched = Object.assign({}, lad, { schedule: { off: "23:00", on: "06:00" } });
+    // 0.9.0: the board-absent rule is named only where it can fire: the key set, and a profile that vouches for the signature
+    const withAbsent = Object.assign({}, lad, { absent_minutes: 2 });
+    const start = "Ladder: soft restart after 2 min unreachable, 2 min answering with no hashboard or 5 min of frozen shares, a second one 5 min later; ";
+    assert.ok(app.ladderLine({ watchdog: { enabled: true }, power: { configured: true }, ladder: withAbsent, profile: app.profileFor("Goldshell-SCBox") }).startsWith(start));
+    for (const h of [{ ladder: withAbsent, profile: app.profileFor("Goldshell-SCBox II") }, { ladder: withAbsent, profile: null }, { ladder: withAbsent },
+      { ladder: Object.assign({}, lad, { absent_minutes: 0 }), profile: app.profileFor("Goldshell-SCBox") }])
+      assert.ok(!app.ladderLine(Object.assign({ watchdog: { enabled: true }, power: { configured: true } }, h)).includes("no hashboard"));
+    // the restart line the rule writes reads like any other, in the interventions table and as a marker
+    assert.strictEqual(app.markerGlyph("watchdog: restart #1 sent (hashboard absent for 2 min)"), "W");
+    const sched =Object.assign({}, lad, { schedule: { off: "23:00", on: "06:00" } });
     assert.ok(app.ladderLine({ watchdog: { enabled: true }, power: { configured: true }, ladder: sched })
       .endsWith("restart the service after editing. Schedule: off 23:00, on 06:00, every day (power.schedule in the same file)."));
     assert.ok(app.ladderLine({ watchdog: { enabled: true }, power: { configured: true }, ladder: Object.assign({}, sched, { schedule: { off: "23:00", on: "06:00", days: ["mon", "fri"] } }) })

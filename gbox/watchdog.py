@@ -67,12 +67,13 @@ def _parse_stamp(text):
 class Watchdog:
     def __init__(self, restart, events, interval, stall_minutes=5, unreachable_minutes=2,
                  min_gap_minutes=10, max_restarts_per_day=6, clock=time.time,
-                 plug=None, power=None, sleep=time.sleep):
+                 plug=None, power=None, sleep=time.sleep, absent_minutes=2):
         self._restart = restart
         self._events = events
         self.interval = float(interval)
         self.stall_rows = max(2, round(stall_minutes * 60 / self.interval))
         self.err_rows = max(1, round(unreachable_minutes * 60 / self.interval))
+        self.absent_rows = max(2, round(absent_minutes * 60 / self.interval)) if absent_minutes else 0   # 0: rule off
         self.min_gap = min_gap_minutes * 60
         self.max_restarts = max_restarts_per_day
         self._clock = clock
@@ -99,7 +100,7 @@ class Watchdog:
         self.last_power_reason = None
         self.hold = None                    # None, or {since, until (None: no expiry), reason, source, ok_streak}
 
-    def observe(self, ok, accepted, t=None, hashing=None):
+    def observe(self, ok, accepted, t=None, hashing=None, absent=None):
         """One sample. `hashing` says whether the miner reported a hashrate; a hold releases only on
         HOLD_OK_SAMPLES hashing samples in a row. On 2026-09-13 a controller came back from a power-on
         without its hashboard, answered HTTP with a zero hashrate, and two answers released the hold.
@@ -111,9 +112,13 @@ class Watchdog:
         waiting out a fixed timer on a miner that is demonstrably back is what let `settle_minutes` 20 hide a
         dead hashboard for 22 minutes. The wall meter is never consulted here. It is optional hardware, and on
         2026-09-18 it read 15 W for a minute while the miner hashed above 600,000, so letting it gate a release
-        would stand the watchdog down on a sensor glitch."""
+        would stand the watchdog down on a sensor glitch.
+
+        `absent` (0.9.0) says the controller answered with no hashboard behind it: clock 0 and the board
+        sensor at its no-sensor value. The caller decides that, from a model whose profile says the signature
+        is verified; None (older callers, other models) is never absent. See `diagnose`."""
         t = self._clock() if t is None else t
-        self._rows.append((t, bool(ok), accepted))
+        self._rows.append((t, bool(ok), accepted, bool(ok and absent)))
         back = bool(ok) if hashing is None else bool(ok and hashing)
         if ok:
             self.episode_start = None
@@ -303,6 +308,17 @@ class Watchdog:
         # waiting for a further stall window on top cost 5 min per rung until 2026-09-13.
         if self._tail_dark(now):
             return self._unreachable_reason()
+        # hashboard absent (0.9.0): the controller answers, clock 0, board sensor at its no-sensor value. In 15
+        # days of one SC-BOX's log this state never once ended by itself (6 episodes, 6 to 22 min, each until the
+        # stall rule below got there), while 12 reset bursts, which look nothing like it, all healed inside
+        # 2.5 min. So it gets its own short window and the stall window stays long. Judged only on samples after
+        # the gap, like the stall rule, and only ever a soft restart: `_consider_power` takes no reason but
+        # "miner unreachable". Nothing else gets a shorter window: of the soft restarts sent in those 15 days
+        # to a board that was still present, 3 of 4 lost the board, where an absent one had nothing to lose.
+        if self.absent_rows:
+            tail = [r for r in rows if r[0] > floor][-self.absent_rows:]
+            if len(tail) == self.absent_rows and self._contiguous(tail) and all(r[3] for r in tail):
+                return "hashboard absent for %d min" % round(self.absent_rows * self.interval / 60)
         # stalled: a full window of fresh samples after the gap, so a reboot's own quiet counter is never judged
         recent = [r for r in rows if r[0] > floor][-self.stall_rows:]
         if len(recent) < self.stall_rows or not self._contiguous(recent):

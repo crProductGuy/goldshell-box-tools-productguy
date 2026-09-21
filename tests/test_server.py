@@ -191,6 +191,7 @@ class ServerTest(unittest.TestCase):
         lad = h["ladder"]
         self.assertEqual(lad["unreachable_minutes"], 2)
         self.assertEqual(lad["stall_minutes"], 5)
+        self.assertEqual(lad["absent_minutes"], 2)          # 0.9.0: the board-absent rule, on by default
         self.assertEqual(lad["min_gap_minutes"], config.DEFAULT_WATCHDOG["min_gap_minutes"])
         self.assertEqual(lad["max_restarts_per_day"], config.DEFAULT_WATCHDOG["max_restarts_per_day"])
         self.assertIsNone(lad["after_minutes"])            # no plug configured on this state

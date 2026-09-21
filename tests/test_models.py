@@ -11,7 +11,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 NODE = shutil.which("node")
 
 ROW_KEYS = {"name", "rated_mhs", "rated_watts", "fans", "fan_max_rpm", "boards", "source", "verified_string",
-            "plan_dialect", "board_source", "dbg_expected", "fan_target", "temp_target_basis", "plan_names"}
+            "plan_dialect", "board_source", "dbg_expected", "fan_target", "temp_target_basis", "plan_names",
+            "absent_signature"}
 
 
 class RatedTest(unittest.TestCase):
@@ -54,6 +55,12 @@ class RatedTest(unittest.TestCase):
             self.assertIsInstance(v["dbg_expected"], bool, k)
             self.assertIsInstance(v["fan_target"], bool, k)
             self.assertIn(v["temp_target_basis"], ("board_sensor", "fixed"), k)
+            self.assertIsInstance(v["absent_signature"], bool, k)
+
+    def test_only_a_model_with_a_log_behind_it_has_the_absent_signature(self):
+        # 0.9.0: the watchdog restarts on this signature, so resemblance to the SC-BOX does not earn it
+        self.assertEqual([k for k, v in models.MODELS.items() if v["absent_signature"]], ["Goldshell-SCBox"])
+        self.assertFalse(models.UNKNOWN["absent_signature"])
 
     @unittest.skipUnless(NODE, "node is not installed; skipping the app.js mirror check")
     def test_the_js_table_is_the_same_table(self):

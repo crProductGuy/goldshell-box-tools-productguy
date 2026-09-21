@@ -587,7 +587,8 @@ def cmd_serve(args, cfg, data_dir):
         w = cfg.watchdog
         wd = Watchdog(miner.restart, events, cfg.poll_interval, stall_minutes=w["stall_minutes"],
                       unreachable_minutes=w["unreachable_minutes"], min_gap_minutes=w["min_gap_minutes"],
-                      max_restarts_per_day=w["max_restarts_per_day"], plug=plug, power=cfg.power)
+                      max_restarts_per_day=w["max_restarts_per_day"], plug=plug, power=cfg.power,
+                      absent_minutes=w["absent_minutes"])
         wd.seed_from_events(events.tail(4000))     # the caps and a running hold survive this restart
     control = PowerControl(plug, cfg.power, wd, events) if plug is not None else None
     scheduler = None

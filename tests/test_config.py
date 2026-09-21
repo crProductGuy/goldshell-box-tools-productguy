@@ -68,6 +68,19 @@ class PowerConfigTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 cfg.validate()
 
+    def test_absent_minutes_defaults_on_for_a_config_written_before_it_existed(self):
+        cfg = config.Config(host="m", watchdog={"stall_minutes": 7})     # an 0.8 config.json: no such key
+        cfg.validate()
+        self.assertEqual(cfg.watchdog["absent_minutes"], 2)
+        self.assertEqual(cfg.watchdog["stall_minutes"], 7)
+
+    def test_absent_minutes_is_zero_for_off_or_at_least_one(self):
+        for good in (0, 1, 2, 2.5, 10):
+            config.Config(host="m", watchdog={"absent_minutes": good}).validate()
+        for bad in (-1, 0.5, "2", None, True):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                config.Config(host="m", watchdog={"absent_minutes": bad}).validate()
+
     def test_validate_rejects_after_minutes_below_unreachable_minutes(self):
         cfg = config.Config(host="m", watchdog={"unreachable_minutes": 5}, power={"host": "p", "after_minutes": 4})
         with self.assertRaises(ValueError):

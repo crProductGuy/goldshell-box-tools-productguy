@@ -312,7 +312,7 @@ class PollerHashingSignalTest(unittest.TestCase):
         def __init__(self):
             self.seen = []
 
-        def observe(self, ok, accepted, t=None, hashing=None):
+        def observe(self, ok, accepted, t=None, hashing=None, absent=None):
             self.seen.append((ok, hashing))
 
         def check(self):
@@ -1513,3 +1513,75 @@ class MinerLogTest(HottestChipPollerTest):
         self.now += 300
         p.poll_once()
         self.assertEqual(self.minerlog()[-1]["label"], "bist_error")
+
+
+class BoardAbsentFlagTest(unittest.TestCase):
+    """0.9.0: the poller tells the watchdog when the controller answers with no hashboard behind it.
+
+    The signature is the one the SC-BOX showed six times between 2026-09-13 and 09-20: HTTP fine, clock 0, the
+    board sensor at its no-sensor value, and the mining process up long enough to have found its board.
+    """
+
+    def setUp(self):
+        self.fm = FakeMiner().start()
+        self.addCleanup(self.fm.stop)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.csv = Path(self.tmp.name) / "log.csv"
+        self.seen = []
+        outer = self
+
+        class Spy:
+            def observe(self, ok, accepted, t=None, hashing=None, absent=None):
+                outer.seen.append(absent)
+
+            def check(self):
+                return None
+        self.spy = Spy()
+
+    def absent_board(self, elapsed=200, clock="0.000", temp="-150.00"):
+        import re
+        text = self.fm.minerinfo
+        for key, value in (("MHS 20s", "0.0"), ("MHS av", "0.0"), ("clock", clock), ("tstemp-2", temp),
+                           ("Device Elapsed", str(elapsed))):
+            text, n = re.subn(r"\[%s\] => [^\n]*" % re.escape(key), "[%s] => %s" % (key, value), text)
+            self.assertEqual(n, 1, key)
+        self.fm.minerinfo = text
+
+    def poll(self, **kw):
+        poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, watchdog=self.spy,
+                      board_source="minerinfo", **kw).poll_once()
+        return self.seen[-1]
+
+    def test_a_healthy_board_is_not_absent(self):
+        self.assertIs(self.poll(), False)
+
+    def test_clock_zero_and_no_sensor_is_absent(self):
+        self.absent_board()
+        self.assertIs(self.poll(), True)
+
+    def test_not_while_the_mining_process_is_still_starting(self):
+        self.absent_board(elapsed=60)
+        self.assertIs(self.poll(), False)
+
+    def test_a_reset_burst_is_not_absent(self):
+        self.absent_board(clock="50.000", temp="38.81")          # 2026-09-20 18:46: not hashing, but the board is there
+        self.assertIs(self.poll(), False)
+
+    def test_either_half_alone_is_not_enough(self):
+        self.absent_board(temp="25.00")
+        self.assertIs(self.poll(), False)
+        self.absent_board(clock="550.000", temp="-150.00")
+        self.assertIs(self.poll(), False)
+
+    def test_a_model_whose_profile_does_not_vouch_for_it_is_never_absent(self):
+        self.absent_board()
+        self.fm.status["model"] = "Goldshell-SCBox II"
+        self.assertIs(self.poll(), False)
+        self.fm.status["model"] = "something new"
+        self.assertIs(self.poll(), False)
+
+    def test_an_error_row_is_not_absent(self):
+        poller.Poller(api.Miner("127.0.0.1:1", password="password", timeout=1), self.csv, 30,
+                      watchdog=self.spy).poll_once()
+        self.assertIs(self.seen[-1], False)

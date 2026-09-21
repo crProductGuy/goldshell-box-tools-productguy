@@ -145,6 +145,7 @@ class ServiceState:
         what will happen to a hung miner and where to change it. Power fields are None without a plug."""
         w, p = self.cfg.watchdog, self.cfg.power or {}
         return {"stall_minutes": w["stall_minutes"], "unreachable_minutes": w["unreachable_minutes"],
+                "absent_minutes": w["absent_minutes"],
                 "min_gap_minutes": w["min_gap_minutes"], "max_restarts_per_day": w["max_restarts_per_day"],
                 "after_minutes": p.get("after_minutes"), "settle_minutes": p.get("settle_minutes"),
                 "max_cycles_per_day": p.get("max_cycles_per_day"), "idle_watts": p.get("idle_watts"),
