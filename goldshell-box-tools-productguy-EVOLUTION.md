@@ -2547,3 +2547,7 @@ failed first; 640 Python and 68 Node green.
 could move the run start, was fixed (the pattern is now anchored). A medium one was deferred and recorded in
 `docs/security-notes.md`: a miner that never gets network time repeats the same 2007 stamps every boot, so a
 cursor can match the wrong boot. The old comparison also lost lines in that case, and a fix needs a design.
+
+**Release, recorded after the fact.** This entry was committed before the push. At Mark's word, 0.9.1 was pushed to
+GitHub at 13:50 on 2026-09-21 (main `67f303e`, annotated tag `v0.9.1`), and the live service had already been
+restarted onto it at 13:38 with his prior authorization.
