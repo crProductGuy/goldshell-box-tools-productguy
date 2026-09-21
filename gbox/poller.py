@@ -28,7 +28,8 @@ poller. The per-board list rides the row under `_boards` (a key `COLUMNS`
 does not list, so `_append` ignores it) and is written to `boards.csv`
 beside `log.csv`, one row per board per poll, only when the unit has more
 than one board. `watts_dc` (the firmware's own voltage x current, DC side)
-is the last log column. A persistent 401 on `/dbg/icinfo` (`AuthError`) no
+and, since 0.9.0, `volts` (the board voltage exactly as the firmware reports
+it, never converted) are the last log columns. A persistent 401 on `/dbg/icinfo` (`AuthError`) no
 longer fails the sample: the chip-level columns go blank and one event line
 says so, once.
 """
@@ -46,13 +47,17 @@ COLUMNS = ["time", "http", "elapsed", "mhs_av", "mhs_20s", "hwerr", "hwerr_pct",
            "weak_chips", "nonces_good", "nonces_bad", "temp_target", "overheat", "watts",
            "chips",        # 0.6.0: every chip's cumulative good/bad as board.chip:g/b;... (docs/charts-proposal.md)
            "hot_peak", "hot_level", "chip_avg",   # 0.7.0: from the cgminer log, on the rows where it was read
-           "watts_dc"]     # 0.8.0: the firmware's own voltage x current (DC side); None when either is unknown
+           "watts_dc",     # 0.8.0: the firmware's own voltage x current (DC side); None when either is unknown
+           "volts"]        # 0.9.0: the board voltage as the firmware reports it (0.41 on an SC-BOX over 4028, mV on
+                           # an SC5 Pro II; never converted, the SC-BOX's unit is undocumented). 2026-09-20: 80 min at
+                           # 162 W instead of 184 W with every chip producing, and nothing kept could say why.
 FIRST_READ_MINUTES = 5        # the first log read after a service start looks back this far only, by the miner's clock
 
 # boards.csv (0.8.0): one row per board per poll, beside log.csv, only when the unit has more than one board.
 # A second file rather than widening log.csv, because a variable board count does not fit one append-only header.
 BOARDS_COLUMNS = ["time", "board", "elapsed", "mhs_20s", "mhs_av", "accepted", "rejected", "hwerr", "hwerr_pct",
-                  "clock", "tstemp0", "tstemp2", "rebootcnt", "overheat"]
+                  "clock", "tstemp0", "tstemp2", "rebootcnt", "overheat",
+                  "volts"]    # 0.9.0, per board; an older boards.csv is migrated at start like log.csv
 
 BOARD_SOURCES = ("auto", "4028", "minerinfo")
 
@@ -98,7 +103,7 @@ def sample(miner, source, devs4028_port=4028, icinfo_optional=False):
         "nonces_good": sum(c["good"] for c in chips), "nonces_bad": sum(c["bad"] for c in chips),
         "temp_target": setting.get("temp_target"), "overheat": info["overheat"],
         "chips": api.format_chips(chip_boards),
-        "watts_dc": info["watts_dc"], "_boards": boards, "_icinfo_locked": icinfo_locked,
+        "watts_dc": info["watts_dc"], "volts": boards[0].get("voltage_mv") if boards else None, "_boards": boards, "_icinfo_locked": icinfo_locked,
     }
 
 
@@ -111,8 +116,9 @@ def summarize_chiptemps(readings):
     return max(maxes), float(statistics.median(maxes)), float(statistics.median(r[1] for r in readings))
 
 
-def migrate_columns(csv_path):
-    """Bring a log written with an older, shorter header up to COLUMNS in place.
+def migrate_columns(csv_path, columns=None):
+    """Bring a log written with an older, shorter header up to COLUMNS in place (`columns` names another
+    append-only header: BOARDS_COLUMNS for boards.csv, since 0.9.0).
 
     Old rows are padded with empty fields so the header and every row agree.
     The original is copied to log.csv.bak first (once; a later migration
@@ -122,16 +128,17 @@ def migrate_columns(csv_path):
     a header this code does not know are left alone.
     """
     csv_path = Path(csv_path)
+    columns = COLUMNS if columns is None else columns
     recovered = _promote_orphan_tmp(csv_path)
     if not csv_path.is_file():
         return recovered
     with open(csv_path, encoding="utf-8", newline="") as f:
         header = f.readline().rstrip("\r\n")
         old = header.split(",") if header else []
-        if not old or old == COLUMNS or COLUMNS[:len(old)] != old or len(old) >= len(COLUMNS):
+        if not old or old == columns or columns[:len(old)] != old or len(old) >= len(columns):
             return recovered
         body = f.read()
-    pad = "," * (len(COLUMNS) - len(old))
+    pad = "," * (len(columns) - len(old))
     backup = csv_path.with_name(csv_path.name + ".bak")
     if backup.exists():
         note = "the older %s was left as is" % backup.name
@@ -140,7 +147,7 @@ def migrate_columns(csv_path):
         note = "copy kept as %s" % backup.name
     tmp = csv_path.with_name(csv_path.name + ".tmp")
     with open(tmp, "w", encoding="utf-8", newline="") as f:
-        f.write(",".join(COLUMNS) + "\n")
+        f.write(",".join(columns) + "\n")
         for line in body.splitlines():
             if line:
                 f.write(line + pad + "\n")
@@ -322,7 +329,7 @@ class Poller(threading.Thread):
                        "mhs_av": b["mhs_av"], "accepted": b["accepted"], "rejected": b["rejected"],
                        "hwerr": b["hw_errors"], "hwerr_pct": b["hw_pct"], "clock": b["clock"],
                        "tstemp0": b["chip_temp"], "tstemp2": b["board_temp"], "rebootcnt": b["rebootcnt"],
-                       "overheat": b["overheat"]}
+                       "overheat": b["overheat"], "volts": b.get("voltage_mv")}
                 f.write(",".join("" if row.get(c) is None else str(row.get(c)) for c in BOARDS_COLUMNS) + "\n")
 
     def read_plug(self):

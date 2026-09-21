@@ -77,7 +77,7 @@ class PollerTest(unittest.TestCase):
         with open(self.csv, encoding="utf-8") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
-        self.assertEqual(lines[1], "2026-09-05 21:05:52,ok,1,2,3,4,0.4,5,0,600.0,3000,3000,70,70,63,0,8:1/1,,,,,,,,,,")
+        self.assertEqual(lines[1], "2026-09-05 21:05:52,ok,1,2,3,4,0.4,5,0,600.0,3000,3000,70,70,63,0,8:1/1,,,,,,,,,,,")
         self.assertEqual(lines[2].count(","), len(poller.COLUMNS) - 1)
         self.assertTrue((self.csv.parent / "log.csv.bak").exists())
         rows = self.rows()
@@ -118,8 +118,8 @@ class PollerTest(unittest.TestCase):
         with open(self.csv, encoding="utf-8") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
-        # watts, chips, the three 0.7.0 log columns and 0.8.0's watts_dc: six empty fields padded
-        self.assertTrue(lines[1].endswith(",65,0,,,,,,"))
+        # watts, chips, the three 0.7.0 log columns, 0.8.0's watts_dc and 0.9.0's volts: seven empty fields padded
+        self.assertTrue(lines[1].endswith(",65,0,,,,,,,"))
 
     def test_migration_note_says_whether_the_backup_is_new(self):
         """The first migration writes log.csv.bak; a later one keeps the older backup and says so."""
@@ -173,7 +173,7 @@ class ChipsColumnPollerTest(unittest.TestCase):
         with open(self.csv, encoding="utf-8") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
-        self.assertTrue(lines[1].endswith(",174.476037,,,,,"))   # chips, hot_peak, hot_level, chip_avg, watts_dc padded
+        self.assertTrue(lines[1].endswith(",174.476037,,,,,,"))   # chips, hot_peak, hot_level, chip_avg, watts_dc, volts padded
         self.assertEqual(self.rows()[0]["chips"], "")
         self.assertTrue((self.csv.parent / "log.csv.bak").exists())
 
@@ -201,8 +201,8 @@ class HottestChipPollerTest(unittest.TestCase):
 
     def test_columns_end_with_the_three_chip_temperature_fields(self):
         # 0.8.0 appends watts_dc after chip_avg (append-only: a new column always lands at the true end,
-        # so this 0.7.0 snapshot of "the last four" necessarily grows by one here).
-        self.assertEqual(poller.COLUMNS[-5:], ["chips", "hot_peak", "hot_level", "chip_avg", "watts_dc"])
+        # so this 0.7.0 snapshot of "the last four" necessarily grows by one here), and 0.9.0 appends volts.
+        self.assertEqual(poller.COLUMNS[-6:], ["chips", "hot_peak", "hot_level", "chip_avg", "watts_dc", "volts"])
 
     def test_first_cycle_reads_the_log_and_writes_peak_level_and_average(self):
         p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, clock=self.clock, syslog_interval=300)
@@ -293,7 +293,7 @@ class HottestChipPollerTest(unittest.TestCase):
         with open(self.csv, encoding="utf-8") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
-        self.assertTrue(lines[1].endswith(",0.1:5/0,,,,"))       # hot_peak, hot_level, chip_avg, watts_dc padded
+        self.assertTrue(lines[1].endswith(",0.1:5/0,,,,,"))       # hot_peak, hot_level, chip_avg, watts_dc, volts padded
         self.assertEqual(self.rows()[0]["hot_level"], "")
         self.assertTrue((self.csv.parent / "log.csv.bak").exists())
 
@@ -604,7 +604,7 @@ class WattsDcMigrationTest(unittest.TestCase):
         old_header = ("time,http,elapsed,mhs_av,mhs_20s,hwerr,hwerr_pct,accepted,rejected,clock,fan0,fan1,"
                      "tstemp0,tstemp1,tstemp2,rebootcnt,weak_chips,nonces_good,nonces_bad,temp_target,overheat,"
                      "watts,chips,hot_peak,hot_level,chip_avg")
-        self.assertEqual(old_header, ",".join(poller.COLUMNS[:-1]))
+        self.assertEqual(old_header, ",".join(poller.COLUMNS[:-2]))
         row1 = ("2026-09-05 21:05:52,ok,38859,714194.349,761630.09,2912,2.6095,17780,4713,600.0,3120,3060,73.0,"
                "73.0,64.63,355,3:6990/90;8:4481/2386;9:7032/51;10:7067/103;15:7030/120;16:7174/72,,,,,,,,,")
         with open(self.csv, "w", encoding="utf-8", newline="") as f:
@@ -614,10 +614,82 @@ class WattsDcMigrationTest(unittest.TestCase):
         with open(self.csv, encoding="utf-8") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
-        self.assertEqual(lines[0].split(",")[-1], "watts_dc")
+        self.assertEqual(lines[0].split(",")[-2:], ["watts_dc", "volts"])
         self.assertEqual(lines[1].count(","), len(poller.COLUMNS) - 1)
-        self.assertTrue(lines[1].endswith(","))                  # watts_dc padded blank
+        self.assertTrue(lines[1].endswith(",,"))                 # watts_dc and volts padded blank
         self.assertTrue((self.csv.parent / "log.csv.bak").exists())
+
+
+class VoltsColumnTest(unittest.TestCase):
+    """0.9.0: `volts` is the new last log column, the board voltage exactly as the firmware reports it.
+
+    On 2026-09-20 the SC-BOX ran 80 minutes at 162 W instead of 184 W on the same clock with every chip
+    producing, and nothing gbox kept could say whether the voltage had moved: the field was parsed on every
+    poll and dropped. No conversion: the SC-BOX says 0.41 and the SC5 Pro II 11750, and only the second
+    unit is documented.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.csv = Path(self.tmp.name) / "log.csv"
+
+    def test_scbox_over_4028_carries_the_voltage(self):
+        with FakeMiner(port4028=True) as fm:
+            m = api.Miner(fm.address, password="password")
+            row = poller.sample(m, "4028", devs4028_port=fm.devs4028_port)
+        self.assertAlmostEqual(row["volts"], 0.41)
+
+    def test_scbox_over_minerinfo_has_none(self):
+        with FakeMiner() as fm:
+            m = api.Miner(fm.address, password="password")
+            row = poller.sample(m, "minerinfo")
+        self.assertIsNone(row["volts"])
+
+    def test_sc5proii_reports_millivolts_unconverted(self):
+        with FakeMiner(fixtures="sc5proii", port4028=True, dbg_locked_icinfo=True) as fm:
+            m = api.Miner(fm.address, password="password")
+            row = poller.sample(m, "4028", devs4028_port=fm.devs4028_port)
+        self.assertGreater(row["volts"], 1000)
+        self.assertEqual(row["volts"], row["_boards"][0]["voltage_mv"])
+
+    def test_migrates_a_0_8_log(self):
+        old = poller.COLUMNS[:-1]
+        self.assertEqual(old[-1], "watts_dc")
+        with open(self.csv, "w", encoding="utf-8", newline="") as f:
+            f.write(",".join(old) + "\n" + ",".join(["2026-09-20 17:12:42", "ok"] + ["1"] * (len(old) - 2)) + "\n")
+        self.assertTrue(poller.migrate_columns(self.csv))
+        with open(self.csv, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(lines[0].split(",")[-1], "volts")
+        self.assertTrue(lines[1].endswith(",1,"))
+        self.assertEqual(lines[1].count(","), len(poller.COLUMNS) - 1)
+
+    def test_boards_csv_carries_volts_per_board(self):
+        self.assertEqual(poller.BOARDS_COLUMNS[-1], "volts")
+        with FakeMiner(fixtures="sc5proii", port4028=True, dbg_locked_icinfo=True) as fm:
+            m = api.Miner(fm.address, password="password")
+            p = poller.Poller(m, self.csv, 30, board_source="4028", devs4028_port=fm.devs4028_port)
+            p.poll_once()
+        with open(self.csv.with_name("boards.csv"), encoding="utf-8", newline="") as f:
+            rows = list(csv.DictReader(f))
+        self.assertEqual(len(rows), 4)
+        self.assertTrue(all(float(r["volts"]) > 1000 for r in rows))
+
+    def test_an_0_8_boards_csv_is_migrated_too(self):
+        boards = self.csv.with_name("boards.csv")
+        old = poller.BOARDS_COLUMNS[:-1]
+        with open(boards, "w", encoding="utf-8", newline="") as f:
+            f.write(",".join(old) + "\n" + ",".join(["2026-09-20 17:12:42"] + ["1"] * (len(old) - 1)) + "\n")
+        self.assertTrue(poller.migrate_columns(boards, poller.BOARDS_COLUMNS))
+        self.assertFalse(poller.migrate_columns(boards, poller.BOARDS_COLUMNS))
+        with open(boards, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(lines[0], ",".join(poller.BOARDS_COLUMNS))
+        self.assertTrue(lines[1].endswith(",1,"))
+        self.assertTrue(boards.with_name("boards.csv.bak").exists())
+        # and a log.csv is never mistaken for it: the default header is still COLUMNS
+        self.assertFalse(poller.migrate_columns(boards))
 
 
 class ConfigTest(unittest.TestCase):
@@ -1054,7 +1126,7 @@ class RotationIsInvisibleToReadersTest(unittest.TestCase):
                    "clock": 550.0, "fan0": 1200, "fan1": 1210, "tstemp0": 55, "tstemp1": 50, "tstemp2": 45,
                    "rebootcnt": 3, "weak_chips": "", "nonces_good": acc * 9, "nonces_bad": hw,
                    "temp_target": 70, "overheat": 0, "watts": 184.0, "chips": "", "hot_peak": "",
-                   "hot_level": "", "chip_avg": "", "watts_dc": ""}
+                   "hot_level": "", "chip_avg": "", "watts_dc": "", "volts": ""}
             rows.append(",".join(str(row[c]) for c in poller.COLUMNS))
             t += datetime.timedelta(minutes=self.SPACING_MINUTES)
         with open(self.csv, "w", encoding="utf-8", newline="") as f:

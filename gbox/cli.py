@@ -29,7 +29,7 @@ import threading
 
 from . import __version__, api, config, discover as discovermod, pidfile, plug as plugmod, series, trials
 from .events import MAX_BYTES as EVENTS_MAX_BYTES, EventLog
-from .poller import COLUMNS, Poller, migrate_columns
+from .poller import BOARDS_COLUMNS, COLUMNS, Poller, migrate_columns
 from .power import PowerControl, Scheduler
 from .server import ServiceState, make_server
 from .watchdog import Watchdog
@@ -562,6 +562,9 @@ def cmd_serve(args, cfg, data_dir):
     note = migrate_columns(data_dir / "log.csv")
     if note:
         events.write("service: log.csv header updated to %d columns (%s)" % (len(COLUMNS), note))
+    note = migrate_columns(data_dir / "boards.csv", BOARDS_COLUMNS)
+    if note:
+        events.write("service: boards.csv header updated to %d columns (%s)" % (len(BOARDS_COLUMNS), note))
     miner = _miner(args, cfg, need_password=False)
     state = ServiceState(cfg, miner, data_dir, events=events)
     try:
