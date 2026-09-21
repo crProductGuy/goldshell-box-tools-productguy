@@ -424,6 +424,31 @@ class ClassifySyslogTest(unittest.TestCase):
         self.assertEqual([(label, count) for label, count, _, _ in rows], [("init_failed", 2)])
         self.assertEqual(last, "2026-09-21 05:40:01")
 
+    # 0.9.1: a cold boot restarts the miner's clock at 2007 until it reaches a time server, and the log survives
+    # the power loss. 2026-09-21 09:44: the first read after an outage ended on a 2007 line, and the next one,
+    # after the clock was set, counted the whole run before the outage a second time.
+    OLD_RUN = (" [2026-09-21 19:20:00] C0: Chip Avgtemp 64.000000'C, MaxTemp 79.000000'C\n"
+               " [2026-09-21 19:25:00] C0: BistStart err\n"
+               " [2026-09-21 19:27:20] C0: Chip Avgtemp 64.000000'C, MaxTemp 78.000000'C\n")
+    BOOT_2007 = " [2007-01-01 08:03:18] Started intminer 5.4.2-unknown\n"
+    CLOCK_SET = (" [2026-09-21 21:44:30] C0: SCBOX Init sucessed. 16 chips, 256 Total goodcores. Wait 5s!!!\n"
+                 " [2026-09-21 21:44:40] C0: Chip Avgtemp 30.000000'C, MaxTemp 38.000000'C\n"
+                 " [2026-09-21 21:45:00] C0: Init failed 5 Times\n")
+
+    def test_a_boot_with_no_time_yet_is_counted_and_the_run_before_it_is_not_counted_again(self):
+        rows, last = api.classify_syslog(self.OLD_RUN + self.BOOT_2007, first_minutes=5)
+        self.assertEqual([(label, count) for label, count, _, _ in rows], [("process_started", 1)])
+        self.assertEqual(last, "2007-01-01 08:03:18")
+        rows, last = api.classify_syslog(self.OLD_RUN + self.BOOT_2007 + self.CLOCK_SET, after=last)
+        self.assertEqual([(label, count) for label, count, _, _ in rows], [("init_succeeded", 1), ("init_failed", 1)])
+        self.assertEqual(last, "2026-09-21 21:45:00")
+
+    def test_lines_after_the_cursor_count_even_when_the_clock_went_back(self):
+        # the cursor sits in the run before the boot; the boot's 2007 lines come after it in the log, so they are new
+        rows, last = api.classify_syslog(self.OLD_RUN + self.BOOT_2007, after="2026-09-21 19:27:20")
+        self.assertEqual([(label, count) for label, count, _, _ in rows], [("process_started", 1)])
+        self.assertEqual(last, "2007-01-01 08:03:18")
+
     def test_a_very_long_line_is_classified_without_backtracking(self):
         import time
         line = " [2026-09-21 05:13:23] Pool 0 " + "stratum+tcp://" * 200000 + " not quite\n"

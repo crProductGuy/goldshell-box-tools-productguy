@@ -242,6 +242,14 @@ miner's clock. Three things about it are easy to get wrong.
   0.9.0 the service keeps a summary (`minerlog.csv`, below).
 - **Its clock is not yours.** On this SC-BOX it ran 12 hours ahead of local
   time. The stamps are good for ordering lines and for nothing else.
+- **Not even for ordering across a cold boot.** After a power loss the clock
+  restarts at `2007-01-01 08:03` until the controller reaches a time server,
+  and the log keeps the run before the outage (2026-09-21 09:44: a
+  `Started intminer` line stamped 2007 followed lines stamped 2026-09-21
+  19:27). So the log is in timestamp order only within one run. Since 0.9.1
+  the service places its cursor by position in the log, and takes the newest
+  `Init sucessed` or `Started intminer` line, by position, as the start of
+  the current run.
 - **It repeats the pool user** in the start banner (`Pool 0 <url> user
   <user>`). Nothing that reads it may store or print its text.
 

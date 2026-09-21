@@ -321,17 +321,19 @@ class Poller(threading.Thread):
         4028 directly; a `MinerError` there (never `NoCredentials` -- port 4028 needs no token, so a
         missing one says nothing about the socket) falls back to `/dbg/minerinfo` for the rest of the
         run, with one event line. Once resolved, by success or by fallback, the source never changes
-        again for this poller."""
+        again for this poller. The fallback is only decided once `/dbg/minerinfo` answers (0.9.1): a
+        miner still booting has neither up yet, and that says nothing about port 4028."""
         if self._source is not None:
             return sample(self.miner, self._source, devs4028_port=self.devs4028_port,
                           icinfo_optional=not self._icinfo_seen)
         try:
             self.miner.devs4028(port=self.devs4028_port)   # probe; sample() below reads it again, once
         except api.MinerError:
+            row = sample(self.miner, "minerinfo", icinfo_optional=not self._icinfo_seen)   # raises: undecided
             self._source = "minerinfo"
             if self.events:
                 self.events.write("miner: port 4028 closed or silent; reading boards from /dbg/minerinfo")
-            return sample(self.miner, "minerinfo", icinfo_optional=not self._icinfo_seen)
+            return row
         self._source = "4028"
         return sample(self.miner, "4028", devs4028_port=self.devs4028_port, icinfo_optional=not self._icinfo_seen)
 
@@ -382,8 +384,7 @@ class Poller(threading.Thread):
         self._syslog_next = now + self.syslog_interval
         try:
             text = self.miner.syslog()
-            readings = api.parse_chiptemps(text, after=self._syslog_cursor)
-            boot = api.last_boot_ts(text)
+            readings = api.parse_chiptemps(text, after=self._syslog_cursor)   # this run's only, since 0.9.1
         except Exception:
             self.syslog_errors += 1
             return None, None, None
@@ -391,12 +392,6 @@ class Poller(threading.Thread):
             self._append_minerlog(stamp or datetime.datetime.now().strftime(STAMP), text)
         except Exception:                   # evidence is never worth a temperature reading, let alone a sample
             self.syslog_errors += 1
-        if boot is not None and (self._syslog_cursor is None or boot > self._syslog_cursor):
-            # the log survives a power cycle (2026-09-15 07:07: a row 18 s after a boot carried the run before the
-            # freeze); readings written before the newest boot line are the old run's, not this one's
-            readings = [r for r in readings if r[0] > boot]
-            if not readings:
-                self._syslog_cursor = boot
         if not readings:
             return None, None, None
         if self._syslog_cursor is None:     # first read: the last few minutes only, by the miner's own clock

@@ -157,11 +157,25 @@ class ChipTempsTest(unittest.TestCase):
         self.assertEqual(api.parse_chiptemps(""), [])
         self.assertEqual(api.parse_chiptemps("Chip Avgtemp nope'C, MaxTemp 'C\n[bad] C0: Chip Avgtemp 1'C"), [])
 
-    def test_last_boot_ts_is_the_newest_init_line(self):
-        self.assertEqual(api.last_boot_ts(self.text), "2026-09-15 07:35:50")
+    def test_readings_before_the_newest_boot_line_belong_to_the_run_before(self):
         two = self.text + " [2026-09-15 08:00:00] C0: SCBOX Init sucessed. 16 chips, 256 Total goodcores. Wait 5s!!!\n"
-        self.assertEqual(api.last_boot_ts(two), "2026-09-15 08:00:00")
-        self.assertIsNone(api.last_boot_ts("no boot here\n"))
+        self.assertEqual(api.parse_chiptemps(two), [])
+        two += " [2026-09-15 08:00:05] C0: Chip Avgtemp 30.000000'C, MaxTemp 38.000000'C\n"
+        self.assertEqual(api.parse_chiptemps(two), [("2026-09-15 08:00:05", 30.0, 38.0)])
+
+    def test_a_boot_with_no_time_yet_is_placed_by_its_position_in_the_log(self):
+        # 0.9.1, 2026-09-21 09:44: a cold boot's clock reads 2007 until it reaches a time server. Compared by
+        # timestamp, the run before the outage looked newer than the boot, and its 79 C peak landed on the first
+        # row of a miner one second into its uptime.
+        old = (" [2026-09-21 19:20:00] C0: Chip Avgtemp 64.000000'C, MaxTemp 79.000000'C\n"
+               " [2026-09-21 19:27:20] C0: Chip Avgtemp 64.000000'C, MaxTemp 78.000000'C\n")
+        boot = " [2007-01-01 08:03:18] Started intminer 5.4.2-unknown\n"
+        self.assertEqual(api.parse_chiptemps(old + boot), [])
+        self.assertEqual(api.parse_chiptemps(old + boot, after="2026-09-21 19:27:20"), [])
+        early = " [2007-01-01 08:03:30] C0: Chip Avgtemp 25.000000'C, MaxTemp 30.000000'C\n"
+        later = " [2026-09-21 21:44:40] C0: Chip Avgtemp 30.000000'C, MaxTemp 38.000000'C\n"
+        self.assertEqual([r[0] for r in api.parse_chiptemps(old + boot + early + later, after="2007-01-01 08:03:30")],
+                         ["2026-09-21 21:44:40"])
 
     def test_miner_syslog_is_one_get_of_text(self):
         fm = FakeMiner().start()
