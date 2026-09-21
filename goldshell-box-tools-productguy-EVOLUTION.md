@@ -2362,3 +2362,65 @@ asks anything. The interface query was checked against both editions of the Wind
 one is not present on a default install. Suites 573 and 68, green. Tagged 0.8.1 and pushed at Mark's word.
 The running service was left on the previous version: nothing in the poller or the server changed, and only
 the discover command behaves differently.
+
+## 2026-09-20 evening, session AC: "seems down-ish", two incidents, and a log that erased itself
+
+**The goal in Mark's words:** "open the goldshell project. Then scan the miner and see what's happening.
+Seems down-ish." No code was in scope. It became the first time the tool was used to diagnose a live
+fault while it was happening, and it showed what the tool does not keep.
+
+**How the scan was done.** Entirely from the service's own files and its health endpoint at first, so the
+diagnosis added no traffic to a miner that was already struggling and did not collide with the watchdog
+mid-ladder. The agent held off on any manual restart or plug action for the same reason, and said so. The
+miner's own log was read only when Mark asked for it, as one request timed into the gap between two of the
+service's polls, with long tokens masked and the copy deleted after reading.
+
+**Incident one, 17:13.** Forty-three hours of steady hashing, then the mining process on the box restarted
+with nothing in its log beforehand: no error, no overheat, no pool trouble, just 37 seconds of silence and
+a start line. For five minutes it could not write to the first chip in the chain. The watchdog's first soft
+restart made it worse (the controller came back seeing no board at all, 3 W at the plug) and its second
+fixed it. Sixteen minutes down, no human action.
+
+**A prediction the agent got wrong, and the correction.** It told Mark the next rung would be a plug cycle.
+It was a second soft restart. The watchdog only considers the plug when the miner is unreachable, and this
+miner answered throughout; that has been the design since 0.7.4. The agent flagged its own claim as
+unverified, then read the code and withdrew it.
+
+**Incident two, 18:45, and Mark's hypothesis.** Mark noticed that after the recovery the plug read 162 W
+where it had read 184 W all day, and that after a second burst of board resets it was back at 184. He
+asked whether one or two chips had been absent. The per-chip nonce counts in the service log answered that
+directly: all sixteen produced at their normal rates in the low window (9,035 good nonces an hour against
+9,154 before and 9,151 after). Same work for 22 W less, and each step back up passed through a single
+221 W sample. That points at the supply or regulator voltage, which is a hypothesis and recorded as one.
+
+**The finding that changed the design.** When the miner's log was read a second time to look at 18:45, it
+had truncated itself: 3.8 MB two hours earlier, 36 KB now, starting after the window of interest. The
+evidence was gone. An earlier guess that the truncation had caused the 17:13 restart died at the same
+moment, since this truncation came with no restart. Two gaps followed from the evening: the service parses
+the board's voltage on every poll and drops it, and it fetches the whole miner log every five minutes and
+keeps only the temperatures.
+
+**Proposed, not built.** A 0.9.0 (a new log column is a format change, so a minor bump by this repo's own rule) that logs the reported voltage as a column, and that classifies the
+non-routine lines of the log read it already makes into labels and counts in a small file. Labels from a
+fixed whitelist, never the text, because the miner's log repeats the pool user and a mask is a blacklist
+that fails open. The agent named its least certain assumption: the voltage field may echo the setpoint
+rather than measure anything, in which case the column can show the firmware changing its mind but not the
+hardware sagging.
+
+**Considered and declined:** a new watchdog rung for a miner that answers but has lost its board. The
+existing ladder fixed the one case seen, and one case is not grounds for a rung that cuts power.
+
+**Left as it was:** the miner, the plug, the service and the code. The hardware suspicion (power brick or
+board connector, since the failures were at the first chip and not the known marginal one) is Mark's to
+check by hand.
+
+**Mark's follow-up, and what the history said.** "Do you see any change in rules that are suggested by the
+behavior? We're still getting good uptime." Rather than answer from one evening, the agent counted both of
+the day's signatures across the fifteen days of log. Twelve reset bursts, every one healed by itself inside
+two and a half minutes with the watchdog rightly silent; six episodes of a controller answering with no
+board behind it, none of which ever healed until the stall rule's restart arrived, six to twenty-two
+minutes later. So the answer was one rule, not several: leave the five-minute stall window alone, because a
+quicker trigger would have interrupted a self-healing miner twelve times out of twelve, and give the
+board-absent signature its own two-minute soft restart, because waiting there buys nothing. Worth about
+0.15 percent of uptime, which the agent said plainly is small. Added to the proposal as a candidate, to be
+built only on Mark's word, and kept a soft restart rather than a power cut.
