@@ -244,6 +244,19 @@ _SYSLOG_ROUTINE_RE = re.compile(
     r"|Probing for an alive pool|API running in ")
 
 
+def syslog_newest_ts(text):
+    """The miner timestamp on the log's last stamped line that is a real date, or None. Reads the tail only."""
+    for line in reversed(text[-20000:].splitlines()):
+        m = _SYSLOG_TS_RE.match(line)
+        if m:
+            try:
+                datetime.datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                continue
+            return m.group(1)
+    return None
+
+
 def classify_syslog(text, after=None, first_minutes=None):
     """The non-routine lines of `/dbg/minersyslog` as `(rows, newest)`: `rows` is a list of
     `(label, count, first_miner_timestamp, last_miner_timestamp)` in the order each label first appeared, and
@@ -260,15 +273,10 @@ def classify_syslog(text, after=None, first_minutes=None):
     """
     floor = None
     if after is None and first_minutes is not None:
-        for line in reversed(text[-20000:].splitlines()):
-            m = _SYSLOG_TS_RE.match(line)
-            if m:
-                try:
-                    newest = datetime.datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
-                except ValueError:
-                    continue
-                floor = (newest - datetime.timedelta(minutes=first_minutes)).strftime("%Y-%m-%d %H:%M:%S")
-                break
+        tail = syslog_newest_ts(text)
+        if tail is not None:
+            floor = (datetime.datetime.strptime(tail, "%Y-%m-%d %H:%M:%S")
+                     - datetime.timedelta(minutes=first_minutes)).strftime("%Y-%m-%d %H:%M:%S")
     found, newest = {}, None
     for line in text.splitlines():
         m = _SYSLOG_TS_RE.match(line)

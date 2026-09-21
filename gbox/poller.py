@@ -59,6 +59,13 @@ BOARDS_COLUMNS = ["time", "board", "elapsed", "mhs_20s", "mhs_av", "accepted", "
                   "clock", "tstemp0", "tstemp2", "rebootcnt", "overheat",
                   "volts"]    # 0.9.0, per board; an older boards.csv is migrated at start like log.csv
 
+# minerlog.csv (0.9.0): what the miner's own log said, kept because the miner does not keep it (2026-09-20: 3.8 MB
+# to 36 KB in two hours, with no restart). One row per label per log read; labels and counts only, see
+# api.classify_syslog. Not rotated: a quiet miner writes nothing here. It stops growing at the cap instead, so a
+# broken or hostile device cannot fill the disk through it.
+MINERLOG_COLUMNS = ["time", "label", "count", "miner_first", "miner_last"]
+MINERLOG_MAX_BYTES = 5 * 1024 * 1024
+
 BOARD_SOURCES = ("auto", "4028", "minerinfo")
 
 
@@ -269,6 +276,12 @@ class Poller(threading.Thread):
         self.scheduler = scheduler  # gbox.power.Scheduler: ticked once per sample, after the watchdog
         self.csv_path = Path(csv_path)
         self.boards_csv_path = self.csv_path.with_name("boards.csv")
+        # 0.9.0: minerlog.csv, the non-routine lines of each log read as labels and counts. Its own cursor: with the
+        # board absent the miner writes failures and no temperatures, so `_syslog_cursor` would never move.
+        self.minerlog_path = self.csv_path.with_name("minerlog.csv")
+        self.minerlog_max_bytes = MINERLOG_MAX_BYTES
+        self._minerlog_cursor = None
+        self._minerlog_full = False
         # 0.8.0: the cap that fires a rotation, in bytes (config.log.max_mb), and the window it carries.
         # 0 is no rotation, which is what every test that does not care about it gets.
         self.max_bytes = int(max_bytes or 0)
@@ -353,9 +366,10 @@ class Poller(threading.Thread):
                 if self.events:
                     self.events.write("power: plug unreachable (%s); the watchdog cannot cycle until it answers" % e)
 
-    def read_chiptemps(self):
+    def read_chiptemps(self, stamp=None):
         """The hottest-chip columns for this row: (peak, level, chip_avg) from one log read when one is due,
-        else (None, None, None). A failed read is a blank and a count, never an error row."""
+        else (None, None, None). A failed read is a blank and a count, never an error row. The same read
+        feeds minerlog.csv (0.9.0); `stamp` is the row's own time for those lines."""
         now = self._clock()
         if self.syslog_interval <= 0 or (self._syslog_next is not None and now < self._syslog_next):
             return None, None, None
@@ -367,6 +381,10 @@ class Poller(threading.Thread):
         except Exception:
             self.syslog_errors += 1
             return None, None, None
+        try:
+            self._append_minerlog(stamp or datetime.datetime.now().strftime(STAMP), text)
+        except Exception:                   # evidence is never worth a temperature reading, let alone a sample
+            self.syslog_errors += 1
         if boot is not None and (self._syslog_cursor is None or boot > self._syslog_cursor):
             # the log survives a power cycle (2026-09-15 07:07: a row 18 s after a boot carried the run before the
             # freeze); readings written before the newest boot line are the old run's, not this one's
@@ -381,6 +399,34 @@ class Poller(threading.Thread):
             readings = [r for r in readings if r[0] >= floor]
         self._syslog_cursor = readings[-1][0]
         return summarize_chiptemps(readings)
+
+    def _append_minerlog(self, stamp, text):
+        """One row per label for the lines of this log read that are newer than the last one's. A first read
+        looks back FIRST_READ_MINUTES by the miner's clock, as the temperatures do. A quiet read writes nothing."""
+        rows, newest = api.classify_syslog(text, after=self._minerlog_cursor, first_minutes=FIRST_READ_MINUTES)
+        if newest is None:
+            # Nothing newer than the cursor. If the whole log is older than it, the miner's clock went back
+            # (a boot with no time yet): start over from the log's own newest line rather than wait for it to pass.
+            tail = api.syslog_newest_ts(text)
+            if self._minerlog_cursor is not None and tail is not None and tail < self._minerlog_cursor:
+                self._minerlog_cursor = None
+            return
+        self._minerlog_cursor = newest
+        if not rows or self._minerlog_full:
+            return
+        path = self.minerlog_path
+        size = path.stat().st_size if path.exists() else 0
+        if self.minerlog_max_bytes and size >= self.minerlog_max_bytes:
+            self._minerlog_full = True
+            if self.events:
+                self.events.write("service: minerlog.csv reached its %d MB cap and is no longer written; move it "
+                                  "aside to start a new one" % round(self.minerlog_max_bytes / 1024 / 1024))
+            return
+        with open(path, "a", encoding="utf-8", newline="") as f:
+            if size == 0:
+                f.write(",".join(MINERLOG_COLUMNS) + "\n")
+            for label, count, first, last in rows:
+                f.write("%s,%s,%d,%s,%s\n" % (stamp, label, count, first, last))
 
     def stop(self):
         self._stop.set()
@@ -404,7 +450,7 @@ class Poller(threading.Thread):
                     self.miner_status = self.miner.status()
                 except Exception:
                     pass
-            row["hot_peak"], row["hot_level"], row["chip_avg"] = self.read_chiptemps()   # a fourth request, when due
+            row["hot_peak"], row["hot_level"], row["chip_avg"] = self.read_chiptemps(now)   # a fourth request, when due
         except api.NoCredentials:
             row = {"http": "ERR:NoCredentials:waiting for a token from the dashboard"}
             self.errors += 1
