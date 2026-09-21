@@ -163,6 +163,11 @@ class ChipTempsTest(unittest.TestCase):
         two += " [2026-09-15 08:00:05] C0: Chip Avgtemp 30.000000'C, MaxTemp 38.000000'C\n"
         self.assertEqual(api.parse_chiptemps(two), [("2026-09-15 08:00:05", 30.0, 38.0)])
 
+    def test_a_run_start_phrase_inside_another_line_is_not_a_run_start(self):
+        # review of 0.9.1: the log repeats the pool user, which the owner chooses; it must not move the run start
+        echoed = self.text + " [2026-09-15 08:00:00] Pool 0 stratum+tcp://example.invalid user Started intminer \n"
+        self.assertEqual(api.parse_chiptemps(echoed), api.parse_chiptemps(self.text))
+
     def test_a_boot_with_no_time_yet_is_placed_by_its_position_in_the_log(self):
         # 0.9.1, 2026-09-21 09:44: a cold boot's clock reads 2007 until it reaches a time server. Compared by
         # timestamp, the run before the outage looked newer than the boot, and its 79 C peak landed on the first

@@ -2508,3 +2508,42 @@ already existed, so the migration would not make one). Confirmed: health reports
 advancing and the two-minute board-absent rule on; the log gained its voltage column with no ragged rows,
 and new rows carry a value. The miner itself was not restarted. The first label row will appear the next
 time the miner re-initialises its board on its own; nothing was done to provoke one.
+
+## 2026-09-21 midday, session AE: a lost session that wasn't, a 162 W mystery, and 0.9.1
+
+**The ask.** "Something was in process in a session from last night ... but the session was lost this morning due
+to a crash or a power outage. Check if anything was left un-done or un-written." Then: "Look into the 162W
+operation first ... I'll take it, but see if you can find some clues. Then do the 1) list of activities as
+recommended. We will expect to merge after the bug fix, and I pre-authorize a service restart."
+
+**Nothing was lost.** The late session's transcript ends on its own final summary after the release, the
+checkpoint and the memory update; the repo was clean and level with GitHub. The outage came seven hours later:
+logging stops at 07:27, the PC booted at 09:29, and the service came back by itself from its Startup entry. The
+miner went down too (2 W, the web backend answering 500) and two watchdog soft restarts brought it back.
+
+**The standing power-cycle check.** At 04:22 the miner stopped answering, both soft restarts timed out, the plug
+cycled it at 04:31 and it hashed a minute later. A burst of addressing and self-test failures at 04:37 healed on
+its own within a minute. The item left open last night closed: `minerlog.csv` now exists and holds no pool user.
+
+**The 162 W state (Mark's question).** A scanner over the whole log found seven stretches of at least 15 minutes at
+about 162 W instead of about 182 W since 09-14, three of them today, one still running. Same clock, same fan
+speeds, hashrate within 2 %, all 16 chips producing at matched rates (per-chip ratio 0.95 to 1.06), and boards 3
+to 4 C cooler. That last point argues against a metering artifact: less heat on the board means less power really
+went into it. The starts are spread across the day, and one began with no event at all, so it is not a restart
+side effect; a power cycle did not end one either. About 234 J/TH against 257. The best-supported reading is a
+lower supply voltage at the same work, but nothing measures it: the firmware's `volts` figure stayed 0.41 in
+both states, and whether it is a measurement at all is still open. Mark takes the efficiency; no change made.
+
+**Three bugs one outage exposed, fixed as 0.9.1.** (1) The miner's clock restarts at 2007 after a cold boot until
+it reaches a time server, while its log keeps the run before. Compared by timestamp, the whole previous run then
+looked newer than the cursor and `minerlog.csv` counted it a second time. (2) The same comparison put the previous
+run's 79 C peak on a row one second into the miner's uptime. Both now read the log by position: the cursor is
+found where it sits, and temperatures keep only what follows the newest run start. (3) The service started while
+port 4028 was still closed and settled on the fallback source for the whole run, which carries no voltage, so
+`volts` went blank from 09:44. It now decides only once the fallback actually answers. Each fix had a test that
+failed first; 640 Python and 68 Node green.
+
+**One review pass.** Nothing critical or high. Its low finding, that a pool user containing a run-start phrase
+could move the run start, was fixed (the pattern is now anchored). A medium one was deferred and recorded in
+`docs/security-notes.md`: a miner that never gets network time repeats the same 2007 stamps every boot, so a
+cursor can match the wrong boot. The old comparison also lost lines in that case, and a fix needs a design.
