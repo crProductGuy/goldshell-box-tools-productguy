@@ -211,7 +211,7 @@ def last_boot_ts(text):
 # later, with no restart, so an incident's lines are gone by the time anyone asks. These tables turn the read the
 # service already makes into labels and counts. Every pattern is matched at the start of the message, on its first
 # _SYSLOG_MSG_CHARS characters only, and none nests a quantifier: the input is megabytes of text from a device.
-_SYSLOG_TS_RE = re.compile(r"^\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] ?")
+_SYSLOG_TS_RE = re.compile(r"^\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] ?", re.ASCII)
 _SYSLOG_MSG_CHARS = 200
 _SYSLOG_LABEL_RES = [(label, re.compile(pattern)) for label, pattern in (
     ("process_started", r"Started intminer "),
@@ -244,17 +244,25 @@ _SYSLOG_ROUTINE_RE = re.compile(
     r"|Probing for an alive pool|API running in ")
 
 
-def syslog_newest_ts(text):
-    """The miner timestamp on the log's last stamped line that is a real date, or None. Reads the tail only."""
-    for line in reversed(text[-20000:].splitlines()):
+def _real_ts(ts):
+    try:
+        datetime.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return False
+    return True
+
+
+def _last_real_ts(lines):
+    for line in reversed(lines):
         m = _SYSLOG_TS_RE.match(line)
-        if m:
-            try:
-                datetime.datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
-            except ValueError:
-                continue
+        if m and _real_ts(m.group(1)):
             return m.group(1)
     return None
+
+
+def syslog_newest_ts(text):
+    """The miner timestamp on the log's last stamped line that is a real date, or None. Reads the tail only."""
+    return _last_real_ts(text[-20000:].splitlines())
 
 
 def classify_syslog(text, after=None, first_minutes=None):
@@ -266,24 +274,30 @@ def classify_syslog(text, after=None, first_minutes=None):
     cursor, `first_minutes` looks back that far from the log's own newest line instead of taking the whole log.
 
     Nothing of a line's text is returned, ever: the labels are this module's own, the counts are ints, and the
-    timestamps are digits the pattern matched. The log repeats the pool user, and a mask would be a blacklist
-    that fails open on a line shape nobody anticipated; a line no pattern knows is counted under "other" and
-    its text is dropped. A line without the log's timestamp is skipped. Lines written later in the same second
-    as the cursor are missed, as in `parse_chiptemps`.
+    timestamps are ASCII digits that parse as a real date. The log repeats the pool user, and a mask would be a
+    blacklist that fails open on a line shape nobody anticipated; a line no pattern knows is counted under
+    "other" and its text is dropped. A line without the log's timestamp is skipped, and so is one stamped later
+    than the log's own last line: a clock glitch into the future would otherwise become the caller's cursor and
+    hide every real line after it. Lines written later in the same second as the cursor are missed, as in
+    `parse_chiptemps`.
     """
+    lines = text.splitlines()
+    tail = _last_real_ts(lines)
+    if tail is None:
+        return [], None
     floor = None
     if after is None and first_minutes is not None:
-        tail = syslog_newest_ts(text)
-        if tail is not None:
-            floor = (datetime.datetime.strptime(tail, "%Y-%m-%d %H:%M:%S")
-                     - datetime.timedelta(minutes=first_minutes)).strftime("%Y-%m-%d %H:%M:%S")
+        floor = (datetime.datetime.strptime(tail, "%Y-%m-%d %H:%M:%S")
+                 - datetime.timedelta(minutes=first_minutes)).strftime("%Y-%m-%d %H:%M:%S")
     found, newest = {}, None
-    for line in text.splitlines():
+    for line in lines:
         m = _SYSLOG_TS_RE.match(line)
         if not m:
             continue
         ts = m.group(1)
-        if (after is not None and ts <= after) or (floor is not None and ts < floor):
+        if ts > tail or (after is not None and ts <= after) or (floor is not None and ts < floor):
+            continue
+        if not _real_ts(ts):
             continue
         if newest is None or ts > newest:
             newest = ts

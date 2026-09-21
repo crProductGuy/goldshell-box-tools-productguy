@@ -430,16 +430,18 @@ class Poller(threading.Thread):
                 self._minerlog_cursor = None
             return
         self._minerlog_cursor = newest
-        if not rows or self._minerlog_full:
+        if not rows:
             return
         path = self.minerlog_path
         size = path.stat().st_size if path.exists() else 0
         if self.minerlog_max_bytes and size >= self.minerlog_max_bytes:
-            self._minerlog_full = True
-            if self.events:
+            # checked on every read, so a file moved aside starts a new one; the flag only keeps the event to one line
+            if not self._minerlog_full and self.events:
                 self.events.write("service: minerlog.csv reached its %d MB cap and is no longer written; move it "
                                   "aside to start a new one" % round(self.minerlog_max_bytes / 1024 / 1024))
+            self._minerlog_full = True
             return
+        self._minerlog_full = False
         with open(path, "a", encoding="utf-8", newline="") as f:
             if size == 0:
                 f.write(",".join(MINERLOG_COLUMNS) + "\n")

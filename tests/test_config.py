@@ -81,6 +81,12 @@ class PowerConfigTest(unittest.TestCase):
             with self.assertRaises(ValueError, msg=repr(bad)):
                 config.Config(host="m", watchdog={"absent_minutes": bad}).validate()
 
+    def test_absent_minutes_is_finite(self):
+        # json.load accepts NaN and Infinity; either one passed validation and then stopped the watchdog starting
+        for bad in (float("nan"), float("inf")):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                config.Config(host="m", watchdog={"absent_minutes": bad}).validate()
+
     def test_validate_rejects_after_minutes_below_unreachable_minutes(self):
         cfg = config.Config(host="m", watchdog={"unreachable_minutes": 5}, power={"host": "p", "after_minutes": 4})
         with self.assertRaises(ValueError):

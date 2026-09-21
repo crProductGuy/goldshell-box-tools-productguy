@@ -236,18 +236,37 @@ line shape nobody anticipated is written to disk whole.
 
 **Match known shapes and store our own words.** This is what was built.
 `classify_syslog` holds a fixed table of line shapes. A line that matches
-becomes a label from that table, a count, and two timestamps made of digits
-the pattern matched. A line that matches nothing is counted as `other` and
-its text is dropped. No character of the miner's text can reach the file, a
-terminal or the event log, and a test feeds the classifier an invented user
-and token and asserts neither comes back.
+becomes a label from that table, a count, and two timestamps. A line that
+matches nothing is counted as `other` and its text is dropped. Nothing of the
+miner's text reaches the file, a terminal or the event log except the two
+timestamps, and a test feeds the classifier an invented user and token and
+asserts neither comes back.
+
+The timestamps are the one place the miner's own characters are written, so
+they are held to a narrow shape. The security pass found that `\d` in a
+Python pattern matches any Unicode digit, and that nothing checked the date
+was real, so Arabic-Indic digits or `9999-99-99` would have reached the file.
+The pattern is now ASCII-only and each timestamp must parse as a date. A line
+stamped later than the log's own last line is also skipped: a clock glitch
+into the future would otherwise become the reading cursor, hide every real
+line after it, and make the file count the same lines again on every other
+read.
 
 The input is megabytes of text from a device on the LAN, so the patterns
-are anchored at the start of the message, none nests a quantifier, and each
-sees only the first 200 characters of a line. The file stops growing at 5 MB
-and says so once in the event log; a device that floods its own log cannot
-fill the disk through it. A classifier failure is counted and costs neither
-the sample nor the temperature reading.
+are anchored at the start of the message and none nests a quantifier. Each
+label pattern sees only the first 200 characters after the timestamp; the
+timestamp pattern itself runs on the whole line, and is anchored and linear.
+The file stops growing at 5 MB and says so once in the event log; a device
+that floods its own log cannot fill the disk through it. The size is checked
+on every read, so moving the file aside starts a new one without a restart.
+A classifier failure is counted and costs neither the sample nor the
+temperature reading.
+
+Not bounded, and not new in 0.9.0: the log read itself (`Miner.syslog`) has
+no size cap, so a hostile device could send far more than the firmware's
+usual 4 MB. Memory and time grow linearly, on the poller thread. A plain
+`read(n)` cap would keep the oldest part of the log and drop the newest, which
+is the part every reader of it needs, so this is left for a design decision.
 
 The board-absent rule added in the same release is a new reason for an
 action the watchdog could already take (a soft restart), under the same
