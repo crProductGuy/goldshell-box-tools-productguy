@@ -1384,3 +1384,132 @@ class RotationThatCannotHelpTest(unittest.TestCase):
         said = path.read_text(encoding="utf-8")
         self.assertEqual(said.count("rotation is off until the service restarts"), 1)
         self.assertEqual((self.data / "own-events.log.1").read_bytes(), archived)
+
+
+class MinerLogTest(HottestChipPollerTest):
+    """0.9.0: the log read the service already makes also leaves `minerlog.csv`: labels and counts, never text.
+
+    Inherits the fake miner and the clock; re-running the parent's tests here also proves the classifier
+    costs the temperature columns nothing.
+    """
+
+    INCIDENT = os.path.join(os.path.dirname(__file__), "fixtures", "dbg_minersyslog_incident.txt")
+
+    def poller(self, **kw):
+        return poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, clock=self.clock,
+                             syslog_interval=300, **kw)
+
+    def minerlog(self):
+        path = self.csv.with_name("minerlog.csv")
+        if not path.exists():
+            return None
+        with open(path, newline="", encoding="utf-8") as f:
+            return list(csv.DictReader(f))
+
+    def incident(self):
+        with open(self.INCIDENT, encoding="utf-8") as f:
+            return f.read()
+
+    def test_a_quiet_log_writes_no_file(self):
+        self.fm.syslog = " [2026-09-15 07:36:01] C0: Chip Avgtemp 54.000000'C, MaxTemp 65.000000'C\n"
+        self.poller().poll_once()
+        self.assertIsNone(self.minerlog())
+
+    def test_one_row_per_label_with_the_service_time_and_the_miners_own(self):
+        self.fm.syslog = self.incident()
+        p = self.poller()
+        p.poll_once()
+        rows = self.minerlog()
+        self.assertEqual(list(rows[0].keys()), poller.MINERLOG_COLUMNS)
+        self.assertEqual(poller.MINERLOG_COLUMNS, ["time", "label", "count", "miner_first", "miner_last"])
+        # a first read looks back FIRST_READ_MINUTES from the log's newest line, like the temperatures do
+        self.assertEqual({r["label"]: r["count"] for r in rows},
+                         {"invalid_nonce": "1", "readnonce_reinit": "1", "init_succeeded": "1"})
+        self.assertEqual(rows[0]["time"], self.rows()[0]["time"])
+        self.assertEqual(rows[-1]["miner_first"], "2026-09-21 05:33:40")
+
+    def test_a_line_is_never_counted_twice_and_new_ones_are_added(self):
+        self.fm.syslog = self.incident()
+        p = self.poller()
+        p.poll_once()
+        n = len(self.minerlog())
+        self.now += 300
+        p.poll_once()
+        self.assertEqual(len(self.minerlog()), n)                # same log again: nothing new
+        self.fm.syslog += " [2026-09-21 05:40:00] C0: Init failed 5 Times\n [2026-09-21 05:40:01] C0: Init failed 5 Times\n"
+        self.now += 300
+        p.poll_once()
+        last = self.minerlog()[-1]
+        self.assertEqual((last["label"], last["count"], last["miner_first"], last["miner_last"]),
+                         ("init_failed", "2", "2026-09-21 05:40:00", "2026-09-21 05:40:01"))
+
+    def test_the_cursor_moves_with_no_temperature_lines_at_all(self):
+        # board absent: the miner writes failures and no temperatures, so the temperature cursor never advances.
+        # The classifier keeps its own, or every read would re-count the whole incident.
+        failures = "".join(" [2026-09-21 05:%02d:00] C0: Write Chip0 Reg 4 Failed\n" % m for m in range(10, 14))
+        self.fm.syslog = failures
+        p = self.poller()
+        p.poll_once()
+        self.assertIsNone(p._syslog_cursor)
+        self.now += 300
+        p.poll_once()
+        self.now += 300
+        p.poll_once()
+        self.assertEqual([(r["label"], r["count"]) for r in self.minerlog()], [("chip_write_failed", "4")])
+
+    def test_a_truncated_log_carries_on(self):
+        self.fm.syslog = self.incident()
+        p = self.poller()
+        p.poll_once()
+        self.fm.syslog = " [2026-09-21 08:27:56] C0: Auto DTFS now check!!!\n [2026-09-21 08:30:00] C0: BistStart err\n"
+        self.now += 300
+        p.poll_once()
+        self.assertEqual(self.minerlog()[-1]["label"], "bist_error")
+
+    def test_nothing_of_the_log_text_reaches_the_disk(self):
+        self.fm.syslog = self.incident().replace("2026-09-21 05:13:19] Pool 0 user", "2026-09-21 05:33:41] Pool 0 user")
+        self.poller().poll_once()
+        self.assertIn(("other", "1"), [(r["label"], r["count"]) for r in self.minerlog()])
+        for name in os.listdir(self.tmp.name):
+            with open(os.path.join(self.tmp.name, name), encoding="utf-8") as f:
+                text = f.read()
+            for leak in ("inventedPoolUser", "Zm9vYmFy"):
+                self.assertNotIn(leak, text, name)
+
+    def test_a_classifier_that_raises_costs_neither_the_sample_nor_the_temperatures(self):
+        real = api.classify_syslog
+        api.classify_syslog = lambda *a, **k: 1 / 0
+        self.addCleanup(setattr, api, "classify_syslog", real)
+        p = self.poller()
+        row = p.poll_once()
+        self.assertEqual(row["http"], "ok")
+        self.assertEqual(self.rows()[0]["hot_peak"], "93.0")
+        self.assertEqual((p.errors, p.syslog_errors), (0, 1))
+        self.assertIsNone(self.minerlog())
+
+    def test_the_file_stops_growing_at_its_cap_and_says_so_once(self):
+        lines = []
+        events = type("E", (), {"write": lambda self, m: lines.append(m)})()
+        self.fm.syslog = self.incident()
+        p = self.poller(events=events)
+        p.minerlog_max_bytes = 150
+        for i in range(4):
+            self.fm.syslog += " [2026-09-21 06:%02d:00] C0: BistStart err\n" % i
+            p.poll_once()
+            self.now += 300
+        size = self.csv.with_name("minerlog.csv").stat().st_size
+        self.assertLess(size, 150 + 200)
+        self.assertEqual(sum("minerlog.csv" in l for l in lines), 1)
+
+    def test_a_miner_clock_that_went_back_is_picked_up_on_the_next_read(self):
+        self.fm.syslog = self.incident()
+        p = self.poller()
+        p.poll_once()
+        n = len(self.minerlog())
+        self.fm.syslog = " [2020-01-01 00:00:05] C0: BistStart err\n"    # a boot with no time yet
+        self.now += 300
+        p.poll_once()                                            # older than the cursor: start over, write nothing
+        self.assertEqual(len(self.minerlog()), n)
+        self.now += 300
+        p.poll_once()
+        self.assertEqual(self.minerlog()[-1]["label"], "bist_error")
