@@ -2470,3 +2470,41 @@ five of six board-absent episodes followed a power cycle; the event log showed t
 **Left for a fresh session:** re-verify, the one security pass, merge, tag, restart the service at Mark's
 word, and confirm a voltage value and a first label row on live data. Not merged, not pushed, service
 untouched.
+
+## 2026-09-21 just after midnight, session AD: the fresh-session verification, one security pass, and 0.9.0 live
+
+**The goal, in Mark's words:** "pick up the Goldshell project and carry forward with the specified security
+testing after any small outstanding changes." The session worked from the written brief the build session
+left, restated it, and found no outstanding changes: the branch was exactly as the checkpoint described.
+
+**Verification in a session that did not build it.** Every test module was re-run one at a time with the
+failure names kept this time, since the build session's script had lost one. The counts matched the build
+session's evidence: 627 Python and 68 Node, all green.
+
+**One security pass, as planned.** A single reviewer, briefed with five questions and a tool budget, read
+the diff and probed the classifier with hostile input. Nothing critical or high. The miner's log text
+cannot reach the file, the event log, a terminal or the API; no pattern backtracks (the worst case, 4 MB of
+tiny lines, took about a second); the new restart rule stays under the daily cap and can never reach the
+power plug. The agent checked each finding against the code before acting on it.
+
+**What it did find, and what was fixed.** The timestamps are the one place the miner's own characters are
+written, and they were looser than the design claimed: `\d` in a Python pattern matches any Unicode digit,
+and nothing checked the date was real. Worse for the evidence the release exists to keep, one line stamped
+in the future would become the reading cursor, and reads would then alternate between skipping everything
+and counting the same lines again. The reviewer proposed validating each timestamp; the agent added one
+thing, skipping any line stamped after the log's own last line, because a real clock glitch into a future
+year is a valid date and validation alone would not stop the loop. Also fixed: a full `minerlog.csv` stayed
+unwritten until a restart although its message says moving it aside starts a new one, and the config
+accepted NaN and Infinity for the new setting. Each fix came with a test that failed first. 632 Python and
+68 Node green afterwards.
+
+**Left for later, at Mark's word.** The log read itself has no size cap. It predates this release, and a
+plain cap would keep the oldest part of the log and drop the newest, which is the part everything reads,
+so it needs a design rather than a fix. Recorded in `docs/security-notes.md` as open.
+
+**Released.** Fast-forward merge, tag `v0.9.0`, pushed at Mark's word. The live service was restarted onto
+it at his word, by the pid in its own pid file, after the log was copied aside by hand (an old backup
+already existed, so the migration would not make one). Confirmed: health reports 0.9.0 with samples
+advancing and the two-minute board-absent rule on; the log gained its voltage column with no ragged rows,
+and new rows carry a value. The miner itself was not restarted. The first label row will appear the next
+time the miner re-initialises its board on its own; nothing was done to provoke one.
