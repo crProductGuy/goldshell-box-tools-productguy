@@ -105,7 +105,7 @@ class PollerTest(unittest.TestCase):
         p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, watchdog=wd)
         p.poll_once()
         self.assertEqual(len(wd._rows), 1)
-        self.assertEqual(wd._rows[0][1:], (True, 17582))
+        self.assertEqual(wd._rows[0][1:], (True, 17582, False))     # ok, accepted, and 0.9.0's absent flag
 
     def test_21_column_header_from_0_2_0_is_migrated(self):
         old = poller.COLUMNS[:21]
