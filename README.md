@@ -114,6 +114,25 @@ same way, `events.log` at 5 MB with its last 4000 lines carried, and
 `"max_mb": 0` turns all of it off if you would rather keep everything and
 watch the disk yourself. Delete or move a `.1` file whenever you like.
 
+Two things are kept because an incident cannot be explained without them
+(0.9.0). `log.csv` ends in `volts`, the board voltage exactly as the
+firmware reports it. And `minerlog.csv` holds what the miner's own log said:
+the miner truncates that log within hours, so each time the service reads it
+for the hottest chip it also writes one row per kind of non-routine line
+(`init_failed`, `chip_write_failed`, `process_started` and a dozen more),
+with a count and the miner's first and last timestamp. It holds labels and
+numbers only, never a line of the log's text, because the log repeats your
+pool user. A healthy miner adds almost nothing to it; it stops at 5 MB. The
+labels are listed in `docs/firmware-api.md`.
+
+The watchdog restarts the miner for three reasons: it has been unreachable
+for `unreachable_minutes` (2), its accepted-share counter has been frozen for
+`stall_minutes` (5), or, on an SC-BOX, it has been answering for
+`absent_minutes` (2) with clock 0 and no board sensor, which is a controller
+that has lost its hashboard. That last state never once cleared by itself in
+15 days of one unit's log, so waiting the full five minutes bought nothing.
+`"absent_minutes": 0` in the `watchdog` block turns it off.
+
 ## Power-cycling a hung miner
 
 A frozen controller drops off the network and cannot take the watchdog's
