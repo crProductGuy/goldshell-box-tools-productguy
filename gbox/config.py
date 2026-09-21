@@ -23,6 +23,7 @@ DEFAULT_WATCHDOG = {
     "enabled": True,
     "stall_minutes": 5,          # accepted-share counter frozen this long -> restart
     "unreachable_minutes": 2,    # HTTP failing this long -> restart
+    "absent_minutes": 2,         # 0.9.0: answering, but clock 0 and no board sensor, this long -> restart; 0 is off
     "min_gap_minutes": 5,        # settle time after a restart before judging again (10 until 2026-09-12; a soft restart takes 60-90 s)
     "max_restarts_per_day": 12,  # at least twice power.max_cycles_per_day plus a few: a cycle needs two failed attempts
 }
@@ -137,6 +138,9 @@ class Config:
             raise ValueError("port out of range")
         if self.syslog_interval != 0 and self.syslog_interval < MIN_SYSLOG_INTERVAL:
             raise ValueError("syslog_interval must be 0 (off) or at least %d seconds" % MIN_SYSLOG_INTERVAL)
+        absent = self.watchdog.get("absent_minutes")
+        if isinstance(absent, bool) or not isinstance(absent, (int, float)) or absent < 0 or 0 < absent < 1:
+            raise ValueError("watchdog.absent_minutes must be 0 (off) or at least 1")
         if self.board_source not in BOARD_SOURCES:
             raise ValueError("board_source must be one of: %s" % ", ".join(BOARD_SOURCES))
         serious, critical = int(self.temps["hot_serious"]), int(self.temps["hot_critical"])

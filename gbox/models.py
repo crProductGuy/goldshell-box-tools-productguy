@@ -30,6 +30,12 @@ sampler, the plan parser and the page may assume about a unit:
   levels on this model (the SC5 Pro II: "Hashrate Mode", "Low-power Mode",
   "Idle Mode"), or None when no such names have been read from a unit. The
   page shows `plan_names[level]` when present, else the plan string itself.
+- `absent_signature` (0.9.0): whether "clock 0 and the board sensor at its
+  no-sensor value, while HTTP answers" has been verified on this model to mean
+  the controller has lost its hashboard. True only for the SC-BOX (six
+  episodes, 2026-09-13 to 09-20, none of which ended without a restart). Where
+  it is False the watchdog's board-absent rule never fires; a model earns it
+  from a log, not from resemblance.
 
 An unknown model gets the BOX's sampling path with every optional
 capability off and `known: False`, and the page says so.
@@ -53,6 +59,7 @@ MODELS = {
         "fan_target": True,
         "temp_target_basis": "board_sensor",
         "plan_names": None,
+        "absent_signature": True,
     },
     "Goldshell-SCBox II": {
         "name": "SC-BOX II",
@@ -69,6 +76,7 @@ MODELS = {
         "fan_target": True,
         "temp_target_basis": "board_sensor",
         "plan_names": None,
+        "absent_signature": False,      # assumed like the SC-BOX in every other way; this one is not assumed
     },
     "Goldshell-SCLITE": {
         "name": "SC Lite",
@@ -85,6 +93,7 @@ MODELS = {
         "fan_target": False,
         "temp_target_basis": "fixed",
         "plan_names": None,
+        "absent_signature": False,
     },
     "Goldshell-SC5ProⅡ": {            # exact bytes from /mcb/status on a friend's unit (Unicode Ⅱ, U+2161)
         "name": "SC5 Pro II", "rated_mhs": 14000000.0, "rated_watts": 3300.0, "fans": 4, "fan_max_rpm": None, "boards": 4,
@@ -92,13 +101,14 @@ MODELS = {
                   "plan dialect, PGA blocks, 4028 devs and plan names from a friend's unit (MCB_V3_3, fw 2.2.0, hw 30.50.SA)",
         "verified_string": True, "plan_dialect": "mv_pv", "board_source": "icinfo", "dbg_expected": True,
         "fan_target": False, "temp_target_basis": "fixed",
-        "plan_names": {0: "Hashrate Mode", 2: "Low-power Mode", 3: "Idle Mode"},
+        "plan_names": {0: "Hashrate Mode", 2: "Low-power Mode", 3: "Idle Mode"}, "absent_signature": False,
     },
     "Goldshell-SC5Pro": {              # string not read from a unit
         "name": "SC5 Pro", "rated_mhs": 11000000.0, "rated_watts": 2820.0, "fans": None, "fan_max_rpm": None, "boards": None,
         "source": "Goldshell spec sheet 2026-09-15 (11 TH/s ±5%, 2820 W ±5%; low-power 8.8 TH/s at 2020 W); capabilities "
                   "assumed as the SC5 Pro II's", "verified_string": False, "plan_dialect": "mv_pv", "board_source": "icinfo",
         "dbg_expected": True, "fan_target": False, "temp_target_basis": "fixed", "plan_names": None,
+        "absent_signature": False,
     },
 }
 
@@ -108,7 +118,7 @@ UNKNOWN = {
     "source": "not in the table; the SC-BOX's sampling path with every optional capability off",
     "verified_string": False,
     "plan_dialect": "box", "board_source": "icinfo", "dbg_expected": True, "fan_target": False,
-    "temp_target_basis": "board_sensor", "plan_names": None,
+    "temp_target_basis": "board_sensor", "plan_names": None, "absent_signature": False,
 }
 
 

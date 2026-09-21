@@ -890,3 +890,120 @@ class HoldTest(unittest.TestCase):
         self.wd.hold_start(20, "switched on, booting", source="schedule")
         self.assertTrue(self.hold_lines()[-1].startswith("hold: started by the schedule until "))
         self.assertIsNone(Watchdog(self.restart, self.events, 30, clock=self.clock).hold_info())
+
+
+class BoardAbsentTest(unittest.TestCase):
+    """0.9.0: a controller that answers with no hashboard behind it gets its soft restart at 2 minutes.
+
+    Fifteen days of one SC-BOX's log (2026-09-05 to 09-20) held two signatures that behave oppositely.
+    Twelve reset bursts (board resets climbing, clock and temperatures real) all healed by themselves
+    inside 2.5 minutes. Six board-absent episodes (HTTP fine, clock 0, board sensor at its no-sensor
+    value) never healed: each lasted 6 to 22 minutes, until the share-stall rule's restart arrived. So the
+    stall window stays where it is and this signature gets its own, shorter one. It is only ever a soft
+    restart: of the soft restarts sent to a board that was still present, 3 of 4 lost the board.
+    """
+    INTERVAL = 30
+
+    def make(self, **kw):
+        self.clock = FakeClock()
+        self.restart = Recorder()
+        self.lines = []
+        self.events = EventLog()
+        self.events.write = lambda m: self.lines.append(m)
+        args = dict(stall_minutes=5, unreachable_minutes=2, min_gap_minutes=5, max_restarts_per_day=20,
+                    absent_minutes=2, clock=self.clock)
+        args.update(kw)
+        self.wd = Watchdog(self.restart, self.events, self.INTERVAL, **args)
+        return self.wd
+
+    def feed(self, n, ok=True, accepted=500, hashing=False, absent=True):
+        last = None
+        for _ in range(n):
+            self.clock.tick(self.INTERVAL)
+            self.wd.observe(ok, accepted, hashing=hashing, absent=absent)
+            last = self.wd.check()
+        return last
+
+    def healthy(self, n=12):
+        for i in range(n):
+            self.clock.tick(self.INTERVAL)
+            self.wd.observe(True, 1000 + i, hashing=True, absent=False)
+            self.assertIsNone(self.wd.check())
+
+    def test_absent_for_two_minutes_is_one_soft_restart_and_not_before(self):
+        self.make()
+        self.healthy()
+        self.assertIsNone(self.feed(3))
+        self.assertEqual(self.restart.restarts, 0)
+        self.assertEqual(self.feed(1), "hashboard absent for 2 min")
+        self.assertEqual(self.restart.restarts, 1)
+        self.assertIn("watchdog: restart #1 sent (hashboard absent for 2 min)", self.lines[-1])
+
+    def test_a_reset_burst_is_left_alone(self):
+        # 2026-09-20 18:45: 2.5 min of a board resetting itself, not hashing, clock and temperatures real
+        self.make()
+        self.healthy()
+        self.assertIsNone(self.feed(5, absent=False))
+        self.healthy(4)
+        self.assertEqual(self.restart.restarts, 0)
+
+    def test_one_present_sample_starts_the_count_again(self):
+        self.make()
+        self.healthy()
+        self.feed(3)
+        self.feed(1, absent=False)
+        self.assertIsNone(self.feed(3))
+        self.assertEqual(self.restart.restarts, 0)
+        self.assertEqual(self.feed(1), "hashboard absent for 2 min")
+
+    def test_the_gap_after_a_restart_is_respected(self):
+        self.make()
+        self.healthy()
+        self.feed(4)
+        self.assertEqual(self.restart.restarts, 1)
+        self.feed(9)                                             # 4.5 min into a 5 min gap, still absent
+        self.assertEqual(self.restart.restarts, 1)
+        self.feed(5)                                             # the gap ends, then two more minutes of proof
+        self.assertEqual(self.restart.restarts, 2)
+
+    def test_it_never_reaches_the_plug(self):
+        plug = FakePlugObject()
+        self.make(plug=plug, power=dict(DEFAULT_POWER, host="x", device_id="plug-1", cycle=True, after_minutes=2,
+                                         settle_minutes=2), sleep=lambda s: None)
+        self.healthy()
+        self.feed(60)                                            # half an hour absent, restart after restart
+        self.assertGreater(self.restart.restarts, 2)
+        self.assertEqual(plug.calls, [])
+        self.assertFalse(any(l.startswith("power:") for l in self.lines))
+
+    def test_the_daily_cap_holds(self):
+        self.make(max_restarts_per_day=2)
+        self.healthy()
+        self.feed(80)
+        self.assertEqual(self.restart.restarts, 2)
+        self.assertTrue(any("is the cap" in l for l in self.lines))
+
+    def test_a_hold_silences_it(self):
+        self.make()
+        self.healthy()
+        self.wd.hold_start(minutes=30, reason="moving it", source="page")
+        self.feed(10)
+        self.assertEqual(self.restart.restarts, 0)
+
+    def test_zero_minutes_turns_the_rule_off_and_the_stall_rule_still_fires(self):
+        self.make(absent_minutes=0)
+        self.healthy()
+        self.assertIsNone(self.feed(9))
+        self.assertIn("frozen", self.feed(1))
+
+    def test_callers_that_do_not_pass_the_flag_are_unchanged(self):
+        self.make()
+        self.healthy()
+        for _ in range(9):
+            self.clock.tick(self.INTERVAL)
+            self.wd.observe(True, 500, hashing=False)
+            self.assertIsNone(self.wd.check())
+
+    def test_the_restart_line_seeds_like_any_other(self):
+        from gbox.watchdog import SEED_RE
+        self.assertTrue(SEED_RE.match("2026-09-20 17:21:13 watchdog: restart #1 sent (hashboard absent for 2 min)"))

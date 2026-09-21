@@ -40,7 +40,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import api
+from . import api, models
 
 COLUMNS = ["time", "http", "elapsed", "mhs_av", "mhs_20s", "hwerr", "hwerr_pct", "accepted",
            "rejected", "clock", "fan0", "fan1", "tstemp0", "tstemp1", "tstemp2", "rebootcnt",
@@ -65,6 +65,12 @@ BOARDS_COLUMNS = ["time", "board", "elapsed", "mhs_20s", "mhs_av", "accepted", "
 # broken or hostile device cannot fill the disk through it.
 MINERLOG_COLUMNS = ["time", "label", "count", "miner_first", "miner_last"]
 MINERLOG_MAX_BYTES = 5 * 1024 * 1024
+
+# The board-absent signature (0.9.0), for the watchdog. The firmware reports -150 for a board sensor it cannot
+# read; every real reading on record is above 20. A mining process younger than this many seconds may simply not
+# have found its board yet (measured boot: 5 to 25 s of its own uptime).
+ABSENT_SENSOR_BELOW = -100
+ABSENT_MIN_ELAPSED = 90
 
 BOARD_SOURCES = ("auto", "4028", "minerinfo")
 
@@ -400,6 +406,18 @@ class Poller(threading.Thread):
         self._syslog_cursor = readings[-1][0]
         return summarize_chiptemps(readings)
 
+    def _board_absent(self, row):
+        """The controller answered with no hashboard behind it (0.9.0): clock 0 and the board sensor at its
+        no-sensor value, from a mining process that has been up long enough to have found its board. Only on a
+        model whose profile vouches for the signature; the model is known from the first good sample on. A reset
+        burst, the other thing a sick board does, keeps a real clock and real temperatures and is not this."""
+        model = (self.miner_status or {}).get("model")
+        if not model or not models.profile_for(model).get("absent_signature"):
+            return False
+        clock, temp, elapsed = row.get("clock"), row.get("tstemp2"), row.get("elapsed")
+        return (clock == 0 and temp is not None and temp <= ABSENT_SENSOR_BELOW
+                and elapsed is not None and elapsed >= ABSENT_MIN_ELAPSED)
+
     def _append_minerlog(self, stamp, text):
         """One row per label for the lines of this log read that are newer than the last one's. A first read
         looks back FIRST_READ_MINUTES by the miner's clock, as the temperatures do. A quiet read writes nothing."""
@@ -471,7 +489,8 @@ class Poller(threading.Thread):
             ok = row["http"] == "ok"
             # hashing: the board reported a 20 s hashrate. A controller back from a power-on without its
             # hashboard answers with 0.0 (2026-09-13 15:46), and a hold must not release on that.
-            self.watchdog.observe(ok, row.get("accepted"), self._clock(), hashing=ok and (row.get("mhs_20s") or 0) > 0)
+            self.watchdog.observe(ok, row.get("accepted"), self._clock(), hashing=ok and (row.get("mhs_20s") or 0) > 0,
+                                  absent=ok and self._board_absent(row))
             self.watchdog.check()
         if self.scheduler is not None:
             try:
