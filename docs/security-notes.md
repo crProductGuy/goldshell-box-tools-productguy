@@ -274,3 +274,26 @@ daily cap and the same gap between restarts. It cannot cut power: the plug
 is considered for one reason only, a miner that is unreachable. A device
 that faked the signature could cost itself `max_restarts_per_day` restarts,
 which it could already do by freezing its share counter.
+
+## Reading the log by position, and what that leaves open (0.9.1)
+
+After a cold boot the miner's clock reads 2007 until it reaches a time
+server, and the log keeps the run before. 0.9.1 finds the reading cursor by
+position (the last line stamped exactly as the cursor) instead of by
+comparing stamps, and keeps temperatures only after the newest run start,
+matched at the start of a message so a pool user containing the phrase cannot
+move it. One review pass found nothing critical or high. Two findings are
+left open:
+
+- **A miner that never gets network time.** Every boot then restarts at the
+  same 2007 stamps, so a cursor taken before the clock was set can match the
+  same stamp in a later boot, and the rest of the earlier boot's lines (the
+  ones that say why it rebooted) are skipped. The 0.9.0 comparison lost lines
+  in the same case too, different ones. A fix needs a position hint beside
+  the stamp, which is a design choice; the owner's unit gets its time set.
+- **`board_source` "auto" undecided.** Until `/dbg/minerinfo` first answers,
+  each poll probes port 4028 and then tries `/dbg/minerinfo`: two requests in
+  sequence, still one in flight, only from a service start until the miner
+  first answers. A service that starts while `/dbg/minerinfo` is up but port
+  4028 is not yet still settles on `/dbg/minerinfo` for the run (unverified
+  whether a boot opens them in that order).

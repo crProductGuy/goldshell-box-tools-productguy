@@ -195,7 +195,8 @@ _CHIPTEMP_RE = re.compile(r"^\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\].*?Chip
 
 # The start of a run: the board's init, or the mining process's banner, which a cold boot writes before its clock
 # is set. The log survives a power cycle, so what comes before the newest of these belongs to the run before.
-_RUN_START_RE = re.compile(r"^\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\].*(?:Init sucessed|Started intminer )")
+# Anchored at the start of the message, so a pool user that happens to contain either phrase cannot move it.
+_RUN_START_RE = re.compile(r"^\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] ?(?:C\d+: )?(?:SCBOX Init sucessed|Started intminer )")
 
 
 def _after_cursor(lines, after, stamp_re):
