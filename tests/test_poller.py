@@ -267,6 +267,23 @@ class HottestChipPollerTest(unittest.TestCase):
         p.poll_once()
         self.assertEqual((self.rows()[2]["hot_peak"], self.rows()[2]["hot_level"]), ("38.0", "38.0"))
 
+    def test_a_boot_whose_clock_reads_2007_does_not_report_the_run_before_it(self):
+        # 0.9.1, 2026-09-21 09:44: the service started while the miner booted after an outage. The log ended on a
+        # 2007 line, and the row one second into the miner's uptime carried the last run's 79 C peak.
+        self.fm.syslog += " [2007-01-01 08:03:18] Started intminer 5.4.2-unknown\n"
+        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, clock=self.clock, syslog_interval=300)
+        p.poll_once()
+        self.assertEqual(self.rows()[0]["hot_peak"], "")
+        self.fm.syslog += (" [2007-01-01 08:03:30] C0: Chip Avgtemp 25.000000'C, MaxTemp 30.000000'C\n"
+                           " [2026-09-15 19:44:40] C0: Chip Avgtemp 30.000000'C, MaxTemp 38.000000'C\n")
+        self.now += 300
+        p.poll_once()
+        self.assertEqual(self.rows()[1]["hot_peak"], "38.0")         # the first read's lookback, by the clock once set
+        self.fm.syslog += " [2026-09-15 19:45:40] C0: Chip Avgtemp 30.000000'C, MaxTemp 39.000000'C\n"
+        self.now += 300
+        p.poll_once()
+        self.assertEqual((self.rows()[2]["hot_peak"], self.rows()[2]["hot_level"]), ("39.0", "39.0"))
+
     def test_a_failed_log_read_is_a_blank_not_an_error_row(self):
         class NoLog(api.Miner):
             def syslog(self):
@@ -484,6 +501,29 @@ class BoardSourceTest(unittest.TestCase):
         self.assertAlmostEqual(row["_boards"][0]["chip_temp"], 89.0)
         lines = [l for l in events.tail() if "port 4028 closed or silent" in l]
         self.assertEqual(len(lines), 1)              # once, not once per sample
+
+    def test_auto_decides_nothing_while_the_miner_is_not_answering_at_all(self):
+        # 0.9.1, 2026-09-21 09:36: the service started while the miner booted after an outage. Port 4028 was not up
+        # yet and /dbg/minerinfo answered 500; the fallback was fixed for the run, and `volts`, which only port 4028
+        # carries on the SC-BOX, stayed blank for the rest of it.
+        import socket
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        closed_port = s.getsockname()[1]
+        s.close()
+        with FakeMiner(fixtures="sc5proii", port4028=True, dbg_locked_icinfo=True) as fm:
+            events = EventLog(Path(self.tmp.name) / "events.log")
+            p = poller.Poller(api.Miner(fm.address, password="password"), self.csv, 30, events=events,
+                              devs4028_port=closed_port)
+            booting, fm.minerinfo = fm.minerinfo, None             # /dbg/minerinfo not served yet
+            row = p.poll_once()
+            self.assertNotEqual(row["http"], "ok")
+            self.assertIsNone(p._source)
+            fm.minerinfo, p.devs4028_port = booting, fm.devs4028_port   # booted: both up
+            row = p.poll_once()
+        self.assertEqual(row["http"], "ok")
+        self.assertEqual(p._source, "4028")
+        self.assertNotIn("port 4028", "".join(events.tail()))
 
     def test_forced_minerinfo_ignores_an_available_4028(self):
         with FakeMiner(fixtures="sc5proii", port4028=True, dbg_locked_icinfo=True) as fm:
@@ -1456,6 +1496,33 @@ class MinerLogTest(HottestChipPollerTest):
         self.now += 300
         p.poll_once()
         self.assertEqual([(r["label"], r["count"]) for r in self.minerlog()], [("chip_write_failed", "4")])
+
+    def test_a_boot_whose_clock_reads_2007_is_not_a_reason_to_count_the_log_again(self):
+        # 0.9.1, 2026-09-21: after an outage the first read ended on a 2007 line and became the cursor; once the
+        # clock was set, every line of the run before the outage was newer than 2007 and was counted a second time.
+        # Both ways in: the service started during the boot (no cursor), and the service ran through it.
+        boot = " [2007-01-01 08:03:18] Started intminer 5.4.2-unknown\n"
+        clock_set = " [2026-09-21 17:44:30] C0: SCBOX Init sucessed. 16 chips, 256 Total goodcores. Wait 5s!!!\n"
+        for running in (False, True):
+            with self.subTest(running=running):
+                path = self.csv.with_name("minerlog.csv")
+                if path.exists():
+                    path.unlink()
+                self.fm.syslog = self.incident()
+                p = self.poller()
+                if running:
+                    p.poll_once()
+                    self.now += 300
+                    path.unlink()                                    # only what follows the boot is under test
+                self.fm.syslog += boot
+                p.poll_once()
+                self.now += 300
+                self.fm.syslog += clock_set
+                p.poll_once()
+                self.now += 300
+                p.poll_once()
+                self.assertEqual([(r["label"], r["count"]) for r in self.minerlog()],
+                                 [("process_started", "1"), ("init_succeeded", "1")])
 
     def test_a_truncated_log_carries_on(self):
         self.fm.syslog = self.incident()

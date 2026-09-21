@@ -193,18 +193,22 @@ def board_totals(boards):
 _CHIPTEMP_RE = re.compile(r"^\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\].*?Chip Avgtemp (-?\d+(?:\.\d+)?)'C, MaxTemp (-?\d+(?:\.\d+)?)'C")
 
 
-_BOOT_RE = re.compile(r"^\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\].*Init sucessed")
+# The start of a run: the board's init, or the mining process's banner, which a cold boot writes before its clock
+# is set. The log survives a power cycle, so what comes before the newest of these belongs to the run before.
+_RUN_START_RE = re.compile(r"^\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\].*(?:Init sucessed|Started intminer )")
 
 
-def last_boot_ts(text):
-    """The miner timestamp of the newest `SCBOX Init sucessed` line in the log, or None. The log survives a
-    power cycle, so readings older than this line belong to the run before the boot."""
-    last = None
-    for line in text.splitlines():
-        m = _BOOT_RE.match(line)
-        if m:
-            last = m.group(1)
-    return last
+def _after_cursor(lines, after, stamp_re):
+    """(index just past the newest line stamped exactly `after`, found). The cursor is placed by where it sits
+    in the log, not by comparing timestamps (0.9.1): a cold boot's clock reads 2007 until it reaches a time
+    server, so after one the log is not in timestamp order. Not found (the miner truncated its log, or
+    `after` is None): (0, False), and the caller compares timestamps as before."""
+    if after is not None:
+        for i in range(len(lines) - 1, -1, -1):
+            m = stamp_re.match(lines[i])
+            if m and m.group(1) == after:
+                return i + 1, True
+    return 0, False
 
 
 # classify_syslog (0.9.0). The miner truncates its own log: 3.8 MB at 18:25 on 2026-09-20 and 36 KB two hours
@@ -279,7 +283,8 @@ def classify_syslog(text, after=None, first_minutes=None):
     "other" and its text is dropped. A line without the log's timestamp is skipped, and so is one stamped later
     than the log's own last line: a clock glitch into the future would otherwise become the caller's cursor and
     hide every real line after it. Lines written later in the same second as the cursor are missed, as in
-    `parse_chiptemps`.
+    `parse_chiptemps`. `newest` is the stamp of the last line read in log order, which is where the next read
+    finds its place (0.9.1: after a cold boot the log's clock restarts at 2007, so the largest stamp is not it).
     """
     lines = text.splitlines()
     tail = _last_real_ts(lines)
@@ -289,18 +294,18 @@ def classify_syslog(text, after=None, first_minutes=None):
     if after is None and first_minutes is not None:
         floor = (datetime.datetime.strptime(tail, "%Y-%m-%d %H:%M:%S")
                  - datetime.timedelta(minutes=first_minutes)).strftime("%Y-%m-%d %H:%M:%S")
+    start, placed = _after_cursor(lines, after, _SYSLOG_TS_RE)
     found, newest = {}, None
-    for line in lines:
+    for line in lines[start:]:
         m = _SYSLOG_TS_RE.match(line)
         if not m:
             continue
         ts = m.group(1)
-        if ts > tail or (after is not None and ts <= after) or (floor is not None and ts < floor):
+        if ts > tail or (after is not None and not placed and ts <= after) or (floor is not None and ts < floor):
             continue
         if not _real_ts(ts):
             continue
-        if newest is None or ts > newest:
-            newest = ts
+        newest = ts
         msg = line[m.end():m.end() + _SYSLOG_MSG_CHARS]
         label = None
         for name, pattern in _SYSLOG_LABEL_RES:
@@ -323,17 +328,26 @@ def parse_chiptemps(text, after=None):
     """The `/dbg/minersyslog` temperature lines as (miner_timestamp, chip_avg, chip_max) tuples, in log order.
 
     One line every 5 s: ` [2026-09-15 07:36:21] C0: Chip Avgtemp 69.000000'C, MaxTemp 79.000000'C`.
-    The timestamp is the miner's own clock (only good for ordering); `after` keeps lines newer than
-    that timestamp. Nothing but numbers and timestamps leaves this function: the log repeats the
-    pool user, so its text is never stored or logged by anything that calls it.
+    The timestamp is the miner's own clock; `after` keeps the lines that follow the reading it names.
+    Only the current run counts: lines before the newest run start (`_RUN_START_RE`) are the run before a
+    power cycle, which the log survives. Both are placed by position in the log, not by timestamp (0.9.1),
+    because a cold boot's clock reads 2007 until it is set. Nothing but numbers and timestamps leaves this
+    function: the log repeats the pool user, so its text is never stored or logged by anything that calls it.
     """
+    lines = text.splitlines()
+    run = 0
+    for i in range(len(lines) - 1, -1, -1):
+        if _RUN_START_RE.match(lines[i]):
+            run = i + 1
+            break
+    start, placed = _after_cursor(lines, after, _CHIPTEMP_RE)
     out = []
-    for line in text.splitlines():
+    for line in lines[max(run, start):]:
         m = _CHIPTEMP_RE.match(line)
         if not m:
             continue
         ts = m.group(1)
-        if after is not None and ts <= after:
+        if after is not None and not placed and ts <= after:
             continue
         out.append((ts, float(m.group(2)), float(m.group(3))))
     return out
