@@ -2581,3 +2581,42 @@ An interrupted cycle is a config option, defaulting to leave the relay off with 
 already have DHCP reservations, so the identity check is for other owners. The plug has no power-on setting;
 whether it restores its last state after an outage is a hand test for later.
 Brief for a fresh build session written outside the repo.
+
+## 2026-09-21 night, session AG: the other developer's repo, a voltage that isn't one, and an SC Lite on record
+
+**Goal.** Mark: "read this repo and learn more about the Goldshell SC Lite", pointing at the other developer's
+goldshell-config. The developer owns an SC Lite and wanted what gbox knows about the SC5 Pro and Pro II; Mark
+wanted the SC Lite verified in gbox and a theory checked: that the SC-BOX's 0.41 `volts` is the plan's setpoint,
+not a reading.
+
+**What was already known.** gbox had read the same repo on 2026-09-12 and built its SC Lite row and the `mv_pv`
+dialect from it, so the session's first "new finding" (the HS Box plan writes `0.41 V`) was already in
+`firmware-api.md` as an open question. New since then in that repo: pool failback, a fleet page, a probe for
+unknown boxes, a 4028 short-read fix (gbox reads until close, so it never had that bug).
+
+**The volts check, done without touching the miner.** A read of `/mcb/setting` could not settle it (the plan has
+always said 0.41), so the day's own log answered instead: all 1778 rows read exactly 0.41 through 162, 184 and
+221 W stretches and through samples under 50 W. The SC-BOX firmware reports no measured supply voltage at all.
+Not yet checked during a board-absent episode.
+
+**Pushback, and a restart that was not caused by a read.** The fans went to full at 21:55 and Mark suspected the
+session's read, and his page refresh earlier. The session had sent nothing to the miner. The log showed a miner
+restart (uptime to 13 s, reboot counter to 0), and every fan burst that day was a restart or a boot after a power
+cut. Page loads only read; its three writes need a button and a confirm. Hang onsets were spread evenly against
+the 5-minute syslog read. With Mark's approval, one timed read of each log (`/dbg/minersyslog`, then `/dbg/syslog`,
+both between service polls, copies deleted after): the evening's four hangs sit among hundreds of "Auto addressing
+failed" / "REINIT THIS CPB" lines, the controller losing its hashboard; the 18:36 and 21:55 restarts were the
+supervisor restarting itself with no request logged and no power loss. The backend does not log `/dbg/` reads, so
+the page is not cleared: Mark is closing every dashboard tab overnight as the test. Found on the way: the miner
+posts its serial, MAC and LAN address to find.goldshell.com about hourly. Mark wants it blocked at his resolver.
+
+**The capture.** Mark sent the developer the capture request; he published a full SC Lite capture. gbox's parsers
+read every file unchanged. The session disagreed with two of his conclusions: that only the raw `Authorization`
+form worked (only that form had been tried) and that `tempcontrol` drives the fan loop (a log taken with it on
+cannot show that). He then ran both: Bearer works, and 60 s with `tempcontrol` off did not stop the loop. His
+fan log also showed lone -150 board readings on a hashing board, which is why `absent_signature` stays off
+until a model's own log earns it. The model row now reads 4 boards, 4 fans, `/dbg/` open, verified. Commit
+`10f9d79` on branch `sclite-live`, 646 Python + 68 Node green; not merged, not pushed.
+
+**Left open.** Credit wording and the licence for his captures (his repo has none): Mark has asked him. The
+`volts` label on the page still reads as a measurement; a relabel is 0.10.x work.
