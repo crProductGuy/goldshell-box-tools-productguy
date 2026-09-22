@@ -1049,6 +1049,33 @@ class UpstreamTest(unittest.TestCase):
         self.feed(8 * 120)                               # 16 h: still one
         self.assertEqual(self.restart.restarts, 1)
 
+    def test_the_counter_reset_by_the_one_restart_does_not_end_the_episode(self):
+        # review of 0.10.0 gate 1, H1: a restart sets the counter back to 0; that is not a share
+        self.feed(1, log=["pool"])
+        self.feed(8 * 120 + 30)
+        self.assertEqual(self.restart.restarts, 1)
+        self.feed(1, accepted=0, log=["start", "probing"])
+        self.feed(64 * 120, accepted=0)                  # 72 h in all, the pool still away
+        self.assertEqual(self.restart.restarts, 1)
+        self.assertEqual(self.lines("pool back"), [])
+
+    def test_a_restarted_counter_that_climbs_again_ends_the_episode(self):
+        # measured 2026-09-22: after the link returned the miner restarted itself at 0 and counted up
+        self.feed(1, log=["pool"])
+        self.feed(20)
+        for n in (0, 1, 2, 3):
+            self.feed(1, accepted=n)
+        self.assertEqual(len(self.lines("pool back")), 1)
+
+    def test_one_bump_of_the_counter_does_not_spend_the_pool_evidence(self):
+        # review of 0.10.0 gate 1, M1: two "Accepted" lines 8 min into the measured outage, then silence
+        self.feed(1, log=["pool"])
+        self.feed(10)
+        self.feed(1, accepted=502)
+        self.feed(40, accepted=502)
+        self.assertEqual(self.restart.restarts, 0)
+        self.assertEqual(self.lines("pool back"), [])
+
     def test_zero_hours_turns_the_exception_off(self):
         self.wd.upstream_restart_hours = 0
         self.feed(1, log=["pool"])
@@ -1059,9 +1086,10 @@ class UpstreamTest(unittest.TestCase):
         self.feed(1, log=["pool"])
         self.feed(20)
         self.assertEqual(self.restart.restarts, 0)
-        self.feed(1, accepted=501)
+        for n in (501, 502, 503):                        # rising for a minute: one bump is not enough (M1)
+            self.feed(1, accepted=n)
         self.assertEqual(len(self.lines("pool back")), 1)
-        self.feed(12, accepted=501)                      # a plain stall now: the pool line is spent
+        self.feed(12, accepted=503)                      # a plain stall now: the pool line is spent
         self.assertEqual(self.restart.restarts, 1)
 
     def test_a_fault_after_the_pool_line_points_at_the_miner(self):

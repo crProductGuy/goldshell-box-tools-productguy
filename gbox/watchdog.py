@@ -54,6 +54,10 @@ SEED_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (watchdog: restart
 HOLD_OK_SAMPLES = 2
 # 0.10.0: how many polls a verdict waits for a read of the miner's log newer than itself, at most
 EVIDENCE_WAIT_POLLS = 3
+# 0.10.0 review: the accepted counter must rise on samples at least this far apart before the pool counts as back.
+# One bump is not enough (two "Accepted" lines 8 min into the 2026-09-22 outage, then silence); a pool that is
+# really back moves it every 10-40 s (same measurement).
+SHARES_BACK_SECONDS = 60
 # 0.10.0: how often the LAN link is asked while it matters (on Windows each answer is a PowerShell run)
 LAN_CHECK_SECONDS = 60
 HOLD_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) hold: (?:started by (you|the schedule)"
@@ -113,6 +117,7 @@ class Watchdog:
         self._run_probing = False           # since the newest process start: probing for a pool ...
         self._run_accepted = False          # ... and not one share accepted
         self._last_accepted = None
+        self._first_rise = None             # when the counter first rose since the pool evidence last changed
         self._verdict = None                # (kind, since): the rule waiting on the log, and since when
         self.upstream_since = None          # the running upstream episode, or None
         self._upstream_restarted = False
@@ -145,8 +150,10 @@ class Watchdog:
         t = self._clock() if t is None else t
         self._rows.append((t, bool(ok), accepted, bool(ok and absent)))
         if ok and accepted is not None:
-            if self._last_accepted is not None and accepted != self._last_accepted:
-                self._shares_moved(t)
+            if self._last_accepted is not None and accepted > self._last_accepted:
+                self._counter_rose(t)
+            elif self._last_accepted is not None and accepted < self._last_accepted:
+                self._first_rise = None     # a restart set it back to 0: that is not a share (0.10.0 review, H1)
             self._last_accepted = accepted
         back = bool(ok) if hashing is None else bool(ok and hashing)
         if ok:
@@ -249,14 +256,25 @@ class Watchdog:
         for s in signals:
             if s == "pool":
                 self._pool_down = True
+                self._first_rise = None
             elif s == "fault":
                 self._pool_down = self._run_probing = False
             elif s == "start":
                 self._pool_down = self._run_probing = self._run_accepted = False
+                self._first_rise = None
             elif s == "probing":
                 self._run_probing = True
             elif s == "accepted":
                 self._run_accepted = True
+
+    def _counter_rose(self, t):
+        """The accepted counter went up. The pool counts as back once it has gone up on two samples at least
+        SHARES_BACK_SECONDS apart; one bump leaves the evidence standing. `_first_rise` stays set while shares
+        flow, which is harmless: every path that sets pool evidence (a pool line, a process start) clears it."""
+        if self._first_rise is None:
+            self._first_rise = t
+        if t - self._first_rise >= SHARES_BACK_SECONDS:
+            self._shares_moved(t)
 
     def _shares_moved(self, t):
         """The accepted counter moved: the pool is taking shares, so any pool evidence is spent."""

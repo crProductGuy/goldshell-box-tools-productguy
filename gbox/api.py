@@ -358,7 +358,7 @@ def _signal(label, msg):
     return None
 
 
-def classify_syslog(text, cursor=None, first_minutes=None, signals=None):
+def classify_syslog(text, cursor=None, first_minutes=None, signals=None, signal_minutes=None):
     """The non-routine lines of `/dbg/minersyslog` as `(rows, cursor)`: `rows` is a list of
     `(label, count, first_miner_timestamp, last_miner_timestamp)` in the order each label first appeared, and
     `cursor` is a `LogCursor` on the log's last whole line, for the next read (None for an empty log).
@@ -374,11 +374,20 @@ def classify_syslog(text, cursor=None, first_minutes=None, signals=None):
     counted with its stamp and hides nothing: the cursor is a place, not a time.
 
     `signals`, a list, receives the read's pool evidence in log order (`_signal`: "pool", "fault", "start",
-    "probing", "accepted"), a run of the same one kept once, so it stays short on a log of shares.
+    "probing", "accepted"), a run of the same one kept once, so it stays short on a log of shares. On a first
+    read the signals look back `signal_minutes` (when wider than `first_minutes`) while the rows keep to
+    `first_minutes`: a service started after the log went quiet in an outage must still see the pool lines
+    (0.10.0 review, M2). Any cursor, fitting or not (a truncation), gives both the same start.
     """
     lines = _whole_lines(text)
     found = {}
-    for line in lines[_start(lines, cursor, first_minutes):]:
+    start = _start(lines, cursor, first_minutes)
+    first = start
+    if signals is not None and cursor is None and first_minutes is not None and signal_minutes is not None \
+            and signal_minutes > first_minutes:
+        first = min(start, _start(lines, cursor, signal_minutes))
+    for i in range(first, len(lines)):
+        line = lines[i]
         m = _SYSLOG_TS_RE.match(line)
         if not m or _stamp(line) is None:
             continue
@@ -393,6 +402,8 @@ def classify_syslog(text, cursor=None, first_minutes=None, signals=None):
             sig = _signal(label, msg)
             if sig is not None and (not signals or signals[-1] != sig):
                 signals.append(sig)
+        if i < start:
+            continue                                              # evidence only; minerlog.csv keeps its window
         if label is None:
             if not msg.strip() or _SYSLOG_ROUTINE_RE.match(msg):
                 continue

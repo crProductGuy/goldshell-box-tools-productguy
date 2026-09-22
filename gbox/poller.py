@@ -52,6 +52,10 @@ COLUMNS = ["time", "http", "elapsed", "mhs_av", "mhs_20s", "hwerr", "hwerr_pct",
                            # an SC5 Pro II; never converted, the SC-BOX's unit is undocumented). 2026-09-20: 80 min at
                            # 162 W instead of 184 W with every chip producing, and nothing kept could say why.
 FIRST_READ_MINUTES = 5        # the first log read after a service start looks back this far only, by the miner's clock
+# 0.10.0 review, M2: the watchdog's pool evidence on that first read looks back further. Measured 2026-09-22: the
+# pool lines come at +2 min and the log goes quiet at +8, so 5 min back from the last line misses them. Still
+# stopped by the newest process start, so an older run's pool lines never count.
+SIGNAL_FIRST_READ_MINUTES = 30
 
 # boards.csv (0.8.0): one row per board per poll, beside log.csv, only when the unit has more than one board.
 # A second file rather than widening log.csv, because a variable board count does not fit one append-only header.
@@ -430,7 +434,8 @@ class Poller(threading.Thread):
         looks back FIRST_READ_MINUTES by the miner's clock, as the temperatures do. A quiet read writes nothing.
         `signals` receives the read's pool evidence for the watchdog (0.10.0)."""
         rows, self._minerlog_cursor = api.classify_syslog(text, cursor=self._minerlog_cursor,
-                                                          first_minutes=FIRST_READ_MINUTES, signals=signals)
+                                                          first_minutes=FIRST_READ_MINUTES, signals=signals,
+                                                          signal_minutes=SIGNAL_FIRST_READ_MINUTES)
         if not rows:
             return
         path = self.minerlog_path
