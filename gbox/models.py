@@ -20,7 +20,7 @@ sampler, the plan parser and the page may assume about a unit:
   `/dbg/icinfo`, one board) or `http_devs` (`/mcb/cgminer?cgminercmd=devs`,
   the HTTP wrapper around cgminer's `devs` command; 500 on the BOX).
 - `dbg_expected`: whether `/dbg/` answers without unlocking the stock UI's
-  debug page. The other developer's early SC Lite notes reported a 401 "Debug
+  debug page. MaVeTh's early SC Lite notes reported a 401 "Debug
   access is locked"; his 2026-09-22 capture answered 200, so no model on record
   is locked.
 - `fan_target`: whether the firmware exposes an adjustable fan target
@@ -87,7 +87,7 @@ MODELS = {
         "fans": 4,                      # fan0..fan3 on every board, captured 2026-09-22
         "fan_max_rpm": 2200.0,          # goldshell.company/sclite "Fan Specifications: 2200rpm"
         "boards": 4,                    # four [PGAn] blocks on 4028 devs and /dbg/minerinfo; icinfo 4 x 46 chips
-        "source": "goldshell.company/sclite spec table; model string, plan dialect, 4 PGA boards, 4 fans, open /dbg/ and no fan-target range from the other developer's unit (Maveth/goldshell-config, MCB_V4_3, fw 2.2.0, hw 30.40.SA, captured 2026-09-22)",
+        "source": "goldshell.company/sclite spec table; model string, plan dialect, 4 PGA boards, 4 fans, open /dbg/ and no fan-target range from MaVeTh's unit (Maveth/goldshell-config, MCB_V4_3, fw 2.2.0, hw 30.40.SA, captured 2026-09-22)",
         "verified_string": True,
         "plan_dialect": "mv_pv",
         "board_source": "icinfo",       # like the SC5 Pro II: the service reads 4028 first, the page /dbg/minerinfo

@@ -2618,5 +2618,8 @@ fan log also showed lone -150 board readings on a hashing board, which is why `a
 until a model's own log earns it. The model row now reads 4 boards, 4 fans, `/dbg/` open, verified. Commit
 `10f9d79` on branch `sclite-live`, 646 Python + 68 Node green; not merged, not pushed.
 
-**Left open.** Credit wording and the licence for his captures (his repo has none): Mark has asked him. The
-`volts` label on the page still reads as a measurement; a relabel is 0.10.x work.
+**Credit and a longer test.** Mark: credit him as MaVeTh; he says most of his work is MIT, perhaps not this
+repo, and Mark chose to publish on that. MaVeTh then ran `tempcontrol` off for 10 minutes with a 75 C abort
+(peak 70 C): the fan loop kept walking toward 85 C the whole time. What the flag does under heat is still open.
+
+**Left open.** The `volts` label on the page still reads as a measurement; a relabel is 0.10.x work.

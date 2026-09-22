@@ -272,7 +272,7 @@ class PlanDialectTest(unittest.TestCase):
 
 
 class SCLiteFixtureTest(unittest.TestCase):
-    """The captured SC Lite fixtures (tests/fixtures/sclite, the other developer's unit, fw 2.2.0, hw 30.40.SA,
+    """The captured SC Lite fixtures (tests/fixtures/sclite, MaVeTh's unit, fw 2.2.0, hw 30.40.SA,
     MCB_V4_3, taken 2026-09-22 per docs/capture-request.md): every file parses, both board transports agree on
     four boards and four fans, and none of the files carries a pool string or a credential."""
 
