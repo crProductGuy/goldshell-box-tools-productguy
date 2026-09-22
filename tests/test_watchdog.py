@@ -1121,3 +1121,133 @@ class UpstreamTest(unittest.TestCase):
             self.wd.observe(True, 500)
             self.wd.check()
         self.assertEqual(self.restart.restarts, 1)
+
+
+class MeterVetoTest(PowerCycleTest):
+    """0.10.0 C: just before the power rung acts it reads the meter. A working miner (at or over `idle_watts`) or
+    no load at all (under `unpowered_watts` with the relay on) is not a controller a power cut can help. Inherits
+    the rung's fixtures, and re-runs its tests: at the default 34 W nothing changes."""
+
+    def rung(self, watts, meter=True):
+        self.plug.meter = meter
+        self.plug.watts_value = watts
+        self.freeze(12)
+        self.feed(1, ok=False)                           # 12 min: the second restart fails, the rung's turn
+
+    def test_a_working_miner_behind_a_dead_path_is_not_cycled(self):
+        self.rung(160.0)
+        self.assertEqual(self.plug.calls, [])
+        self.assertEqual(self.wd.cycles_today(), 0)
+        said = [l for l in self.power_lines() if "160 W" in l]
+        self.assertEqual(len(said), 1)
+        self.assertIn("not cycling", said[0])
+
+    def test_no_load_with_the_relay_on_is_not_cycled(self):
+        self.rung(0.0)
+        self.assertEqual(self.plug.calls, [])
+        self.assertEqual(len([l for l in self.power_lines() if "nothing is drawing power" in l]), 1)
+
+    def test_a_hung_controller_at_34_w_is_cycled_as_before(self):
+        self.rung(34.0)
+        self.assertEqual(self.plug.calls, ["off", "on"])
+
+    def test_a_plug_with_no_meter_is_cycled_as_before(self):
+        self.rung(None, meter=False)
+        self.assertEqual(self.plug.calls, ["off", "on"])
+
+    def test_unpowered_watts_zero_turns_the_no_load_veto_off(self):
+        self.wd = self.make(unpowered_watts=0)
+        self.rung(0.0)
+        self.assertEqual(self.plug.calls, ["off", "on"])
+
+
+class CantSeeTest(unittest.TestCase):
+    """0.10.0 E: when the path is down, not the miner, nothing is sent and nothing is counted.
+
+    The episode is "can't see" when the plug is configured and does not answer, when this PC's LAN link is down,
+    or when the meter reads a working miner. One line when it begins, one when it ends; when the LAN comes back
+    with the miner still dark, the ladder starts again from zero.
+    """
+
+    INTERVAL = 30
+
+    def setUp(self):
+        self.clock = FakeClock()
+        self.restart = Recorder()
+        self.restart.fail = True
+        self.lines = []
+        self.events = EventLog()
+        self.events.write = lambda m: self.lines.append(m)
+        self.plug = FakePlugObject()
+        self.lan = True
+        self.lan_checks = 0
+        self.wd = Watchdog(self.restart, self.events, self.INTERVAL, stall_minutes=5, unreachable_minutes=2,
+                           min_gap_minutes=5, max_restarts_per_day=12, clock=self.clock, plug=self.plug,
+                           power=dict(DEFAULT_POWER, host="x", device_id="plug-1", cycle=True),
+                           sleep=lambda s: None)
+        self.wd.lan_check = self.lan_up
+
+    def lan_up(self):
+        self.lan_checks += 1
+        return self.lan
+
+    def feed(self, n, ok=False, plug_ok=True, watts=34.0):
+        for _ in range(n):
+            self.clock.tick(self.INTERVAL)
+            self.wd.observe_plug(plug_ok, watts if plug_ok else None)
+            self.wd.observe(ok, 500 if ok else None)
+            self.wd.check()
+
+    def said(self, word):
+        return [l for l in self.lines if word in l]
+
+    def attempts(self):
+        return self.wd.restarts_today()
+
+    def test_a_plug_that_does_not_answer_either_means_the_path(self):
+        self.feed(60, plug_ok=False)
+        self.assertEqual(self.attempts(), 0)
+        self.assertEqual(self.plug.calls, [])
+        self.assertEqual(len(self.said("can't see the miner")), 1)
+
+    def test_the_lan_link_down_means_the_path(self):
+        self.lan = False
+        self.feed(60, plug_ok=False)
+        self.assertEqual(self.attempts(), 0)
+        self.assertEqual(len(self.said("can't see the miner")), 1)
+
+    def test_a_working_miner_on_the_meter_means_the_path(self):
+        self.feed(60, watts=160.0)
+        self.assertEqual(self.attempts(), 0)
+        self.assertEqual(self.plug.calls, [])
+        self.assertTrue(self.said("160 W"))
+
+    def test_a_hung_controller_at_34_w_gets_the_ladder_as_before(self):
+        self.feed(20)
+        self.assertGreaterEqual(self.attempts(), 2)
+
+    def test_dark_for_2_h_then_back_with_the_miner_in_http_500_has_every_restart_left(self):
+        self.lan = False
+        self.feed(240, plug_ok=False)                        # 2 h with the LAN down
+        self.assertEqual(self.attempts(), 0)
+        self.lan = True
+        self.feed(3)                                         # back: the plug answers, the miner does not
+        self.assertEqual(len(self.said("can see again")), 1)
+        self.assertEqual(self.attempts(), 0)                 # the ladder starts from zero: a full window first
+        self.feed(5)
+        self.assertEqual(self.attempts(), 1)
+        self.assertEqual(self.wd.max_restarts - self.attempts(), 11)
+
+    def test_the_lan_is_asked_at_most_once_a_minute_while_dark(self):
+        self.lan = False
+        self.feed(60, plug_ok=False)                         # 30 min
+        self.assertLessEqual(self.lan_checks, 31)
+
+    def test_no_plug_and_no_lan_check_means_todays_behaviour(self):
+        wd = Watchdog(self.restart, self.events, self.INTERVAL, stall_minutes=5, unreachable_minutes=2,
+                      min_gap_minutes=5, max_restarts_per_day=12, clock=self.clock)
+        for _ in range(10):
+            self.clock.tick(self.INTERVAL)
+            wd.observe(False, None)
+            wd.check()
+        self.assertEqual(wd.restarts_today(), 1)

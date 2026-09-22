@@ -375,6 +375,32 @@ def tunnel_networks():
     return [net for net, _ in _networks(want_tunnels=True, require_connected=False)]
 
 
+def link_up_for(host, every=None):
+    """Whether this machine is still on the LAN that holds `host` (0.10.0, the watchdog's "can't see" test).
+
+    True when a connected, non-tunnel interface's own network contains the address; False when the OS lists
+    interfaces and none of them does (the cable is out, the adapter lost its lease, or only a tunnel is left);
+    None when that cannot be said: the OS reports nothing, or `host` is not an IPv4 address. A name is never
+    resolved (rule 8), and nothing here opens a socket or reads the routing table (rule 3). `every` lets a
+    test hand in the interface list.
+    """
+    try:
+        address = ipaddress.IPv4Address(str(host).strip().rsplit(":", 1)[0] if str(host).count(":") == 1
+                                        else str(host).strip())
+    except ValueError:
+        return None
+    every = interfaces() if every is None else every
+    if not every:
+        return None
+    for iface in every:
+        net = network_of(iface)
+        if net is None or is_tunnel(iface) or not is_connected(iface):
+            continue
+        if address in net:
+            return True
+    return False
+
+
 def why_no_lan():
     """One sentence on what the OS did report, for an error message that helps rather than shrugs."""
     every = interfaces()

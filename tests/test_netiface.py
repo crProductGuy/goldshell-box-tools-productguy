@@ -478,5 +478,33 @@ class ContainerAndSubsystemBridgeTest(unittest.TestCase):
         self.assertFalse(self.tunnel("bond0", "Link aggregate"))
 
 
+class LinkUpForTest(unittest.TestCase):
+    """0.10.0 E: is this machine still on the miner's LAN? Read from the interface table only."""
+
+    LAN = {"name": "Ethernet", "address": "192.168.8.20", "prefixlen": 24, "medium": "802.3",
+           "connected": True, "usable": True}
+
+    def test_a_connected_lan_holding_the_miner_is_up(self):
+        self.assertIs(netiface.link_up_for("192.168.8.148", every=[self.LAN]), True)
+        self.assertIs(netiface.link_up_for("192.168.8.148:80", every=[self.LAN]), True)
+
+    def test_the_cable_out_is_down(self):
+        self.assertIs(netiface.link_up_for("192.168.8.148", every=[dict(self.LAN, connected=False)]), False)
+
+    def test_only_a_tunnel_holding_the_range_is_down(self):
+        # rule 1: a VPN handing out the house range is not the house LAN
+        vpn = {"name": "tun0", "address": "192.168.8.9", "prefixlen": 24, "description": "WireGuard Tunnel",
+               "connected": True}
+        self.assertIs(netiface.link_up_for("192.168.8.148", every=[vpn]), False)
+
+    def test_apipa_is_down(self):
+        apipa = dict(self.LAN, address="169.254.3.4", prefixlen=16)
+        self.assertIs(netiface.link_up_for("192.168.8.148", every=[apipa]), False)
+
+    def test_unknown_when_the_os_says_nothing_or_the_host_is_a_name(self):
+        self.assertIsNone(netiface.link_up_for("192.168.8.148", every=[]))
+        self.assertIsNone(netiface.link_up_for("miner.local", every=[self.LAN]))   # rule 8: never resolved
+
+
 if __name__ == "__main__":
     unittest.main()

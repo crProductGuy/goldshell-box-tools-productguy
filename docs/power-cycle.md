@@ -180,10 +180,22 @@ clock it was on. Then set `"cycle": true` in the `power` block of
   "settle_minutes": 20,
   "max_cycles_per_day": 3,
   "idle_watts": 100,
+  "unpowered_watts": 10,
   "boot_watts": 20,
   "boot_check_minutes": 2
 }
 ```
+
+Since 0.10.0 the rung reads the meter just before it acts, and the meter can
+only stop a cycle. At or over `idle_watts` the miner is working and the path
+to it is down; under `unpowered_watts` with the relay on, nothing behind the
+plug is drawing power (a cord out downstream, the miner's own switch off).
+Neither is cycled, and each says so once per episode in the event log.
+Between the two is the hung controller (about 34 W), cycled as before. A plug
+without a meter behaves as before. `unpowered_watts` must be 0 (off) up to
+`boot_watts`, so "no load" always sits inside the boot check's "never powered
+up" and the two readings cannot disagree. The boot check's own repeat cycle
+is unchanged.
 
 `gbox serve --no-power` ignores the block for one run. Removing the block
 removes the feature; nothing else changes.

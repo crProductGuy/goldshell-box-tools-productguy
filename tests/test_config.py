@@ -93,6 +93,17 @@ class PowerConfigTest(unittest.TestCase):
             with self.assertRaises(ValueError, msg=repr(bad)):
                 config.Config(host="m", watchdog={"upstream_restart_hours": bad}).validate()
 
+    def test_unpowered_watts_is_zero_up_to_boot_watts(self):
+        # 0.10.0: "no load" must sit inside the boot check's "never powered up", or the two readings disagree
+        cfg = config.Config(host="m", power={"host": "p"})
+        cfg.validate()
+        self.assertEqual(cfg.power["unpowered_watts"], 10)
+        for good in (0, 5, 10, 20):
+            config.Config(host="m", power={"host": "p", "unpowered_watts": good}).validate()
+        for bad in (-1, 21, "10", None, True, float("nan")):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                config.Config(host="m", power={"host": "p", "unpowered_watts": bad}).validate()
+
     def test_absent_minutes_is_finite(self):
         # json.load accepts NaN and Infinity; either one passed validation and then stopped the watchdog starting
         for bad in (float("nan"), float("inf")):

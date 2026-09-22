@@ -1841,6 +1841,74 @@ class UpstreamScenarioTest(unittest.TestCase):
         self.assertEqual(self.fm.restarts, 1)
 
 
+class PathScenarioTest(unittest.TestCase):
+    """0.10.0 E, end to end: a miner that cannot be seen is sent nothing, and nothing is counted. Written first,
+    against 1808cdf. The miner is a closed port; the plug is a fake Kasa plug, stopped or reading working power."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.csv = Path(self.tmp.name) / "log.csv"
+        self.now = 1_000_000.0
+        self.events = EventLog(Path(self.tmp.name) / "events.log")
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            self.closed = "127.0.0.1:%d" % s.getsockname()[1]
+
+    def run_dark(self, plug_up, watts=34.0, minutes=30):
+        from gbox.plug import KasaLegacy
+        from tests.fake_plug import FakePlug
+        fake = FakePlug(watts=watts).start()
+        self.addCleanup(fake.stop)
+        plug = KasaLegacy(fake.address, timeout=0.5)
+        power = dict(config.DEFAULT_POWER, host=fake.address, device_id=fake.device_id, cycle=True)
+        if not plug_up:
+            fake.stop()
+        miner = api.Miner(self.closed, password="password", timeout=0.5)
+        self.wd = Watchdog(miner.restart, self.events, 30, stall_minutes=5, unreachable_minutes=2,
+                           min_gap_minutes=5, max_restarts_per_day=12, clock=lambda: self.now, plug=plug,
+                           power=power, sleep=lambda s: None)
+        p = poller.Poller(miner, self.csv, 30, clock=lambda: self.now, watchdog=self.wd, events=self.events,
+                          plug=plug, syslog_interval=0)
+        for _ in range(minutes * 2):
+            p.poll_once()
+            self.now += 30
+        return fake
+
+    def said(self, word):
+        return [line for line in self.events.tail(500) if word in line]
+
+    def test_a_plug_that_does_not_answer_either_costs_nothing(self):
+        self.run_dark(plug_up=False)
+        self.assertEqual(self.wd.restarts_today(), 0)
+        self.assertEqual(self.wd.cycles_today(), 0)
+
+    def test_a_working_miner_on_the_meter_costs_nothing(self):
+        fake = self.run_dark(plug_up=True, watts=160.0)
+        self.assertEqual(self.wd.restarts_today(), 0)
+        self.assertEqual(self.wd.cycles_today(), 0)
+        self.assertEqual(fake.relay, 1)
+
+    def test_a_hung_controller_at_34_w_still_gets_the_ladder(self):
+        self.run_dark(plug_up=True, watts=34.0, minutes=15)
+        self.assertGreaterEqual(self.wd.restarts_today(), 2)
+        self.assertEqual(self.wd.cycles_today(), 1)
+
+    def test_pc_first_the_miner_answers_a_minute_later_and_nothing_is_sent(self):
+        fm = FakeMiner().start()
+        self.addCleanup(fm.stop)
+        miner = api.Miner(self.closed, password="password", timeout=0.5)
+        wd = Watchdog(miner.restart, self.events, 30, clock=lambda: self.now, min_gap_minutes=5)
+        p = poller.Poller(miner, self.csv, 30, clock=lambda: self.now, watchdog=wd, events=self.events,
+                          syslog_interval=300)
+        for i in range(10):
+            if i == 3:                                   # the miner's web backend comes up at +90 s
+                p.miner = api.Miner(fm.address, password="password")
+            p.poll_once()
+            self.now += 30
+        self.assertEqual((wd.restarts_today(), fm.restarts), (0, 0))
+
+
 class BoardAbsentFlagTest(unittest.TestCase):
     """0.9.0: the poller tells the watchdog when the controller answers with no hashboard behind it.
 

@@ -44,7 +44,8 @@ DEFAULT_POWER = {
     "settle_minutes": 6,         # nothing judged this long after POWER RETURNS, and it ends early once the miner hashes twice (20 until 2026-09-17: across 25 measured boots the miner was hashing at 5-25 s, so 20 only hid a dead hashboard for 22 min)
     "max_cycles_per_day": 3,
     "idle_watts": 100,           # below this the miner is idle (hung draws about 34 W, hashing 180+)
-    "boot_watts": 20,            # 0.7.2: under this AND silent on the network, the controller never came up. Only ever refines the remedy; the fault itself is decided without a meter (2026-09-19)
+    "unpowered_watts": 10,       # 0.10.0: under this with the relay on, nothing is drawing power; never cycled. 0: off
+    "boot_watts": 20,           # 0.7.2: under this AND silent on the network, the controller never came up. Only ever refines the remedy; the fault itself is decided without a meter (2026-09-19)
     "boot_check_minutes": 2,     # first reading this long after power returns, verdict at twice it (2026-09-15 06:40: 12 W for 25 min after a cycle); one repeat cycle. 0: no check
 }
 PLUG_DRIVERS = ("kasa",)
@@ -184,6 +185,12 @@ class Config:
                                  "minutes lands in the transient draw of a boot that is actually failing")
             if not 0 <= int(p["boot_watts"]) < int(p["idle_watts"]):
                 raise ValueError("power.boot_watts must be below power.idle_watts")
+            # 0.10.0: "no load" must be a subset of the boot check's "never powered up" (under boot_watts), so the
+            # two readings can never disagree about a box that is drawing nothing.
+            u = p.get("unpowered_watts")
+            if isinstance(u, bool) or not isinstance(u, (int, float)) or not math.isfinite(u) \
+                    or not 0 <= u <= int(p["boot_watts"]):
+                raise ValueError("power.unpowered_watts must be 0 (off) up to power.boot_watts")
             if int(self.watchdog["max_restarts_per_day"]) < 2 * int(p["max_cycles_per_day"]):
                 raise ValueError("watchdog.max_restarts_per_day must be at least twice power.max_cycles_per_day: "
                                  "a cycle needs two failed soft restarts, and every attempt uses a restart slot")
