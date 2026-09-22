@@ -2721,3 +2721,53 @@ risks are written into the security notes: a pool blip read just before a genuin
 for up to 8 hours; one failed log read during an unreachable episode lets one unneeded restart through.
 Unverified: whether the firmware's log ever ends mid-line, and whether a boot with no pool can look like a
 missing hashboard. Nothing merged, pushed or deployed.
+
+## 2026-09-22 evening, session AJ (d5579e54): the reviewer pass on 0.10.0 gate 1, and what it changed
+
+**The goal**, from Mark: "run the reviewer pass on 3a31147..5373f16", and "show me the findings first"
+before any fix. The review ran in a separate reviewer agent with fresh context, read-only, forbidden to touch
+the miner or the live service.
+
+**What the first review found.** No critical. One high, confirmed by reading the code: the watchdog took
+any change of the accepted counter as "the pool is back", and a restart sets that counter to 0. So the one
+restart allowed after 8 hours of an outage ended the outage in the watchdog's eyes, wiped the evidence the
+restart itself produced, and let the stall rule restart again. The reviewer simulated 3 restarts in 72 h;
+the test written for it showed 36, the daily cap every day. The existing test could not see it because its
+counter stayed at 500 after the restart. Four mediums: one bump of the counter spent the pool evidence (the
+measured outage logged two shares 8 minutes in); a service started after the log went quiet, about 8
+minutes into an outage, looked back only 5 minutes and missed the pool lines; the "can't see" link test
+assumes the miner is on this computer's own subnet; a failed sample now triggers a full log fetch.
+
+**Decided with Mark.** The agent recommended fixing the high and the first two mediums before merge ("the
+outage fix leaking restarts in exactly the situation gate 1 was built for"), checking that an older
+config.json still loads, documenting the subnet limit, and deferring the rest to gate 2. Mark: "go with 1-5
+as proposed". A fact from the outage measurement settled the design of the fix: the counter froze at 983
+for the whole outage and, once the pool returned, restarted at 0 and rose every 10 to 40 seconds. So the
+pool now counts as back only when the counter rises on two samples at least a minute apart, and a fall is
+never a share. A service start reads 30 minutes of the log for pool evidence, never past the newest
+process start, while the rows kept in minerlog.csv keep their 5 minutes. An older config with a low
+`boot_watts` would have stopped the service from starting; the new setting's default now yields to it.
+
+**The second review, of the fixes, in another fresh reviewer.** It found the wider look-back also ran
+after the miner truncates its own log, replaying pool lines already spent (fixed: a genuine first read
+only), and that a decimal `boot_watts` still failed (fixed). Its main point was a trade-off, not a bug:
+a service restarted within 30 minutes of a pool blip that had already cleared reads the blip again and can
+hold a genuinely hung miner for up to 8 hours. The agent recommended documenting it as a residual rather
+than adding log-timing logic for a rare case; Mark chose that.
+
+**Caught in the session.** A scripted insert rewrote every line ending of a test file (553/527 in
+`git diff --numstat`); the file was restored and the test re-added with an edit. The first version of the
+look-back fix widened it to the whole log whenever the new setting was absent; a parser test caught it.
+
+**The subnet question became a design direction.** Asked where the service would run once the home network
+has VLANs, Mark chose a hardened host inside the mining VLAN, possibly also a blockchain node: the
+same-subnet case, so today's check needs no change. The agent pushed back on two points that follow from
+it, and Mark added a third. They are open for a later session: the dashboard listens on the local machine
+only and has no login, so reaching it from the Mac needs managed access (an SSH tunnel or authentication);
+a node takes internet traffic by port forwarding, which makes it the likeliest way in, next to a miner and
+a plug that protect nothing; and even on today's flat LAN, an open dashboard beside an unprotected miner
+is a lateral-movement risk if any machine or IoT device is compromised.
+
+**Verified.** Every fix came with a test that failed first. The full suite on the first fixes: 736 Python
+tests in 18 modules, one at a time, and 68 Node, green. After the second round, the six affected modules
+were re-run green. Nothing merged, pushed or deployed.

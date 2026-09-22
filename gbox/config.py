@@ -134,6 +134,10 @@ class Config:
         else:
             self._power = dict(DEFAULT_POWER)
             self._power.update(block)
+            if "unpowered_watts" not in block and isinstance(self._power["boot_watts"], (int, float)):
+                # an older config.json with boot_watts under the new default must still start (0.10.0 review)
+                # int(), because validate compares against int(boot_watts) (a 7.5 in 0.9 must still load)
+                self._power["unpowered_watts"] = min(DEFAULT_POWER["unpowered_watts"], int(self._power["boot_watts"]))
 
     def validate(self):
         if self.poll_interval < MIN_POLL_INTERVAL:

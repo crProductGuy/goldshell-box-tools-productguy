@@ -383,6 +383,41 @@ class SC5ProIIFixtureTest(unittest.TestCase):
             self.assertIsNone(fm.devs4028_port)
 
 
+class SignalWindowTest(unittest.TestCase):
+    """0.10.0 review, M2: on a first read the watchdog's pool evidence looks back further than the rows do."""
+
+    LOG = (" [2026-09-23 01:40:00] Started intminer 5.4.2-unknown\r\n"
+           " [2026-09-23 01:44:00] Pool 0 stratum+tcp://example.invalid:3333 not responding!\r\n"
+           " [2026-09-23 01:45:00] Started intminer 5.4.2-unknown\r\n"
+           " [2026-09-23 01:50:11] Stratum connection to pool 0 interrupted\r\n"
+           " [2026-09-23 01:56:10] Accepted 0000000d INCS 0 Diff 9.99k/4.1k\r\n")
+
+    def test_the_rows_keep_their_window_and_the_signals_reach_the_pool_line(self):
+        signals = []
+        rows, _ = api.classify_syslog(self.LOG, first_minutes=5, signals=signals, signal_minutes=30)
+        self.assertEqual([r[0] for r in rows], [])
+        self.assertEqual(signals, ["start", "pool", "accepted"])     # the start line itself is taken
+
+    def test_the_signals_stop_at_the_newest_process_start(self):
+        # the 01:44 pool line belongs to the run before, however wide the window
+        signals = []
+        api.classify_syslog(self.LOG, first_minutes=5, signals=signals, signal_minutes=60)
+        self.assertEqual(signals, ["start", "pool", "accepted"])
+
+    def test_after_a_truncation_the_signals_keep_the_rows_window(self):
+        # second review, MEDIUM 2: a cursor that no longer fits is not a service start; a wider look-back there
+        # replays pool lines the watchdog had already spent
+        signals = []
+        stale = api.LogCursor("2026-09-23 01:58:00", 40, "0" * 64, 41)
+        api.classify_syslog(self.LOG, cursor=stale, first_minutes=5, signals=signals, signal_minutes=30)
+        self.assertEqual(signals, ["accepted"])
+
+    def test_without_signal_minutes_the_signals_keep_the_rows_window(self):
+        signals = []
+        api.classify_syslog(self.LOG, first_minutes=5, signals=signals)
+        self.assertEqual(signals, ["accepted"])
+
+
 class ClassifySyslogTest(unittest.TestCase):
     """0.9.0: the non-routine lines of the miner's log as labels and counts, never as text.
 

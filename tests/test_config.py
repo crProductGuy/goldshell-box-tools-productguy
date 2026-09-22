@@ -104,6 +104,14 @@ class PowerConfigTest(unittest.TestCase):
             with self.assertRaises(ValueError, msg=repr(bad)):
                 config.Config(host="m", power={"host": "p", "unpowered_watts": bad}).validate()
 
+    def test_an_older_config_with_a_low_boot_watts_still_loads(self):
+        # review of 0.10.0 gate 1: a 0.9 config.json has no unpowered_watts; the default 10 must not stop a
+        # service whose boot_watts is set below it from starting
+        cfg = config.Config(host="m", power={"host": "p", "boot_watts": 5})
+        cfg.validate()
+        self.assertEqual(cfg.power["unpowered_watts"], 5)
+        config.Config(host="m", power={"host": "p", "boot_watts": 7.5}).validate()   # second review, LOW 3
+
     def test_absent_minutes_is_finite(self):
         # json.load accepts NaN and Infinity; either one passed validation and then stopped the watchdog starting
         for bad in (float("nan"), float("inf")):

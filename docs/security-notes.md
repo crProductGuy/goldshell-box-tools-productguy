@@ -355,18 +355,32 @@ polls for a log read taken after it. The read is every `syslog_interval`, and
 the measured outage wrote its pool lines two to two and a half minutes in,
 which a read can miss. During such an episode the service also reads the log
 when port 4028 is dead, on the usual schedule, one request at a time. The
-evidence ends when the accepted counter moves, when a line that points at the
-miner itself (a chip, board or process fault) comes after the pool line, or
-at a process start. A log "Accepted" line does not end it, because two were
-logged eight minutes into the measured outage. After
+evidence ends when the accepted counter rises on two samples at least a
+minute apart, when a line that points at the miner itself (a chip, board or
+process fault) comes after the pool line, or at a process start. A log
+"Accepted" line does not end it, and neither does one bump of the counter,
+because two shares were logged eight minutes into the measured outage. A
+counter that falls (a restart sets it back to 0) is not a share. After
 `upstream_restart_hours` (default 8, 0 never) one soft restart is let
-through, counted against the cap.
+through, counted against the cap. A service started mid-outage looks back 30
+minutes of the miner's log for this evidence (not past the newest process
+start), because the log goes quiet about 8 minutes in; the rows written to
+`minerlog.csv` keep their 5-minute window. The 8 h clock itself is not kept
+across a service restart, so a restart of the service starts it again: that
+can only delay the one restart, never add one.
 
 - **Accepted residual:** a brief pool blip read in the last log read before
   a genuine hang, with no fault line written after it, holds the watchdog for
   up to `upstream_restart_hours`. The known hangs of 2026-09-21 and 09-22
   wrote fault lines and took the web backend down with them. Either one
-  releases the hold.
+  releases the hold. Since the review fixes the window is wider in two ways:
+  one bump of the counter no longer spends a pool line, and a service
+  started within 30 minutes of a blip that had already cleared reads the
+  blip again. The log alone cannot tell that from the measured outage (pool
+  lines, a few shares, silence); how long shares kept flowing after the pool
+  line could, and is left for gate 2.
+- **Accepted residual:** two shares let through by a dead pool at least a
+  minute apart end the episode, as one did before the review fixes.
 - A single failed log read during an unreachable episode reads as "backend
   dead", so the normal ladder resumes and may send one soft restart that was
   not needed. It is counted like any other.
@@ -391,6 +405,14 @@ bring-up. The plug reading is the one the poller already takes each poll, so
 the rule adds no request to the plug. Without a plug, only the link test
 applies. An unknown answer (the OS reports no interfaces, or the miner's
 host is a name) counts as "can see", which is today's behaviour.
+
+**Limit: the miner must be on this computer's own subnet.** The link test
+asks whether a connected interface's network contains the miner's address.
+A miner reached through a router, on another VLAN or subnet, fails that test
+on every episode, so an unreachable miner there is held as "can't see"
+forever: no restart and no cycle, with one line per episode. Until 0.10.x
+handles routed miners, keep the service on the miner's own segment.
+(Found in the 0.10.0 review.)
 
 Open, not provoked: whether a boot with no pool can match the board-absent
 signature (clock 0, board sensor at -150). That rule is unchanged, and it
