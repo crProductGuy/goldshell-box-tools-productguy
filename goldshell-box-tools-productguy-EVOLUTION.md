@@ -2551,3 +2551,33 @@ cursor can match the wrong boot. The old comparison also lost lines in that case
 **Release, recorded after the fact.** This entry was committed before the push. At Mark's word, 0.9.1 was pushed to
 GitHub at 13:50 on 2026-09-21 (main `67f303e`, annotated tag `v0.9.1`), and the live service had already been
 restarted onto it at 13:38 with his prior authorization.
+
+## 2026-09-21 evening, session AF: designing for outages, no code
+
+Mark asked to design the deferred finding that a miner which never gets network time repeats its 2007 stamps each
+boot. Then he widened it: "We must build in handling for any such 'no NTP feed' for some time (a few hours) or
+'forever'", and power here is erratic. Storms take the grid and the ISP together, a Powerwall carries the house, and
+when it runs low "I'm just gonna run around the house and start pulling plugs". Nobody presses Hold on the page in
+that moment, and hosted-site operators don't shut down gracefully either.
+
+**The rule adopted.** gbox acts only on evidence that points at the miner itself. When an observation could mean
+the path, the power or the pool is down, it logs once and waits, and spends nothing from its daily caps. Mark on
+why gbox has no AI in it: it can count on neither internet nor a local model, and "simple sequential logic and
+timers is perfect for an unforgiving environment".
+
+**What gaming the sequences found**, from reading the code, none seen in the field. The stall rule would soft-restart
+a healthy miner every ten minutes through an ISP outage, and earlier data says such restarts often lose the board.
+A cycle never reads the plug's meter, so a miner hashing behind a dead switch, or one whose cord was pulled, still
+gets cycled. The worst one is about recovery: failed restart attempts during a LAN outage count against the daily
+cap, so an outage of about two hours spends the budget that this morning's bring-up needed. A PC that dies mid-cycle
+leaves the relay off, and gbox then reads that as "off on purpose". The plug's button toggles, which races a cycle.
+Two limits came from the repo's own rules: no default-gateway probe (the routing table is off limits), and no
+`pools` command (it carries the pool user).
+
+**Decisions (Mark).** Split into two gates: 0.10.0 (log read by position, a pool-down hold on the stall rule, a
+meter veto on cycles, and "LAN dark" meaning nothing is sent or counted), then 0.10.1 (interrupted-cycle detection,
+relay re-read, miner identity). One restart after 8 hours of pool outage "just in case". 10 W counts as unpowered.
+An interrupted cycle is a config option, defaulting to leave the relay off with a loud notice. Mark's devices
+already have DHCP reservations, so the identity check is for other owners. The plug has no power-on setting;
+whether it restores its last state after an outage is a hand test for later.
+Brief for a fresh build session written outside the repo.
