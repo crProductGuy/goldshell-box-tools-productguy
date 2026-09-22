@@ -181,6 +181,25 @@ the most dangerous one.
 | A settings write endpoint in the service | would let a trial be started from the page; rejected in 2b for the security reason in Decisions | never, unless the token check above exists first |
 | Runner event lines carry the `dashboard:` prefix | they go through `/api/event`; an `origin` field is a small change | cosmetic; fold into step 4 if convenient |
 
+## User Guide (before the full release to other users)
+
+Asked for by Mark on 2026-09-22 (session AH). The guide gets a **"How it works inside"** section that
+explains, with a diagram for each, three interactions:
+
+- **The service and each miner.** What `gbox serve` reads every poll (port 4028 `devs`, `/dbg/icinfo`,
+  `/mcb/setting`), what it reads less often (the miner log every `syslog_interval`), what it writes
+  (`log.csv`, `minerlog.csv`, `events.log`), and when the watchdog acts.
+- **The service and each plug.** What is read every poll, and when the plug is switched.
+- **The dashboard and the service.** How the page stays current: `poll` every 10 s reads the miner
+  **directly from the browser** (`dbg/minerinfo` and `dbg/icinfo` every time; `mcb/setting`, `mcb/status`
+  and `cpb/hshistory` once a minute) and drives the badge, tiles, chip table and hashrate chart;
+  `serviceTick` every 60 s reads the service (`api/health`, events, the `log.csv` tail, `api/series`)
+  and redraws the history charts, whose right-hand "now" edge moves at each tick.
+
+The guide must say plainly that an open tab is its own client of the miner: the one-request-at-a-time rule
+holds inside one tab, not across tabs and the service. Verify the timers against `gbox/web/app.js` when
+writing, since they may change before then.
+
 ## Stop-losses for the build sessions
 
 - Same file "fixed" three times: stop, write up, fresh diagnosis.

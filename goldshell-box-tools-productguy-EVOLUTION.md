@@ -2623,3 +2623,48 @@ repo, and Mark chose to publish on that. MaVeTh then ran `tempcontrol` off for 1
 (peak 70 C): the fan loop kept walking toward 85 C the whole time. What the flag does under heat is still open.
 
 **Left open.** The `volts` label on the page still reads as a measurement; a relabel is 0.10.x work.
+
+## 2026-09-22 afternoon, session AH (65231045): the tabs-closed night, how the page talks to the miner, and an unplugged internet
+
+**Goal.** Mark: "pick up the Goldshell project. There are 2 sets of morning actions, left from 2 parallel
+sessions" (AF and AG). Then: explain how the dashboard and the service interact, note it for the User Guide,
+and run the pool-outage timing test with him pulling the switch's uplink.
+
+**The tabs-closed night answered AG's question.** With every dashboard tab closed (Mark's word), the miner
+still hung at 00:07 (port 4028 errors, restarts timed out, plug cycle at 00:16, hashing 90 s later) and
+restarted itself silently at 06:58 (uptime reset, share counter from 840 to 11, `process_started` in the
+miner log, no watchdog event). Page reads are not the cause. The standing power-cycle check found four
+cycles since AF, each ending its settle gap early, none restarting a healthy booting miner.
+
+**The minerlog.csv check (AE's ask) passed.** No duplicate rows across the 00:17 cold boot (0.9.1's
+cursor-by-position held through a 2007 clock), and no pool user, URL or credential in the file. The
+162 W state is still on (~167 W all night).
+
+**How the page stays current.** Read from `app.js`, not measured: an open tab reads the miner directly
+from the browser every 10 s (`dbg/minerinfo`, `dbg/icinfo`, and three slower endpoints once a minute),
+and reads the service every 60 s for its status line and the history charts. So each tab is its own client
+of the miner, and the one-request-at-a-time rule holds only inside a tab. Mark had two tabs open the
+nights before: three uncoordinated clients. Mark asked for a "How it works inside" section, with
+diagrams, in the User Guide to be written before the full release; it is in `docs/plan.md`.
+
+**The outage test.** The agent could not stop the live service (Claude Code's auto-mode permission check
+refused it, pid file and Mark's go notwithstanding), so Mark stopped it himself with a one-liner that reads
+`gbox.pid`, then ran the read-only timing script. On the agent's own "unverified risk" note it read the
+miner log once a minute instead of every 30 s. Asked whether the agent would keep working with the
+internet down: no, the model runs remotely; the script runs alone on the LAN. Mark's keypresses each lagged
+the cable by 30-40 s, which he reported, and the times below are corrected for it:
+
+- `stratum_interrupted` about 2 minutes after the cable came out, `pool_not_responding` about 2.5.
+- The hashrate figure froze at once. **About 8 minutes in, port 4028 went dead and the miner log went
+  silent while the web API kept answering**, for 16 minutes, until the cable went back.
+- About 15 s after reconnection the mining process restarted by itself and shares began at once.
+
+**The finding that changed the design.** The 0.10.0 brief planned an upstream hold on the *stall* rule.
+The test shows an ISP outage also reaches the *unreachable* rule: once port 4028 dies, the service's
+board read fails exactly as in a hung miner, and today's code would soft-restart and then power-cycle a
+miner that is only waiting for its pool (from code reading; the service was stopped for the test). The
+signature that separates the two: in an outage the web API still answers and the newest log lines are pool
+labels; in the real hangs the restart request timed out too. Added to the gate 1 brief.
+
+**Left open.** Two "Accepted" lines the miner logged 8 minutes into the outage, unexplained. The service
+was restarted from its Startup launcher and confirmed polling.
