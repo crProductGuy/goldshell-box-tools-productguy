@@ -131,7 +131,9 @@ for `unreachable_minutes` (2), its accepted-share counter has been frozen for
 `absent_minutes` (2) with clock 0 and no board sensor, which is a controller
 that has lost its hashboard. That last state never once cleared by itself in
 15 days of one unit's log, so waiting the full five minutes bought nothing.
-`"absent_minutes": 0` in the `watchdog` block turns it off.
+`"absent_minutes": 0` in the `watchdog` block turns it off. Since 0.10.0 it
+first checks that the miner itself is the problem; see "Unplanned outages"
+below.
 
 ## Power-cycling a hung miner
 
@@ -179,6 +181,40 @@ nothing. A `schedule` block in the power config switches the miner off and
 on at set times. The reset counter and the rest of the history survive all
 of this: the service logs every poll, and the tiles and the trials table
 sum increments across boots. Details in `docs/power-cycle.md`.
+
+### Unplanned outages: the internet, the LAN, the power
+
+Nobody opens a dashboard to press Hold while running around a dark house. Since
+0.10.0 the watchdog acts only on evidence that points at the miner itself. When
+what it sees could as well mean "the path is down", "the power is gone" or "the
+pool is unreachable", it writes one line to the event log, waits, and spends
+nothing from its daily caps.
+
+- **The internet or the pool is down.** The miner stops finding shares at once,
+  says so in its own log a couple of minutes later, and about eight minutes in
+  its port 4028 goes dark while its web page keeps answering (measured with the
+  router cable pulled). The watchdog reads those log lines, does not restart a
+  miner that is waiting on its pool, and says "pool unreachable" once. The miner
+  reconnects by itself about 15 seconds after the link returns. After
+  `watchdog.upstream_restart_hours` (default 8, 0 for never) of one outage it
+  sends one soft restart, counted, and then none until shares flow again. This
+  needs the log read (`syslog_interval` above 0, the default).
+- **The LAN is down between this computer and the miner.** When the smart plug
+  does not answer either, when this computer's own LAN link is down, or when the
+  plug's meter shows the miner drawing working power, the miner is not the
+  problem. Nothing is sent and nothing is counted; one line when it starts and
+  one when it ends. When the LAN comes back with the miner still silent, the
+  watchdog starts its ladder from the beginning. Without a plug, only the link
+  test applies.
+- **The power cycle is the last rung, and it reads the meter first.** A plug
+  reading at least `idle_watts` means a working miner behind a dead path; one
+  reading under `unpowered_watts` (default 10) with its relay on means nothing
+  is drawing power behind it. Neither is cycled. A plug without a meter behaves
+  as before.
+
+Give the miner, the plug and this computer DHCP reservations in your router. A
+device that comes back from an outage on a different address looks exactly like
+one that never came back.
 
 ## The debug page you were never shown
 

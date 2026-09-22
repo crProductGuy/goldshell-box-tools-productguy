@@ -489,6 +489,9 @@ class Poller(threading.Thread):
         row["time"] = now
         self.read_plug()
         row["watts"] = self.plug_watts
+        observe_plug = getattr(self.watchdog, "observe_plug", None)
+        if observe_plug is not None and self.plug is not None:      # 0.10.0 E: this poll's reading, no new request
+            observe_plug(self.plug_state is not None, self.plug_watts)
         self._append(row)
         boards = row.get("_boards")
         if boards and len(boards) > 1:

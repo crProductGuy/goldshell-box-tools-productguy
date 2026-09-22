@@ -54,6 +54,8 @@ SEED_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (watchdog: restart
 HOLD_OK_SAMPLES = 2
 # 0.10.0: how many polls a verdict waits for a read of the miner's log newer than itself, at most
 EVIDENCE_WAIT_POLLS = 3
+# 0.10.0: how often the LAN link is asked while it matters (on Windows each answer is a PowerShell run)
+LAN_CHECK_SECONDS = 60
 HOLD_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) hold: (?:started by (you|the schedule)"
                      r"(?: until (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})|, no expiry)(?: \((.*)\))?|(released|expired))")
 STAMP = "%Y-%m-%d %H:%M:%S"
@@ -114,6 +116,14 @@ class Watchdog:
         self._verdict = None                # (kind, since): the rule waiting on the log, and since when
         self.upstream_since = None          # the running upstream episode, or None
         self._upstream_restarted = False
+        # 0.10.0 E: can the miner be seen at all? The poller hands in each poll's plug reading (`observe_plug`);
+        # `lan_check` is a callable, True/False/None, for this machine's link to the miner's LAN (netiface).
+        self.lan_check = None
+        self._plug_seen = None              # None: not told; True/False: the plug answered this poll
+        self._plug_watts = None
+        self._lan = (None, None)            # (checked at, answer): asked at most once a LAN_CHECK_SECONDS
+        self.dark_since = None              # the running "can't see" episode, or None
+        self._dark_why = None
 
     def observe(self, ok, accepted, t=None, hashing=None, absent=None):
         """One sample. `hashing` says whether the miner reported a hashrate; a hold releases only on
@@ -167,6 +177,65 @@ class Watchdog:
         self.power_gap_until = None
         self._gap_streak = 0
         self._events.write("power: settle gap ended early, %s; the watchdog is judging again" % why)
+
+    # ------------------------------------------------------------ can the miner be seen (0.10.0 E)
+
+    def observe_plug(self, answered, watts=None):
+        """This poll's plug reading, from the poller (which reads the plug every poll already): no extra request."""
+        self._plug_seen = bool(answered)
+        self._plug_watts = watts if answered else None
+
+    def _lan_up(self):
+        if self.lan_check is None:
+            return None
+        now = self._clock()
+        at, answer = self._lan
+        if at is None or now - at >= LAN_CHECK_SECONDS:
+            try:
+                answer = self.lan_check()
+            except Exception:
+                answer = None               # a failed OS query says nothing about the LAN
+            self._lan = (now, answer)
+        return answer
+
+    def _cant_see(self):
+        """Why the miner cannot be judged from here, or None. Each reason means the path, not the miner: the plug
+        sits on the same LAN, this machine's own link says it is off that LAN, or the meter shows working power."""
+        if self.plug is not None and self._plug_seen is False:
+            return "the smart plug does not answer either"
+        if self.plug is not None and self._plug_watts is not None and \
+                self._plug_watts >= float(self.power.get("idle_watts", 100)):
+            return "the plug reads %.0f W, a working miner" % self._plug_watts
+        if self._lan_up() is False:
+            return "this computer's LAN link to the miner is down"
+        return None
+
+    def _end_dark(self, why):
+        """The path is back. The ladder starts from zero: a full `unreachable_minutes` of fresh dark samples
+        before anything is sent, with the episode's clock and failed-restart count reset."""
+        self._events.write("watchdog: can see again after %d min (%s); the ladder starts from zero"
+                           % (round((self._clock() - self.dark_since) / 60), why))
+        self.dark_since = self._dark_why = None
+        self._rows.clear()
+        self.episode_start = None
+        self.episode_failed_restarts = 0
+        self._power_logged = False
+        self._verdict = None
+
+    def _dark_hold(self, reason):
+        """True when an unreachable verdict must not act because the miner cannot be seen. Nothing is sent and
+        nothing counted; one line when it begins, one when it ends."""
+        if not reason.startswith("miner unreachable"):
+            return False
+        why = self._cant_see()
+        if why is None:
+            return False
+        if self.dark_since is None:
+            self.dark_since = self._clock()
+            self._dark_why = why
+            self._events.write("watchdog: can't see the miner (%s); nothing sent and nothing counted until it "
+                               "can" % why)
+        return True
 
     # ------------------------------------------------------------ the pool (0.10.0 B)
 
@@ -443,6 +512,12 @@ class Watchdog:
                 self.hold_release("expired")
             return None
         self._check_boot()
+        if self.dark_since is not None:
+            rows = self._rows
+            if rows and rows[-1][1]:
+                self._end_dark("the miner answered")
+            elif self._cant_see() is None:
+                self._end_dark("the path is back, the miner is still silent")
         reason = self.diagnose()
         self.last_reason = reason
         if not reason:
@@ -454,8 +529,10 @@ class Watchdog:
             # A rung refused once this episode (plug silent or off, dry run, the cap) is not asked again until
             # the next restart's turn: the plug is queried once per rung, not every sample for the outage.
             if self.episode_failed_restarts >= 2 and not self._power_logged and self._tail_dark(self._clock()) \
-                    and self.upstream_since is None:
+                    and self.upstream_since is None and self.dark_since is None:
                 self._consider_power(self._unreachable_reason())
+            return None
+        if self._dark_hold(reason):
             return None
         if self._upstream_hold(reason):
             return None
@@ -509,6 +586,18 @@ class Watchdog:
             w = self.plug.watts() if info.get("meter") else None
         except Exception as e:
             self._power_once("power: plug did not answer (%s); not cycling" % e)
+            return
+        # 0.10.0 C: the meter can only prevent a cycle, never add one. At or over idle_watts the miner is working
+        # and the path to it is down; under unpowered_watts with the relay on nothing is drawing power behind the
+        # plug (a cord out downstream, the miner's own switch). Between is the hung controller (about 34 W).
+        if w is not None and w >= float(self.power.get("idle_watts", 100)):
+            self._power_once("power: the plug reads %.0f W, a working miner; the path to it is down, not the "
+                             "miner (%s); not cycling" % (w, reason))
+            return
+        unpowered = float(self.power.get("unpowered_watts", 0) or 0)
+        if w is not None and w < unpowered:
+            self._power_once("power: the plug reads %.0f W with its relay on: nothing is drawing power behind it "
+                             "(%s); not cycling" % (w, reason))
             return
         before = ("%.0f W before" % w) if w is not None else "no meter"
         if not self.power.get("cycle"):

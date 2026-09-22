@@ -2668,3 +2668,56 @@ labels; in the real hangs the restart request timed out too. Added to the gate 1
 
 **Left open.** Two "Accepted" lines the miner logged 8 minutes into the outage, unexplained. The service
 was restarted from its Startup launcher and confirmed polling.
+
+## 2026-09-22 late afternoon, session AI (3b2a6d0a): 0.10.0 gate 1 built, outage-proof watchdog
+
+**The goal**, from the gate 1 brief written in session AF: "a proposal that's robust for things going
+down unpredictably and coming back up in weird orders", because "the last thing I'm going to think about
+in that situation is accessing the Gbox page and pressing Shut Down or Hold." The design rule: act only on
+evidence that points at the miner itself; when an observation could mean the path, the power or the pool,
+log once, wait, and spend nothing from the daily caps.
+
+**Restated before code, and two corrections to the brief.** The agent restated goal, constraints and
+done-when and Mark answered "go in that order" (A, then B, then C and E). The brief named a stale `main`
+commit (AH had pushed since); the agent branched from the real one. It named its least-sure assumption up
+front: B's signature for an ISP outage ("web API answering, newest log lines are pool lines") rests on one
+measured outage.
+
+**Tests first, each run against the old code.** Every part was written as scenarios before the fix, and
+run on the unchanged code so each failure was the defect and not a missing function: 5 of 10 log-cursor
+scenarios failed on 0.9.1, 4 of 6 pool scenarios restarted the miner, both "can't see" scenarios spent 6
+restart attempts in 30 minutes. The ones that already passed stay as guards. Raw output is kept outside
+the repo, in the gate's evidence folder.
+
+**A. The log cursor is a place, not a time.** The cursor is now the index of the last line read, the
+line count, and a hash of that line; the line's own text is never held, since it can carry the pool user.
+The brief said a first read stops at the "run start"; the agent changed that to the process start only,
+because the miner re-inits its board mid-run after a fault (4 inits against 2 starts in the incident
+fixture) and the lines before a re-init are the ones that explain it. A line stamped in the future no
+longer needs special handling: it cannot hide later lines when the cursor is not a time.
+
+**B. The pool.** The timing risk the brief flagged was real: the log is read every 5 minutes and the pool
+lines appear 2 to 2.5 minutes into an outage, so a stall verdict at 5 minutes could arrive before the
+evidence. Rather than lengthen the stall window, a verdict now asks for one fresh read and waits at most
+three polls for it. When port 4028 is dead the service still reads the log from the web page, and that
+read doubles as the "web API answering" test. **A decision from the measurement:** the two unexplained
+"Accepted" lines 8 minutes into AH's outage mean a log share line cannot end an episode; only the
+accepted counter moving does. After 8 hours of one outage, one soft restart (Mark's decision in AF).
+
+**C and E.** The power rung reads the meter first: a working miner (at or over 100 W) or no load (under
+10 W, Mark's default) is not cycled. An unreachable miner is "can't see", nothing sent and nothing
+counted, when the plug is silent too, the meter shows working power, or this PC's own LAN link is down;
+the link test was added to the network module under its existing rules (no socket, no routing table, no
+name lookup). The agent considered adding "under 10 W" to E and did not: that morning the miner had
+answered HTTP while the plug read 2 W, so a low reading does not prove the controller has no power.
+
+**Caught in the session.** The first full-suite run had 9 errors: tests that hand the poller a minimal
+stand-in watchdog broke on the new hooks. The poller now uses a hook only if the watchdog has it. A test
+the agent wrote for a "miner-first" start was wrong (the fixture's share counter never moves, so it tested
+a stall) and was removed rather than bent to pass.
+
+**Left open.** One reviewer pass at feature-complete (the policy default), in a fresh session. The residual
+risks are written into the security notes: a pool blip read just before a genuine hang holds the watchdog
+for up to 8 hours; one failed log read during an unreachable episode lets one unneeded restart through.
+Unverified: whether the firmware's log ever ends mid-line, and whether a boot with no pool can look like a
+missing hashboard. Nothing merged, pushed or deployed.

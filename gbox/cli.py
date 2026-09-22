@@ -27,7 +27,7 @@ import os
 import sys
 import threading
 
-from . import __version__, api, config, discover as discovermod, pidfile, plug as plugmod, series, trials
+from . import __version__, api, config, discover as discovermod, netiface, pidfile, plug as plugmod, series, trials
 from .events import MAX_BYTES as EVENTS_MAX_BYTES, EventLog
 from .poller import BOARDS_COLUMNS, COLUMNS, Poller, migrate_columns
 from .power import PowerControl, Scheduler
@@ -589,6 +589,7 @@ def cmd_serve(args, cfg, data_dir):
                       unreachable_minutes=w["unreachable_minutes"], min_gap_minutes=w["min_gap_minutes"],
                       max_restarts_per_day=w["max_restarts_per_day"], plug=plug, power=cfg.power,
                       absent_minutes=w["absent_minutes"], upstream_restart_hours=w["upstream_restart_hours"])
+        wd.lan_check = lambda: netiface.link_up_for(cfg.host)   # 0.10.0 E: asked at most once a minute
         wd.seed_from_events(events.tail(4000))     # the caps and a running hold survive this restart
     control = PowerControl(plug, cfg.power, wd, events) if plug is not None else None
     scheduler = None

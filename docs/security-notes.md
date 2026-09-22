@@ -339,3 +339,59 @@ Three consequences, each covered by a scenario test:
 Not verified: whether the firmware's log ever ends without a line end. If it
 always does, each read leaves its newest line to the next one: correct, one
 read late for that line.
+
+## Acting only on evidence that points at the miner (0.10.0)
+
+Three rules added in 0.10.0 can only stop the watchdog from acting. None of
+them adds a restart or a cycle, apart from the one bounded exception in the
+first.
+
+**The pool (B).** A stall, or an unreachable miner whose web backend still
+answers, is not restarted when the newest read of the miner's log shows
+`pool_not_responding` or `stratum_interrupted` since the accepted counter
+last moved, or shows the miner probing for a pool since its newest process
+start with no share accepted. Before judging, the verdict waits up to three
+polls for a log read taken after it. The read is every `syslog_interval`, and
+the measured outage wrote its pool lines two to two and a half minutes in,
+which a read can miss. During such an episode the service also reads the log
+when port 4028 is dead, on the usual schedule, one request at a time. The
+evidence ends when the accepted counter moves, when a line that points at the
+miner itself (a chip, board or process fault) comes after the pool line, or
+at a process start. A log "Accepted" line does not end it, because two were
+logged eight minutes into the measured outage. After
+`upstream_restart_hours` (default 8, 0 never) one soft restart is let
+through, counted against the cap.
+
+- **Accepted residual:** a brief pool blip read in the last log read before
+  a genuine hang, with no fault line written after it, holds the watchdog for
+  up to `upstream_restart_hours`. The known hangs of 2026-09-21 and 09-22
+  wrote fault lines and took the web backend down with them. Either one
+  releases the hold.
+- A single failed log read during an unreachable episode reads as "backend
+  dead", so the normal ladder resumes and may send one soft restart that was
+  not needed. It is counted like any other.
+- The rule needs the log read. With `syslog_interval` 0 it is off and the
+  watchdog behaves as in 0.9.1.
+
+**The meter (C).** Just before a cycle, a reading at or over `idle_watts` (a
+working miner, a dead path) or under `unpowered_watts` with the relay on (no
+load behind the plug) stops the cycle, with one line per episode. A plug
+without a meter, or a reading between the two, behaves as before.
+
+**The path (E).** Before a soft restart of an unreachable miner, the episode
+is "can't see" when the configured plug does not answer either, when the
+plug's meter reads at or over `idle_watts`, or when this computer's own link
+to the miner's LAN is down. That last test (`netiface.link_up_for`) reads
+only the interface table, under the module's rules: no socket, no routing
+table, no name resolution. It is asked at most once a minute. Nothing is
+sent and nothing is counted, with one line when the episode begins and one
+when it ends. When the path comes back with the miner still dark, the ladder
+starts from zero, so an outage cannot leave the daily caps spent for the
+bring-up. The plug reading is the one the poller already takes each poll, so
+the rule adds no request to the plug. Without a plug, only the link test
+applies. An unknown answer (the OS reports no interfaces, or the miner's
+host is a name) counts as "can see", which is today's behaviour.
+
+Open, not provoked: whether a boot with no pool can match the board-absent
+signature (clock 0, board sensor at -150). That rule is unchanged, and it
+only ever sends a soft restart under the cap.
