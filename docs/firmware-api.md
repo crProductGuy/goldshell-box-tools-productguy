@@ -100,10 +100,12 @@ still reads `/dbg/minerinfo`; the service reads 4028 first (gate 2, 0.8.0).
 - `temp_target` is clamped by the fan daemon to `temp_targets` (65-75 on this
   unit); `temp_targets` itself is read-only. 65 is the coolest available.
 - `tempcontrol` is the overheat-shutdown flag; it does not affect fans. The
-  same held on an SC Lite (fw 2.2.0) on 2026-09-22: with the flag set false
-  for about 60 s at 68 C, its fan log kept writing `Fans Change ...
-  target_temp:85` lines and the duty kept walking. What the flag does under
-  heat is untested on either model, so gbox never writes it.
+  same held on MaVeTh's SC Lite (fw 2.2.0) on 2026-09-22: with the flag set
+  false (confirmed by a GET) first for about 60 s, then for 10 minutes with an
+  abort at 75 C (never reached; 70 C peak), its fan log kept writing `Fans
+  Change` and `Fan stay` lines with `target_temp:85` and the 4028 fan speeds
+  kept walking, as with the flag on. What the flag does under heat is
+  untested on either model, so gbox never writes it.
 - Each settings PUT restarts the fan daemon, which spikes the fans for a few
   minutes before the PID settles again. Do not read that spike as a result.
 - **The stock Miner page** (read from its `setting-miner` chunk, 2026-09-07)

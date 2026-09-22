@@ -599,7 +599,7 @@ const MODELS = {
     plan_dialect: "box", board_source: "icinfo", dbg_expected: true, fan_target: true, temp_target_basis: "board_sensor",
     plan_names: null, absent_signature: false },
   "Goldshell-SCLITE": { name: "SC Lite", rated_mhs: 4400000.0, rated_watts: 950.0, fans: 4, fan_max_rpm: 2200.0, boards: 4,
-    source: "goldshell.company/sclite spec table; model string, plan dialect, 4 PGA boards, 4 fans, open /dbg/ and no fan-target range from the other developer's unit (Maveth/goldshell-config, MCB_V4_3, fw 2.2.0, hw 30.40.SA, captured 2026-09-22)", verified_string: true,
+    source: "goldshell.company/sclite spec table; model string, plan dialect, 4 PGA boards, 4 fans, open /dbg/ and no fan-target range from MaVeTh's unit (Maveth/goldshell-config, MCB_V4_3, fw 2.2.0, hw 30.40.SA, captured 2026-09-22)", verified_string: true,
     plan_dialect: "mv_pv", board_source: "icinfo", dbg_expected: true, fan_target: false, temp_target_basis: "fixed",
     plan_names: null, absent_signature: false },
   "Goldshell-SC5ProⅡ": { name: "SC5 Pro II", rated_mhs: 14000000.0, rated_watts: 3300.0, fans: 4, fan_max_rpm: null, boards: 4,

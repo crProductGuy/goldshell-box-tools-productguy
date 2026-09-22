@@ -21,9 +21,9 @@ firmware 2.2.0). Adds the `[PGAn]` multi-board form of `/dbg/minerinfo` and
 the port-4028 `devs`/`summary` JSON alongside the usual `/mcb/` and `/cpb/`
 captures. See `sc5proii/README.md` for the file-by-file detail.
 
-## `sclite/`: captured, the other developer's unit
+## `sclite/`: captured, MaVeTh's unit
 
-Captured 2026-09-22 from the other developer's SC Lite (hardware 30.40.SA,
+Captured 2026-09-22 from MaVeTh's SC Lite (hardware 30.40.SA,
 MCB_V4_3, firmware 2.2.0) per `docs/capture-request.md`, and published in
 Maveth/goldshell-config under `sc-lite/webui/fixtures/sclite-live`. They
 replace the synthetic files built 2026-09-13 from his notes. Four `[PGAn]`
