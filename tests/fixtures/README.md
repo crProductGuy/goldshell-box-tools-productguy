@@ -21,11 +21,14 @@ firmware 2.2.0). Adds the `[PGAn]` multi-board form of `/dbg/minerinfo` and
 the port-4028 `devs`/`summary` JSON alongside the usual `/mcb/` and `/cpb/`
 captures. See `sc5proii/README.md` for the file-by-file detail.
 
-## `sclite/`: synthetic, not captured
+## `sclite/`: captured, the other developer's unit
 
-Built 2026-09-13 from the other developer's notes on an SC Lite, firmware
-2.2.0 (Maveth/goldshell-config, read 2026-09-12): the `model` string, the
-power plan dialect (`<MHz> MHz <mV> V <fanA> RPM <fanB> RPM PV <pv>`), and
-the absence of a fan-target range. `hardware` and `mcbversion` are
-`unknown` because no capture has shown them. These files exercise the
-model seam; a real capture (`docs/capture-request.md`) replaces them.
+Captured 2026-09-22 from the other developer's SC Lite (hardware 30.40.SA,
+MCB_V4_3, firmware 2.2.0) per `docs/capture-request.md`, and published in
+Maveth/goldshell-config under `sc-lite/webui/fixtures/sclite-live`. They
+replace the synthetic files built 2026-09-13 from his notes. Four `[PGAn]`
+boards, four fans, `/dbg/minerinfo` and `/dbg/icinfo` answering 200 (4 x 46
+chips), port-4028 `devs`/`summary`, no `temp_targets` in `/mcb/setting`.
+Sanitized by him: `name` (the unit's MAC) replaced with `00:11:22:33:44:55`;
+no pools, syslogs, password or token. His `dbg_fanctrllog.txt` (740 KB) is
+not copied: no test reads it, and its findings are in `docs/firmware-api.md`.

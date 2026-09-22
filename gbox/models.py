@@ -1,9 +1,9 @@
 """The per-model table: rated figures for the "% of rated" axes, and the capability profile behind the model seam.
 
 Keyed by the `model` string `/mcb/status` returns. The lookup ignores case,
-spaces and hyphens, because only the SC-BOX string has been read from a real
-unit; the others come from the other developer's notes (SC Lite) or are a
-guess at the pattern (SC BOX II) and are marked as such in `source`.
+spaces and hyphens, because only the SC-BOX, SC Lite and SC5 Pro II strings
+have been read from a real unit; the others are a guess at the pattern (SC BOX
+II, SC5 Pro) and are marked as such in `source`.
 
 Percentages are never logged: they are a rendering of a logged number against
 one of these constants, so a corrected constant re-renders history. The JS
@@ -20,7 +20,9 @@ sampler, the plan parser and the page may assume about a unit:
   `/dbg/icinfo`, one board) or `http_devs` (`/mcb/cgminer?cgminercmd=devs`,
   the HTTP wrapper around cgminer's `devs` command; 500 on the BOX).
 - `dbg_expected`: whether `/dbg/` answers without unlocking the stock UI's
-  debug page. The SC Lite answers 401 "Debug access is locked" until it is.
+  debug page. The other developer's early SC Lite notes reported a 401 "Debug
+  access is locked"; his 2026-09-22 capture answered 200, so no model on record
+  is locked.
 - `fan_target`: whether the firmware exposes an adjustable fan target
   (`temp_targets` in `/mcb/setting`).
 - `temp_target_basis`: `board_sensor` (the BOX: the fans hold a chosen
@@ -82,14 +84,14 @@ MODELS = {
         "name": "SC Lite",
         "rated_mhs": 4400000.0,         # 4.4 TH/s ±5%
         "rated_watts": 950.0,           # 950 W ±5%
-        "fans": None,
+        "fans": 4,                      # fan0..fan3 on every board, captured 2026-09-22
         "fan_max_rpm": 2200.0,          # goldshell.company/sclite "Fan Specifications: 2200rpm"
-        "boards": None,                 # several (CPB0, CPB1 ...) per the other developer's notes
-        "source": "goldshell.company/sclite spec table; model string, plan dialect, devs endpoint, debug lock and fixed 85 C target from Maveth/goldshell-config (fw 2.2.0)",
-        "verified_string": False,
+        "boards": 4,                    # four [PGAn] blocks on 4028 devs and /dbg/minerinfo; icinfo 4 x 46 chips
+        "source": "goldshell.company/sclite spec table; model string, plan dialect, 4 PGA boards, 4 fans, open /dbg/ and no fan-target range from the other developer's unit (Maveth/goldshell-config, MCB_V4_3, fw 2.2.0, hw 30.40.SA, captured 2026-09-22)",
+        "verified_string": True,
         "plan_dialect": "mv_pv",
-        "board_source": "http_devs",
-        "dbg_expected": False,
+        "board_source": "icinfo",       # like the SC5 Pro II: the service reads 4028 first, the page /dbg/minerinfo
+        "dbg_expected": True,           # /dbg/minerinfo answered 200 with the token; the "debug lock" did not appear
         "fan_target": False,
         "temp_target_basis": "fixed",
         "plan_names": None,

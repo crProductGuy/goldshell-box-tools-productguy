@@ -1,1 +1,6 @@
-{"hardware":"unknown","model":"Goldshell-SCLITE","mcbversion":"unknown","firmware":"2.2.0"}
+{
+  "hardware": "30.40.SA",
+  "model": "Goldshell-SCLITE",
+  "mcbversion": "MCB_V4_3",
+  "firmware": "2.2.0"
+}
