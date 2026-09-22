@@ -54,7 +54,7 @@ token on that path is untested either way.
 | `/mcb/uploadimage` | POST | firmware upload; never called |
 | `/mcb/tutorial`, `/mcb/resultpool`, `/mcb/wifiresult` | GET | stock UI helpers |
 | `/cpb/hshistory` | GET | JSON array, 288 samples, one per minute, MH/s, newest last, zeros before first sample |
-| `/dbg/minerinfo` | GET | cgminer-style text: a `[STATUS]` block, then one `[PGAn] =>` block per hashboard (one on the SC-BOX; four on the SC5 Pro II). The SC5 Pro II's `[STATUS]` block carries `voltage` (mV), `current` (unit-level, the same value repeated on every board, mA by the arithmetic against the 3300 W rating, unverified) and `powerid`. The SC-BOX's `[STATUS]` block carries none of the three, so this transport yields no firmware watts figure on that unit. Answered 200 on an SC5 Pro II (MCB_V3_3, fw 2.2.0) on 2026-09-15 with and without a Referer, so the "debug lock" the SC Lite notes describe is not on that firmware. Keys used: `Device Elapsed`, `MHS av`, `MHS 20s`, `Accepted`, `Rejected`, `Hardware Errors`, `Device Hardware%`, `clock`, `fan0`, `fan1`, `tstemp-0` (chip temperature: the board's chip average plus about 3 C on the SC-BOX, never the hottest chip; see the hashboard section), `tstemp-2` (board sensor), `rebootcnt`, `overheat` |
+| `/dbg/minerinfo` | GET | cgminer-style text: a `[STATUS]` block, then one `[PGAn] =>` block per hashboard (one on the SC-BOX; four on the SC5 Pro II). The SC5 Pro II's `[STATUS]` block carries `voltage` (mV), `current` (unit-level, the same value repeated on every board, mA by the arithmetic against the 3300 W rating, unverified) and `powerid`. The SC-BOX's `[STATUS]` block carries none of the three, so this transport yields no firmware watts figure on that unit. Answered 200 on an SC5 Pro II (MCB_V3_3, fw 2.2.0) on 2026-09-15 with and without a Referer, so the "debug lock" the SC Lite notes describe is not on that firmware. It answered 200 on an SC Lite (MCB_V4_3, fw 2.2.0) on 2026-09-22 too, with four `[PGAn]` blocks; both `Authorization: <token>` and `Authorization: Bearer <token>` worked there. Keys used: `Device Elapsed`, `MHS av`, `MHS 20s`, `Accepted`, `Rejected`, `Hardware Errors`, `Device Hardware%`, `clock`, `fan0`, `fan1`, `tstemp-0` (chip temperature: the board's chip average plus about 3 C on the SC-BOX, never the hottest chip; see the hashboard section), `tstemp-2` (board sensor), `rebootcnt`, `overheat` |
 | `/dbg/icinfo` | GET | JSON `{body: "<json string>"}`; `drawdata` is an array of boards, each an array of chips with `chipindex`, `perf` (good nonces), `hwerr` (bad nonces). Chips are numbered from 1. Since 0.6.0 the service logs every chip's counts each poll (`chips` column, `board.chip:good/bad`); the counters restart at every board reinit, so per-chip rates are sums of increments |
 | `/dbg/fanctrllog` | GET | fan daemon log, grows to ~1 MB; lines like `Fans Change (fan0: 62 ==> 61) ... reason(t:64.2 acc:0.0 target_temp:65)` |
 | `/dbg/minersyslog` | GET | cgminer log as text, 2 to 3.5 MB and 31k to 51k lines for a day (a 3.47 MB read on 2026-09-15 took 0.8 s). It survives a power cycle. The only place the hottest chip's temperature is reported: one line every 5 s, ` [YYYY-MM-DD HH:MM:SS] C0: Chip Avgtemp 69.000000'C, MaxTemp 79.000000'C` (leading space; `C0` is the chain, and no line anywhere in the log names a chip's temperature, so which chip is hottest is never reported; the miner's clock ran 12 h ahead of local time on this unit, so use its timestamps for ordering only). Also carries the `SCBOX Init sucessed. 16 chips` boot lines and `Write Chip0 Reg 4 Failed`. It repeats the pool user, so it must never be persisted or logged; `gbox serve` reads it every `syslog_interval` seconds (300 by default) and keeps three numbers from it |
@@ -67,7 +67,8 @@ The hidden page `/#/debug` in the stock UI renders most of the `/dbg/` data.
 ## Port 4028 (no token)
 
 cgminer's classic socket API, `intminer 5.4.2`, answers on TCP 4028 with no
-token on the SC-BOX and on an SC5 Pro II (both checked 2026-09-15). Send one
+token on the SC-BOX and on an SC5 Pro II (both checked 2026-09-15), and on an
+SC Lite (2026-09-22; four boards, `voltage` and `powerid` but no `current`). Send one
 JSON object, read until the miner closes the connection; the reply ends in
 one NUL byte.
 
@@ -98,7 +99,11 @@ still reads `/dbg/minerinfo`; the service reads 4028 first (gate 2, 0.8.0).
   `temp_target`. The board sensor reads 5-10 C below the chips.
 - `temp_target` is clamped by the fan daemon to `temp_targets` (65-75 on this
   unit); `temp_targets` itself is read-only. 65 is the coolest available.
-- `tempcontrol` is the overheat-shutdown flag; it does not affect fans.
+- `tempcontrol` is the overheat-shutdown flag; it does not affect fans. The
+  same held on an SC Lite (fw 2.2.0) on 2026-09-22: with the flag set false
+  for about 60 s at 68 C, its fan log kept writing `Fans Change ...
+  target_temp:85` lines and the duty kept walking. What the flag does under
+  heat is untested on either model, so gbox never writes it.
 - Each settings PUT restarts the fan daemon, which spikes the fans for a few
   minutes before the PID settles again. Do not read that spike as a result.
 - **The stock Miner page** (read from its `setting-miner` chunk, 2026-09-07)
@@ -120,7 +125,7 @@ The plan string differs by model. Seen or documented so far:
 | Dialect | Example | Where |
 |---|---|---|
 | `box` | `575 MHz 0.41 V 90 RPM 90 RPM` | SC-BOX, read from the unit. The HS Box writes the same form (`750 MHz 0.41 V 50 RPM 50 RPM` in the other developer's notes) |
-| `mv_pv` | `625 MHz 9100 V 40 RPM 40 RPM PV 9400` | SC Lite, firmware 2.2.0, from Maveth/goldshell-config. The volts field is an integer (their notes call it millivolts) and a trailing `PV` term follows. `/dbg/minerhistory` shows the internal form `intchains_qomo:vfff=<pv>:<MHz>:<fanA>:<fanB>:<mV>` |
+| `mv_pv` | `625 MHz 9100 V 40 RPM 40 RPM PV 9400` | SC Lite, firmware 2.2.0, from Maveth/goldshell-config, and read from his unit's `/mcb/setting` on 2026-09-22. The volts field is an integer (their notes call it millivolts) and a trailing `PV` term follows. `/dbg/minerhistory` shows the internal form `intchains_qomo:vfff=<pv>:<MHz>:<fanA>:<fanB>:<mV>` |
 | `float_pv` | `750 MHz 0.41 V 50 RPM 50 RPM PV 9400` | the "float-V / optional-PV" form the same notes give for the HS Box; no verbatim example with a PV term is on record |
 
 gbox parses all three from the string itself, not from the model table, and
@@ -303,10 +308,50 @@ unreachable, none left it in a worse state than it found it.
 ### The voltage field
 
 `voltage` in port 4028's `devs` reads 0.41 on the SC-BOX, the same number
-the log prints as `tvout:0.410000` when the setting is applied, so it may be
-the setpoint echoed and not a measurement. **Unverified either way.** On the
-SC5 Pro II it is millivolts at the supply (11750). Since 0.9.0 the service
-logs it unconverted as `volts`. The reason: on 2026-09-20 the SC-BOX ran 80
+the plan string carries (`550 MHz 0.41 V ...`) and the log prints as
+`tvout:0.410000` when the setting is applied. **On the SC-BOX it is the
+setpoint echoed, not a measurement:** on 2026-09-21 all 1778 logged rows read
+exactly 0.41, through 162 W, 184 W and 221 W stretches at the same clock and
+through samples under 50 W. (Not yet checked during a board-absent episode,
+which would close it.) So nothing the SC-BOX firmware reports measures supply
+voltage. On the SC5 Pro II it is millivolts at the supply (11750). On the SC
+Lite (2026-09-22) it read 9330 on all four boards across five reads a minute
+apart while the plan said 9100, so there it is not the setpoint; whether it
+moves with load is unobserved. Since 0.9.0 the service logs it unconverted as
+`volts`. The reason: on 2026-09-20 the SC-BOX ran 80
 minutes at 162 W instead of 184 W on the same 550 MHz with all 16 chips
 producing at their normal rates, then stepped back up through a single
 221 W sample, and nothing on record could say whether the voltage had moved.
+
+### Silent supervisor restarts
+
+The web backend's own log (`/dbg/syslog`) writes `Minerd start !!!` whenever
+the supervisor process comes up, and `Restart Miner` just before it when a
+restart was requested over HTTP. On the SC-BOX on 2026-09-21 two restarts
+(18:36 and 21:55 local) had `Minerd start` with no `Restart Miner` before
+them, no power loss (the clock did not fall back to 2007), and a pause of
+about 11 s in the backend's own 3-second `[cmos]` lines. Nothing in either
+log names the cause. It also shows that a restart request which timed out on
+the client (18:32 that evening) never reached the miner. The backend does
+not log `/dbg/minerinfo` or `/dbg/icinfo` reads, so its silence does not
+rule out a read arriving at the same moment. Every fan burst to about
+4,300 RPM that day was one of these restarts, or a boot after a power cut:
+the fans run at full speed while the miner boots.
+
+The same day's hangs, where port 4028 and HTTP both stop answering until a
+power cut, sit among runs of `Auto addressing failed`, `BistStart err`,
+`SEND JOB FAILD ... REINIT THIS CPB` and `WatchDog Exit for CPB Idle` in the
+miner's log: the controller losing its hashboard (CPB). Three more such
+episodes that evening recovered by themselves within two minutes.
+
+## What the firmware sends off the LAN
+
+The SC-BOX's web backend posts to `find.goldshell.com/api/miners`,
+apparently for Goldshell's find-my-miner feature. Each post carries the model,
+serial number, MAC and LAN address, and the server sees the home's public
+address from the connection. Its log showed 41 posts over about a day, 22 of
+them answered `{"status":"ok"}`. No pool, wallet or hashrate was in them. It
+is not needed for mining; an owner who wants it stopped can block that one
+name at the resolver. Block only that name: the miner sets its clock over
+NTP, and a cold start reads 2007 until it does. Whether other models do the
+same is unchecked.

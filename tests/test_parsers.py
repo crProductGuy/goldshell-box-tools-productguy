@@ -272,12 +272,17 @@ class PlanDialectTest(unittest.TestCase):
 
 
 class SCLiteFixtureTest(unittest.TestCase):
-    """The synthetic SC Lite fixtures (tests/fixtures/sclite, from the other developer's notes) pick the SC Lite
-    profile and parse, so the seam is exercised before a unit is on the bench."""
+    """The captured SC Lite fixtures (tests/fixtures/sclite, the other developer's unit, fw 2.2.0, hw 30.40.SA,
+    MCB_V4_3, taken 2026-09-22 per docs/capture-request.md): every file parses, both board transports agree on
+    four boards and four fans, and none of the files carries a pool string or a credential."""
+
+    DIR = os.path.join(FIX, "sclite")
+    NAMES = [n for n in sorted(os.listdir(DIR)) if n != "README.md"]
 
     def test_status_picks_the_profile(self):
         from gbox import models
         st = json.loads(fixture("sclite/mcb_status.json"))
+        self.assertEqual(st["model"], "Goldshell-SCLITE")
         p = models.profile_for(st["model"])
         self.assertTrue(p["known"])
         self.assertEqual(p["name"], "SC Lite")
@@ -287,7 +292,47 @@ class SCLiteFixtureTest(unittest.TestCase):
         st = json.loads(fixture("sclite/mcb_setting.json"))
         self.assertEqual(api.parse_plan(st["manualPowerplan"])["dialect"], "mv_pv")
         self.assertEqual(api.max_preset_mhz(st), 625)
-        self.assertNotIn("temp_targets", st)          # no fan-target range on this firmware, per the notes
+        self.assertNotIn("temp_targets", st)          # no fan-target range on this firmware
+
+    def test_four_boards_four_fans_on_both_transports(self):
+        by4028 = api.parse_devs4028(fixture("sclite/api4028_devs.json"))
+        byhttp = api.parse_minerinfo_boards(fixture("sclite/dbg_minerinfo.txt"))
+        for boards in (by4028, byhttp):
+            self.assertEqual([b["board"] for b in boards], [0, 1, 2, 3])
+            self.assertEqual(len(api.board_totals(boards)["fans"]), 4)
+            self.assertTrue(all(b["clock"] == 625.0 for b in boards))
+        self.assertAlmostEqual(api.board_totals(by4028)["mhs_av"], 4579576.475, places=3)
+
+    def test_voltage_is_millivolts_and_not_the_plan_value(self):
+        # 9330 on every board while the plan says 9100: on this model the field is not the setpoint echoed
+        # back (on the SC-BOX it is: 0.41 on every row of a day that ran at 162, 184 and 221 W).
+        d = json.loads(fixture("sclite/api4028_devs.json").rstrip("\x00\n"))
+        self.assertEqual({b["voltage"] for b in d["DEVS"]}, {9330.0})
+        self.assertNotIn("current", d["DEVS"][0])     # no current, so no firmware watts figure on this model
+
+    def test_icinfo_has_four_boards_of_46_chips(self):
+        self.assertEqual([len(b) for b in api.parse_icinfo(fixture("sclite/dbg_icinfo.json"))], [46, 46, 46, 46])
+
+    def test_every_file_parses_or_loads(self):
+        for name in self.NAMES:
+            text = fixture(os.path.join("sclite", name))
+            if name.endswith(".json"):
+                json.loads(text.rstrip("\x00\n"))
+            else:
+                self.assertIsNotNone(api.parse_minerinfo(text), name)
+
+    def test_no_pool_string_or_credential(self):
+        for name in self.NAMES:
+            text = fixture(os.path.join("sclite", name))
+            self.assertNotIn("stratum", text, name)
+            self.assertNotIn("@", text, name)
+
+    def test_fake_miner_serves_the_sclite_fixtures(self):
+        from tests.fake_miner import FakeMiner
+        with FakeMiner(fixtures="sclite", port4028=True) as fm:
+            self.assertEqual(fm.status["model"], "Goldshell-SCLITE")
+            self.assertIsNotNone(fm.icinfo)
+            self.assertIsNotNone(fm.devs4028_port)
 
 
 class SC5ProIIFixtureTest(unittest.TestCase):

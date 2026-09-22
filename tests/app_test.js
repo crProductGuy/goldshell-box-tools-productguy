@@ -645,16 +645,17 @@ const tests = {
   "planRequest on an SC Lite setting keeps the unit's dialect: only the clock changes, PV and the millivolt field survive"() {
     const lite = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "sclite", "mcb_setting.json"), "utf8"));
     const r = app.planRequest(lite, 600);
-    assert.strictEqual(r.body.manualPowerplan, "600 MHz 9100 V 40 RPM 40 RPM PV 9400");
+    assert.strictEqual(r.body.manualPowerplan, "600 MHz 9100 V 75 RPM 75 RPM PV 9400");   // the captured unit runs a manual plan with its fan fields at 75
     assert.strictEqual(r.body.manual, true);
     assert.deepStrictEqual(app.clockRange(lite), { min: 300, max: 625, step: 25, current: 625 });
-    assert.deepStrictEqual(app.presetList(lite).map(p => p.mhz), [625]);
+    assert.deepStrictEqual(app.presetList(lite).map(p => p.mhz), [625, 0]);          // level 0 and the idle level 3, as on the BOX
   },
   "profileFor: the capability record for a known model, and the BOX path with every optional capability off for an unknown one"() {
     const box = app.profileFor("Goldshell-SCBox");
     assert.strictEqual(box.known, true); assert.strictEqual(box.plan_dialect, "box"); assert.strictEqual(box.fan_target, true);
     const lite = app.profileFor("goldshell sclite");
-    assert.strictEqual(lite.known, true); assert.strictEqual(lite.board_source, "http_devs"); assert.strictEqual(lite.dbg_expected, false);
+    assert.strictEqual(lite.known, true); assert.strictEqual(lite.board_source, "icinfo"); assert.strictEqual(lite.dbg_expected, true);
+    assert.strictEqual(lite.boards, 4); assert.strictEqual(lite.fans, 4); assert.strictEqual(lite.verified_string, true);
     const kd = app.profileFor("Goldshell-KDBox");
     assert.strictEqual(kd.known, false); assert.strictEqual(kd.model, "Goldshell-KDBox"); assert.strictEqual(kd.name, "Goldshell-KDBox");
     assert.strictEqual(kd.board_source, "icinfo"); assert.strictEqual(kd.fan_target, false); assert.strictEqual(kd.rated_mhs, null);

@@ -86,16 +86,19 @@ class ProfileTest(unittest.TestCase):
         self.assertEqual(p["temp_target_basis"], "board_sensor")
         self.assertEqual(p["rated_watts"], 200.0)
 
-    def test_the_sc_lite_profile_from_the_other_developers_notes(self):
+    def test_the_sc_lite_profile_from_a_captured_unit(self):
         p = models.profile_for("Goldshell-SCLITE")
         self.assertTrue(p["known"])
         self.assertEqual(p["plan_dialect"], "mv_pv")
-        self.assertEqual(p["board_source"], "http_devs")
-        self.assertFalse(p["dbg_expected"])          # /dbg/ answers 401 until the stock UI's debug page is unlocked
-        self.assertFalse(p["fan_target"])            # the target is a fixed 85 C, read-only
+        self.assertEqual(p["board_source"], "icinfo")   # /dbg/icinfo answered 200 with 4 boards of 46 chips
+        self.assertTrue(p["dbg_expected"])           # /dbg/minerinfo answered 200 with the token, no debug unlock
+        self.assertFalse(p["fan_target"])            # no temp_targets in /mcb/setting; the target is a fixed 85 C
         self.assertEqual(p["temp_target_basis"], "fixed")
-        self.assertFalse(p["verified_string"])
+        self.assertTrue(p["verified_string"])        # "Goldshell-SCLITE" read from /mcb/status on a real unit
+        self.assertEqual(p["boards"], 4)
+        self.assertEqual(p["fans"], 4)
         self.assertIsNone(p["plan_names"])
+        self.assertFalse(p["absent_signature"])      # its fan log shows lone -150 board readings on a hashing board
 
     def test_the_sc5_pro_ii_profile(self):
         p = models.profile_for("Goldshell-SC5ProⅡ")
