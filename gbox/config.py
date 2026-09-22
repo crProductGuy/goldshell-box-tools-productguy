@@ -27,7 +27,9 @@ DEFAULT_WATCHDOG = {
     "absent_minutes": 2,         # 0.9.0: answering, but clock 0 and no board sensor, this long -> restart; 0 is off
     "min_gap_minutes": 5,        # settle time after a restart before judging again (10 until 2026-09-12; a soft restart takes 60-90 s)
     "max_restarts_per_day": 12,  # at least twice power.max_cycles_per_day plus a few: a cycle needs two failed attempts
+    "upstream_restart_hours": 8, # 0.10.0: a miner waiting on its pool is not restarted; after this long, once. 0: never
 }
+MAX_UPSTREAM_RESTART_HOURS = 168
 
 # The optional smart-plug block. Absent: no plug, nothing changes. Present: the
 # watchdog may cut power to a frozen controller after soft restarts have failed.
@@ -143,6 +145,11 @@ class Config:
         if (isinstance(absent, bool) or not isinstance(absent, (int, float)) or not math.isfinite(absent)
                 or absent < 0 or 0 < absent < 1):
             raise ValueError("watchdog.absent_minutes must be 0 (off) or at least 1")
+        upstream = self.watchdog.get("upstream_restart_hours")
+        if (isinstance(upstream, bool) or not isinstance(upstream, (int, float)) or not math.isfinite(upstream)
+                or not 0 <= upstream <= MAX_UPSTREAM_RESTART_HOURS or 0 < upstream < 1):
+            raise ValueError("watchdog.upstream_restart_hours must be 0 (never) or 1 to %d"
+                             % MAX_UPSTREAM_RESTART_HOURS)
         if self.board_source not in BOARD_SOURCES:
             raise ValueError("board_source must be one of: %s" % ", ".join(BOARD_SOURCES))
         serious, critical = int(self.temps["hot_serious"]), int(self.temps["hot_critical"])

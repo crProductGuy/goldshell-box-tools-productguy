@@ -10,7 +10,9 @@ Two firmware quirks shape this module (details in docs/firmware-api.md):
 
 Nothing here logs a URL: the login URL carries the encrypted password.
 """
+import collections
 import datetime
+import hashlib
 import json
 import re
 import socket
@@ -197,26 +199,109 @@ _CHIPTEMP_RE = re.compile(r"^\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\].*?Chip
 # is set. The log survives a power cycle, so what comes before the newest of these belongs to the run before.
 # Anchored at the start of the message, so a pool user that happens to contain either phrase cannot move it.
 _RUN_START_RE = re.compile(r"^\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] ?(?:C\d+: )?(?:SCBOX Init sucessed|Started intminer )")
+# The mining process's banner alone: where a first read of the log stops (0.10.0). The board's init is not a
+# boundary there, because the miner re-inits its board mid-run after a fault, and the lines before a re-init are
+# the ones that say why.
+_PROCESS_START_RE = re.compile(r"^\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] ?Started intminer ")
 
 
-def _after_cursor(lines, after, stamp_re):
-    """(index just past the newest line stamped exactly `after`, found). The cursor is placed by where it sits
-    in the log, not by comparing timestamps (0.9.1): a cold boot's clock reads 2007 until it reaches a time
-    server, so after one the log is not in timestamp order. Not found (the miner truncated its log, or
-    `after` is None): (0, False), and the caller compares timestamps as before."""
-    if after is not None:
-        for i in range(len(lines) - 1, -1, -1):
-            m = stamp_re.match(lines[i])
-            if m and m.group(1) == after:
-                return i + 1, True
-    return 0, False
+_SYSLOG_TS_RE = re.compile(r"^\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] ?", re.ASCII)
+
+
+# 0.10.0: where a read of the log ended, as a place in the log. `index` is the last line read and `count` the
+# number of lines the log had then; `digest` is that line's SHA-256, so the cursor holds nothing of the log's text
+# (the log repeats the pool user). `stamp` is the miner's time on or before that line, kept only to tell a
+# truncated log's old lines from its new ones within one stretch of clock (see `_start`).
+LogCursor = collections.namedtuple("LogCursor", "stamp index digest count")
+
+
+def _digest(line):
+    return hashlib.sha256(line.encode("utf-8", "surrogatepass")).digest()
+
+
+def _whole_lines(text):
+    """The log's lines, less a last line with no line end yet: the miner may be writing it as the read is made,
+    and the next read has it whole."""
+    lines = text.splitlines()
+    if lines and text[-1] not in "\r\n":
+        lines.pop()
+    return lines
+
+
+def _stamp(line):
+    """The line's miner time as a datetime, or None when it has none or it is not a real date."""
+    m = _SYSLOG_TS_RE.match(line)
+    if not m:
+        return None
+    try:
+        return datetime.datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
+def _cursor_at_end(lines):
+    """A LogCursor on the log's last line, or None for an empty log."""
+    if not lines:
+        return None
+    stamp = next((s for s in map(_stamp, reversed(lines)) if s is not None), None)
+    return LogCursor(stamp and stamp.strftime("%Y-%m-%d %H:%M:%S"), len(lines) - 1, _digest(lines[-1]), len(lines))
+
+
+def _start(lines, cursor, first_minutes):
+    """The index of the first line a read takes.
+
+    A cursor is trusted when the log still has at least as many lines as it had and the line at the cursor is the
+    same line: then the read starts just after it. That is exact for a log that is only appended to, whatever its
+    clock did, and it reads a line written later in the same second as the cursor's.
+
+    Otherwise (a first read, or the log was truncated or rewritten) the read scans backward from the end and stops
+    at the newest process start (`_PROCESS_START_RE`, taken), at a stamp that goes UP while scanning backward (the far side
+    of a clock set back: not taken), or at a stamp more than `first_minutes` older than the log's last one (not
+    taken), whichever comes first. `first_minutes` None takes the whole log. No stamp is compared across a run
+    start or a clock jump.
+
+    After a truncation the stretch found may still hold lines the cursor already read. Only when that stretch is
+    one run with no clock jump in it, and the cursor's stamp is not later than the stretch's last, are its lines
+    at or before the cursor's stamp dropped. A truncation and a boot with no time between two reads can still
+    duplicate or drop a few lines (docs/security-notes.md)."""
+    if cursor is not None and 0 <= cursor.index < cursor.count <= len(lines) and \
+            _digest(lines[cursor.index]) == cursor.digest:
+        return cursor.index + 1
+    if first_minutes is None:
+        return 0
+    start, newest, prev, bounded = len(lines), None, None, False
+    for i in range(len(lines) - 1, -1, -1):
+        ts = _stamp(lines[i])
+        if ts is None:
+            continue
+        if newest is None:
+            newest = ts
+        if prev is not None and ts > prev:
+            bounded = True
+            break
+        if ts < newest - datetime.timedelta(minutes=first_minutes):
+            break
+        start, prev = i, ts
+        if _PROCESS_START_RE.match(lines[i]):
+            bounded = True
+            break
+    if cursor is None or bounded or cursor.stamp is None or newest is None:
+        return start
+    seen = datetime.datetime.strptime(cursor.stamp, "%Y-%m-%d %H:%M:%S")
+    if seen > newest:
+        return start
+    while start < len(lines):
+        ts = _stamp(lines[start])
+        if ts is not None and ts > seen:
+            break
+        start += 1
+    return start
 
 
 # classify_syslog (0.9.0). The miner truncates its own log: 3.8 MB at 18:25 on 2026-09-20 and 36 KB two hours
 # later, with no restart, so an incident's lines are gone by the time anyone asks. These tables turn the read the
 # service already makes into labels and counts. Every pattern is matched at the start of the message, on its first
 # _SYSLOG_MSG_CHARS characters only, and none nests a quantifier: the input is megabytes of text from a device.
-_SYSLOG_TS_RE = re.compile(r"^\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] ?", re.ASCII)
 _SYSLOG_MSG_CHARS = 200
 _SYSLOG_LABEL_RES = [(label, re.compile(pattern)) for label, pattern in (
     ("process_started", r"Started intminer "),
@@ -240,6 +325,16 @@ _SYSLOG_LABEL_RES = [(label, re.compile(pattern)) for label, pattern in (
     ("settings_applied", r"gsb\d+ dev\d+: set device vfff"),
 )]
 SYSLOG_LABELS = tuple(label for label, _ in _SYSLOG_LABEL_RES)
+# 0.10.0: what a read says about the pool, for the watchdog (`classify_syslog`'s `signals`). "pool": the pool is
+# not answering. "fault": a line that points at the miner itself. "start": the mining process started. "probing":
+# it is looking for a pool (routine in minerlog.csv, evidence here). "accepted": a share line. The last two are
+# never an episode's end: on 2026-09-22 two "Accepted" lines were logged eight minutes into a real outage.
+POOL_LABELS = ("pool_not_responding", "stratum_interrupted")
+FAULT_LABELS = ("init_failed", "chip_write_failed", "reg_read_error", "bist_error", "sendjob_reinit",
+                "readnonce_reinit", "addressing_failed", "set_clock_failed", "clock_nan", "tsensor_failed",
+                "fatal_exit", "thread_shutdown", "cpb_idle")
+_PROBING_RE = re.compile(r"Probing for an alive pool")
+_ACCEPTED_RE = re.compile(r"Accepted ")
 # What a healthy miner writes all day, and the banner of a start. Ignored, not counted.
 _SYSLOG_ROUTINE_RE = re.compile(
     r"(?:C\d+: )?(?:Chip Avgtemp |Work restart!|scanhash workid |Work\(\d+\) Hash Scan finished|Auto DTFS now check"
@@ -249,109 +344,91 @@ _SYSLOG_ROUTINE_RE = re.compile(
     r"|Probing for an alive pool|API running in ")
 
 
-def _real_ts(ts):
-    try:
-        datetime.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
-    except ValueError:
-        return False
-    return True
-
-
-def _last_real_ts(lines):
-    for line in reversed(lines):
-        m = _SYSLOG_TS_RE.match(line)
-        if m and _real_ts(m.group(1)):
-            return m.group(1)
+def _signal(label, msg):
+    if label in POOL_LABELS:
+        return "pool"
+    if label in FAULT_LABELS:
+        return "fault"
+    if label == "process_started":
+        return "start"
+    if label is None and _PROBING_RE.match(msg):
+        return "probing"
+    if label is None and _ACCEPTED_RE.match(msg):
+        return "accepted"
     return None
 
 
-def syslog_newest_ts(text):
-    """The miner timestamp on the log's last stamped line that is a real date, or None. Reads the tail only."""
-    return _last_real_ts(text[-20000:].splitlines())
-
-
-def classify_syslog(text, after=None, first_minutes=None):
-    """The non-routine lines of `/dbg/minersyslog` as `(rows, newest)`: `rows` is a list of
+def classify_syslog(text, cursor=None, first_minutes=None, signals=None):
+    """The non-routine lines of `/dbg/minersyslog` as `(rows, cursor)`: `rows` is a list of
     `(label, count, first_miner_timestamp, last_miner_timestamp)` in the order each label first appeared, and
-    `newest` is the newest timestamp on any line read (routine or not), or None when nothing was newer.
+    `cursor` is a `LogCursor` on the log's last whole line, for the next read (None for an empty log).
 
-    `after` keeps lines newer than that miner timestamp (the caller's cursor). On a first read, with no
-    cursor, `first_minutes` looks back that far from the log's own newest line instead of taking the whole log.
+    Lines are taken by their place in the log (`_start`, 0.10.0): after the caller's `cursor` when it still
+    fits, else a first read looking back `first_minutes` (None: the whole log). The miner's clock is never used
+    to order lines: it restarts at 2007 on a boot with no time server and can be set back.
 
     Nothing of a line's text is returned, ever: the labels are this module's own, the counts are ints, and the
     timestamps are ASCII digits that parse as a real date. The log repeats the pool user, and a mask would be a
     blacklist that fails open on a line shape nobody anticipated; a line no pattern knows is counted under
-    "other" and its text is dropped. A line without the log's timestamp is skipped, and so is one stamped later
-    than the log's own last line: a clock glitch into the future would otherwise become the caller's cursor and
-    hide every real line after it. Lines written later in the same second as the cursor are missed, as in
-    `parse_chiptemps`. `newest` is the stamp of the last line read in log order, which is where the next read
-    finds its place (0.9.1: after a cold boot the log's clock restarts at 2007, so the largest stamp is not it).
+    "other" and its text is dropped. A line without a real timestamp is skipped. A line stamped in the future is
+    counted with its stamp and hides nothing: the cursor is a place, not a time.
+
+    `signals`, a list, receives the read's pool evidence in log order (`_signal`: "pool", "fault", "start",
+    "probing", "accepted"), a run of the same one kept once, so it stays short on a log of shares.
     """
-    lines = text.splitlines()
-    tail = _last_real_ts(lines)
-    if tail is None:
-        return [], None
-    floor = None
-    if after is None and first_minutes is not None:
-        floor = (datetime.datetime.strptime(tail, "%Y-%m-%d %H:%M:%S")
-                 - datetime.timedelta(minutes=first_minutes)).strftime("%Y-%m-%d %H:%M:%S")
-    start, placed = _after_cursor(lines, after, _SYSLOG_TS_RE)
-    found, newest = {}, None
-    for line in lines[start:]:
+    lines = _whole_lines(text)
+    found = {}
+    for line in lines[_start(lines, cursor, first_minutes):]:
         m = _SYSLOG_TS_RE.match(line)
-        if not m:
+        if not m or _stamp(line) is None:
             continue
         ts = m.group(1)
-        if ts > tail or (after is not None and not placed and ts <= after) or (floor is not None and ts < floor):
-            continue
-        if not _real_ts(ts):
-            continue
-        newest = ts
         msg = line[m.end():m.end() + _SYSLOG_MSG_CHARS]
         label = None
         for name, pattern in _SYSLOG_LABEL_RES:
             if pattern.match(msg):
                 label = name
                 break
+        if signals is not None:
+            sig = _signal(label, msg)
+            if sig is not None and (not signals or signals[-1] != sig):
+                signals.append(sig)
         if label is None:
             if not msg.strip() or _SYSLOG_ROUTINE_RE.match(msg):
                 continue
             label = "other"
         if label in found:
             found[label][0] += 1
-            found[label][2] = max(found[label][2], ts)
+            found[label][2] = ts                                  # the last in log order, not the largest
         else:
             found[label] = [1, ts, ts]
-    return [(label, v[0], v[1], v[2]) for label, v in found.items()], newest
+    return [(label, v[0], v[1], v[2]) for label, v in found.items()], _cursor_at_end(lines)
 
 
-def parse_chiptemps(text, after=None):
-    """The `/dbg/minersyslog` temperature lines as (miner_timestamp, chip_avg, chip_max) tuples, in log order.
+def parse_chiptemps(text, cursor=None, first_minutes=None):
+    """The `/dbg/minersyslog` temperature lines as `(readings, cursor)`: `readings` is a list of
+    (miner_timestamp, chip_avg, chip_max) tuples in log order, `cursor` a `LogCursor` for the next read.
 
     One line every 5 s: ` [2026-09-15 07:36:21] C0: Chip Avgtemp 69.000000'C, MaxTemp 79.000000'C`.
-    The timestamp is the miner's own clock; `after` keeps the lines that follow the reading it names.
-    Only the current run counts: lines before the newest run start (`_RUN_START_RE`) are the run before a
-    power cycle, which the log survives. Both are placed by position in the log, not by timestamp (0.9.1),
-    because a cold boot's clock reads 2007 until it is set. Nothing but numbers and timestamps leaves this
-    function: the log repeats the pool user, so its text is never stored or logged by anything that calls it.
+    Lines are taken by their place in the log, as in `classify_syslog`. Only the current run counts: lines
+    before the newest run start (`_RUN_START_RE`) are the run before a power cycle, which the log survives.
+    Nothing but numbers and timestamps leaves this function: the log repeats the pool user, so its text is
+    never stored or logged by anything that calls it.
     """
-    lines = text.splitlines()
+    lines = _whole_lines(text)
     run = 0
     for i in range(len(lines) - 1, -1, -1):
         if _RUN_START_RE.match(lines[i]):
             run = i + 1
             break
-    start, placed = _after_cursor(lines, after, _CHIPTEMP_RE)
+    start = _start(lines, cursor, first_minutes)
     out = []
     for line in lines[max(run, start):]:
         m = _CHIPTEMP_RE.match(line)
         if not m:
             continue
-        ts = m.group(1)
-        if after is not None and not placed and ts <= after:
-            continue
-        out.append((ts, float(m.group(2)), float(m.group(3))))
-    return out
+        out.append((m.group(1), float(m.group(2)), float(m.group(3))))
+    return out, _cursor_at_end(lines)
 
 
 def parse_icinfo(text):

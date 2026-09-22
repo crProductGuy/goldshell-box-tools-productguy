@@ -1007,3 +1007,117 @@ class BoardAbsentTest(unittest.TestCase):
     def test_the_restart_line_seeds_like_any_other(self):
         from gbox.watchdog import SEED_RE
         self.assertTrue(SEED_RE.match("2026-09-20 17:21:13 watchdog: restart #1 sent (hashboard absent for 2 min)"))
+
+
+class UpstreamTest(unittest.TestCase):
+    """0.10.0 B, in the watchdog's own terms: the pool evidence, the wait for a fresh read, the 8 h exception."""
+
+    INTERVAL = 30
+
+    def setUp(self):
+        self.clock = FakeClock()
+        self.restart = Recorder()
+        self.written = []
+        self.events = type("Lines", (), {"write": lambda _, m: self.written.append(m)})()
+        self.wd = Watchdog(self.restart, self.events, self.INTERVAL, stall_minutes=5, unreachable_minutes=2,
+                           min_gap_minutes=5, max_restarts_per_day=12, clock=self.clock, upstream_restart_hours=8)
+        self.wd.log_reader = True
+
+    def feed(self, n, ok=True, accepted=500, log=None):
+        """n samples one interval apart; each one a read of the log when the watchdog asked for one, or when
+        `log` (a list of signals, read once) is given."""
+        for i in range(n):
+            self.clock.tick(self.INTERVAL)
+            if log is not None and i == 0:
+                self.wd.observe_log(True, log)
+            elif self.wd.log_wanted:
+                self.wd.observe_log(ok or self.web, [])
+            self.wd.observe(ok, accepted if ok else None)
+            self.wd.check()
+
+    web = True
+
+    def lines(self, word):
+        return [line for line in self.written if word in line]
+
+    def test_eight_hours_of_upstream_stall_get_exactly_one_restart(self):
+        self.feed(1, log=["pool"])
+        self.feed(8 * 120 + 30)
+        self.assertEqual(self.restart.restarts, 1)
+        self.assertEqual(len(self.lines("pool unreachable;")), 1)
+        self.assertEqual(len(self.lines("for 8 h; one soft restart")), 1)
+        self.feed(8 * 120)                               # 16 h: still one
+        self.assertEqual(self.restart.restarts, 1)
+
+    def test_zero_hours_turns_the_exception_off(self):
+        self.wd.upstream_restart_hours = 0
+        self.feed(1, log=["pool"])
+        self.feed(10 * 120)
+        self.assertEqual(self.restart.restarts, 0)
+
+    def test_the_episode_ends_when_the_accepted_counter_moves(self):
+        self.feed(1, log=["pool"])
+        self.feed(20)
+        self.assertEqual(self.restart.restarts, 0)
+        self.feed(1, accepted=501)
+        self.assertEqual(len(self.lines("pool back")), 1)
+        self.feed(12, accepted=501)                      # a plain stall now: the pool line is spent
+        self.assertEqual(self.restart.restarts, 1)
+
+    def test_a_fault_after_the_pool_line_points_at_the_miner(self):
+        self.feed(1, log=["pool", "fault"])
+        self.feed(12)
+        self.assertEqual(self.restart.restarts, 1)
+
+    def test_a_share_line_in_the_log_does_not_end_the_episode(self):
+        # 2026-09-22: two "Accepted" lines eight minutes into a real outage, the counter on 4028 frozen
+        self.feed(1, log=["pool", "accepted"])
+        self.feed(20)
+        self.assertEqual(self.restart.restarts, 0)
+
+    def test_probing_since_the_newest_start_with_no_share_is_upstream(self):
+        self.feed(1, log=["start", "probing"])
+        self.feed(20)
+        self.assertEqual(self.restart.restarts, 0)
+        self.wd.observe_log(True, ["accepted"])          # a share after the probe: the pool answered
+        self.wd.upstream_since = None
+        self.feed(12)
+        self.assertEqual(self.restart.restarts, 1)
+
+    def test_a_process_start_begins_the_evidence_again(self):
+        self.feed(1, log=["pool", "start"])
+        self.feed(12)
+        self.assertEqual(self.restart.restarts, 1)
+
+    def test_unreachable_is_upstream_only_while_the_web_backend_answers(self):
+        self.feed(4, log=["pool"])
+        self.web = True
+        self.feed(10, ok=False)
+        self.assertEqual(self.restart.restarts, 0)
+        self.web = False                                  # the backend dies too: this is the 09-21 hang
+        self.wd.log_wanted = True
+        self.feed(10, ok=False)
+        self.assertGreaterEqual(self.restart.restarts + self.wd.episode_failed_restarts, 1)
+
+    def test_a_verdict_waits_for_a_read_newer_than_itself_but_not_for_ever(self):
+        self.feed(9)                                     # no read at all yet
+        self.assertEqual(self.restart.restarts, 0)
+        self.clock.tick(self.INTERVAL)
+        self.wd.observe(True, 500)
+        self.wd.check()                                  # the stall is due: it asks for a read first
+        self.assertTrue(self.wd.log_wanted)
+        self.assertEqual(self.restart.restarts, 0)
+        for _ in range(3):                               # the read never comes: judged on what there is
+            self.clock.tick(self.INTERVAL)
+            self.wd.observe(True, 500)
+            self.wd.check()
+        self.assertEqual(self.restart.restarts, 1)
+
+    def test_without_a_log_reader_nothing_changes(self):
+        self.wd.log_reader = False
+        self.wd.observe_log(True, ["pool"])
+        for _ in range(10):
+            self.clock.tick(self.INTERVAL)
+            self.wd.observe(True, 500)
+            self.wd.check()
+        self.assertEqual(self.restart.restarts, 1)

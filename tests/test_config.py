@@ -81,6 +81,18 @@ class PowerConfigTest(unittest.TestCase):
             with self.assertRaises(ValueError, msg=repr(bad)):
                 config.Config(host="m", watchdog={"absent_minutes": bad}).validate()
 
+    def test_upstream_restart_hours_defaults_to_eight_for_an_older_config(self):
+        cfg = config.Config(host="m", watchdog={"stall_minutes": 5})     # a 0.9 config.json: no such key
+        cfg.validate()
+        self.assertEqual(cfg.watchdog["upstream_restart_hours"], 8)
+
+    def test_upstream_restart_hours_is_zero_for_never_or_one_to_a_week(self):
+        for good in (0, 1, 8, 12.5, 168):
+            config.Config(host="m", watchdog={"upstream_restart_hours": good}).validate()
+        for bad in (-1, 0.5, 169, "8", None, True, float("nan"), float("inf")):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                config.Config(host="m", watchdog={"upstream_restart_hours": bad}).validate()
+
     def test_absent_minutes_is_finite(self):
         # json.load accepts NaN and Infinity; either one passed validation and then stopped the watchdog starting
         for bad in (float("nan"), float("inf")):

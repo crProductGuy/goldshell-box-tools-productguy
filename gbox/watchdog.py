@@ -52,6 +52,8 @@ SEED_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (watchdog: restart
 # (HOLD_OK_SAMPLES good samples in a row), the hold expires, or it is released. Its lines are read back
 # at start like the caps, so a service restart mid-outage does not wake the ladder.
 HOLD_OK_SAMPLES = 2
+# 0.10.0: how many polls a verdict waits for a read of the miner's log newer than itself, at most
+EVIDENCE_WAIT_POLLS = 3
 HOLD_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) hold: (?:started by (you|the schedule)"
                      r"(?: until (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})|, no expiry)(?: \((.*)\))?|(released|expired))")
 STAMP = "%Y-%m-%d %H:%M:%S"
@@ -67,7 +69,7 @@ def _parse_stamp(text):
 class Watchdog:
     def __init__(self, restart, events, interval, stall_minutes=5, unreachable_minutes=2,
                  min_gap_minutes=10, max_restarts_per_day=6, clock=time.time,
-                 plug=None, power=None, sleep=time.sleep, absent_minutes=2):
+                 plug=None, power=None, sleep=time.sleep, absent_minutes=2, upstream_restart_hours=8):
         self._restart = restart
         self._events = events
         self.interval = float(interval)
@@ -99,6 +101,19 @@ class Watchdog:
         self._boot_check = None             # {at, cycle, retry, confirmed, http_ok}: did the box come back?
         self.last_power_reason = None
         self.hold = None                    # None, or {since, until (None: no expiry), reason, source, ok_streak}
+        # 0.10.0 B: the pool. Fed by `observe_log` from each read of the miner's log; see `_upstream_hold`.
+        self.log_reader = False             # the poller reads the log (syslog_interval > 0); False: B is off
+        self.log_wanted = False             # a rule is waiting for a read newer than its verdict
+        self.upstream_restart_hours = float(upstream_restart_hours or 0)
+        self._log_read_at = None            # when the last read was attempted, and whether it answered
+        self._log_ok = False
+        self._pool_down = False             # a pool line read since the accepted counter last moved, no fault after
+        self._run_probing = False           # since the newest process start: probing for a pool ...
+        self._run_accepted = False          # ... and not one share accepted
+        self._last_accepted = None
+        self._verdict = None                # (kind, since): the rule waiting on the log, and since when
+        self.upstream_since = None          # the running upstream episode, or None
+        self._upstream_restarted = False
 
     def observe(self, ok, accepted, t=None, hashing=None, absent=None):
         """One sample. `hashing` says whether the miner reported a hashrate; a hold releases only on
@@ -119,6 +134,10 @@ class Watchdog:
         is verified; None (older callers, other models) is never absent. See `diagnose`."""
         t = self._clock() if t is None else t
         self._rows.append((t, bool(ok), accepted, bool(ok and absent)))
+        if ok and accepted is not None:
+            if self._last_accepted is not None and accepted != self._last_accepted:
+                self._shares_moved(t)
+            self._last_accepted = accepted
         back = bool(ok) if hashing is None else bool(ok and hashing)
         if ok:
             self.episode_start = None
@@ -148,6 +167,81 @@ class Watchdog:
         self.power_gap_until = None
         self._gap_streak = 0
         self._events.write("power: settle gap ended early, %s; the watchdog is judging again" % why)
+
+    # ------------------------------------------------------------ the pool (0.10.0 B)
+
+    def observe_log(self, ok, signals=(), t=None):
+        """One read of the miner's log: `ok` whether the web backend answered it, `signals` the read's pool
+        evidence in log order (`api.classify_syslog`). A pool line stands until the accepted counter moves or a
+        line that points at the miner itself comes after it; a process start begins a new run's evidence."""
+        self._log_read_at = self._clock() if t is None else t
+        self._log_ok = bool(ok)
+        self.log_wanted = False
+        for s in signals:
+            if s == "pool":
+                self._pool_down = True
+            elif s == "fault":
+                self._pool_down = self._run_probing = False
+            elif s == "start":
+                self._pool_down = self._run_probing = self._run_accepted = False
+            elif s == "probing":
+                self._run_probing = True
+            elif s == "accepted":
+                self._run_accepted = True
+
+    def _shares_moved(self, t):
+        """The accepted counter moved: the pool is taking shares, so any pool evidence is spent."""
+        self._pool_down = False
+        self._run_accepted = True
+        if self.upstream_since is not None:
+            self._events.write("watchdog: pool back, shares accepted again after %d min; judging as usual"
+                               % round((t - self.upstream_since) / 60))
+        self.upstream_since = None
+        self._upstream_restarted = False
+
+    def _upstream(self, kind):
+        """The pool, not the miner, explains `kind`. A stall needs pool evidence; an unreachable miner also needs
+        the web backend to have answered the newest read (measured 2026-09-22: port 4028 dies about 8 min into an
+        outage while the backend keeps serving; on the 09-21 and 09-22 hangs the backend was dead too)."""
+        evidence = self._pool_down or (self._run_probing and not self._run_accepted)
+        return evidence and (kind == "stall" or self._log_ok)
+
+    def _upstream_hold(self, reason):
+        """True when `check` must not act on `reason` now: a read newer than the verdict is still to come, or the
+        pool explains it. A verdict waits for a read taken after it (at most EVIDENCE_WAIT_POLLS polls, then it is
+        judged on what there is), because the log is read every `syslog_interval`, and a pool line written after
+        the last read would otherwise come too late. After `upstream_restart_hours` of one upstream episode, one
+        soft restart is let through, counted against the cap; then none until the accepted counter moves."""
+        if not self.log_reader:
+            return False
+        if reason.startswith("accepted shares frozen"):
+            kind = "stall"
+        elif reason.startswith("miner unreachable"):
+            kind = "unreachable"
+        else:
+            return False
+        now = self._clock()
+        if self._verdict is None or self._verdict[0] != kind:
+            self._verdict = (kind, now)
+        if (self._log_read_at is None or self._log_read_at < self._verdict[1]) and \
+                now - self._verdict[1] < EVIDENCE_WAIT_POLLS * self.interval:
+            self.log_wanted = True
+            return True
+        if not self._upstream(kind):
+            self.upstream_since = None
+            return False
+        if self.upstream_since is None:
+            self.upstream_since = now
+            self._upstream_restarted = False
+            self._events.write("watchdog: pool unreachable; not restarting a miner that is waiting on its pool (%s)"
+                               % reason)
+        hours = self.upstream_restart_hours
+        if hours > 0 and not self._upstream_restarted and now - self.upstream_since >= hours * 3600:
+            self._upstream_restarted = True
+            self._events.write("watchdog: pool unreachable for %g h; one soft restart, then none until shares are "
+                               "accepted again" % hours)
+            return False
+        return True
 
     # ------------------------------------------------------------ holds
 
@@ -352,13 +446,18 @@ class Watchdog:
         reason = self.diagnose()
         self.last_reason = reason
         if not reason:
+            self._verdict = None
+            self.log_wanted = False
             self._capped_logged = False
             # Two restarts already failed this episode: the rung waits only on `after_minutes` now, on any dark
             # sample, not on the next restart's turn (which is a whole gap away when after_minutes is the longer).
             # A rung refused once this episode (plug silent or off, dry run, the cap) is not asked again until
             # the next restart's turn: the plug is queried once per rung, not every sample for the outage.
-            if self.episode_failed_restarts >= 2 and not self._power_logged and self._tail_dark(self._clock()):
+            if self.episode_failed_restarts >= 2 and not self._power_logged and self._tail_dark(self._clock()) \
+                    and self.upstream_since is None:
                 self._consider_power(self._unreachable_reason())
+            return None
+        if self._upstream_hold(reason):
             return None
         if self.restarts_today() >= self.max_restarts:
             if not self._capped_logged:
