@@ -278,12 +278,12 @@ class Poller(threading.Thread):
         self.syslog_interval = float(syslog_interval or 0)   # 0: never read the cgminer log
         self.syslog_errors = 0
         self._syslog_next = None    # clock time of the next log read; None means at the next good sample
-        self._syslog_cursor = None  # the newest miner timestamp seen, so a read takes only newer lines
+        self._syslog_cursor = None  # api.LogCursor: where the last read ended, a place in the log (0.10.0)
         self.scheduler = scheduler  # gbox.power.Scheduler: ticked once per sample, after the watchdog
         self.csv_path = Path(csv_path)
         self.boards_csv_path = self.csv_path.with_name("boards.csv")
-        # 0.9.0: minerlog.csv, the non-routine lines of each log read as labels and counts. Its own cursor: with the
-        # board absent the miner writes failures and no temperatures, so `_syslog_cursor` would never move.
+        # 0.9.0: minerlog.csv, the non-routine lines of each log read as labels and counts. Its own cursor, so a
+        # classifier failure re-reads its lines next time without costing the temperatures theirs.
         self.minerlog_path = self.csv_path.with_name("minerlog.csv")
         self.minerlog_max_bytes = MINERLOG_MAX_BYTES
         self._minerlog_cursor = None
@@ -295,6 +295,8 @@ class Poller(threading.Thread):
         self._rotation_off = set()   # paths whose carry does not fit under the cap; see _rotate_if_full
         self.interval = float(interval)
         self.watchdog = watchdog
+        if watchdog is not None:
+            watchdog.log_reader = self.syslog_interval > 0      # 0.10.0 B needs the log; without it B is off
         self.events = events
         self._clock = clock
         self._stop = threading.Event()
@@ -379,27 +381,37 @@ class Poller(threading.Thread):
         else (None, None, None). A failed read is a blank and a count, never an error row. The same read
         feeds minerlog.csv (0.9.0); `stamp` is the row's own time for those lines."""
         now = self._clock()
-        if self.syslog_interval <= 0 or (self._syslog_next is not None and now < self._syslog_next):
+        wanted = bool(getattr(self.watchdog, "log_wanted", False))
+        if self.syslog_interval <= 0 or (self._syslog_next is not None and now < self._syslog_next and not wanted):
             return None, None, None
         self._syslog_next = now + self.syslog_interval
         try:
             text = self.miner.syslog()
-            readings = api.parse_chiptemps(text, after=self._syslog_cursor)   # this run's only, since 0.9.1
+        except Exception:
+            self.syslog_errors += 1
+            self._tell_watchdog_log(False, [])
+            return None, None, None
+        signals = []
+        try:
+            self._append_minerlog(stamp or datetime.datetime.now().strftime(STAMP), text, signals)
+        except Exception:                   # evidence is never worth a temperature reading, let alone a sample
+            self.syslog_errors += 1
+        self._tell_watchdog_log(True, signals)
+        try:
+            readings, cursor = api.parse_chiptemps(text, cursor=self._syslog_cursor, first_minutes=FIRST_READ_MINUTES)
         except Exception:
             self.syslog_errors += 1
             return None, None, None
-        try:
-            self._append_minerlog(stamp or datetime.datetime.now().strftime(STAMP), text)
-        except Exception:                   # evidence is never worth a temperature reading, let alone a sample
-            self.syslog_errors += 1
+        self._syslog_cursor = cursor
         if not readings:
             return None, None, None
-        if self._syslog_cursor is None:     # first read: the last few minutes only, by the miner's own clock
-            last = datetime.datetime.strptime(readings[-1][0], "%Y-%m-%d %H:%M:%S")
-            floor = (last - datetime.timedelta(minutes=FIRST_READ_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
-            readings = [r for r in readings if r[0] >= floor]
-        self._syslog_cursor = readings[-1][0]
         return summarize_chiptemps(readings)
+
+    def _tell_watchdog_log(self, ok, signals):
+        """Hand a log read's outcome to the watchdog (0.10.0 B), if it takes one: a stand-in may not."""
+        observe_log = getattr(self.watchdog, "observe_log", None)
+        if observe_log is not None:
+            observe_log(ok, signals)
 
     def _board_absent(self, row):
         """The controller answered with no hashboard behind it (0.9.0): clock 0 and the board sensor at its
@@ -413,18 +425,12 @@ class Poller(threading.Thread):
         return (clock == 0 and temp is not None and temp <= ABSENT_SENSOR_BELOW
                 and elapsed is not None and elapsed >= ABSENT_MIN_ELAPSED)
 
-    def _append_minerlog(self, stamp, text):
+    def _append_minerlog(self, stamp, text, signals=None):
         """One row per label for the lines of this log read that are newer than the last one's. A first read
-        looks back FIRST_READ_MINUTES by the miner's clock, as the temperatures do. A quiet read writes nothing."""
-        rows, newest = api.classify_syslog(text, after=self._minerlog_cursor, first_minutes=FIRST_READ_MINUTES)
-        if newest is None:
-            # Nothing newer than the cursor. If the whole log is older than it, the miner's clock went back
-            # (a boot with no time yet): start over from the log's own newest line rather than wait for it to pass.
-            tail = api.syslog_newest_ts(text)
-            if self._minerlog_cursor is not None and tail is not None and tail < self._minerlog_cursor:
-                self._minerlog_cursor = None
-            return
-        self._minerlog_cursor = newest
+        looks back FIRST_READ_MINUTES by the miner's clock, as the temperatures do. A quiet read writes nothing.
+        `signals` receives the read's pool evidence for the watchdog (0.10.0)."""
+        rows, self._minerlog_cursor = api.classify_syslog(text, cursor=self._minerlog_cursor,
+                                                          first_minutes=FIRST_READ_MINUTES, signals=signals)
         if not rows:
             return
         path = self.minerlog_path
@@ -474,6 +480,12 @@ class Poller(threading.Thread):
             row = error_row(e)
             self.errors += 1
             self.last_error = row["http"]
+            # 0.10.0 B: a failed sample can still leave the web backend answering (port 4028 dies about 8 min
+            # into a pool outage). The watchdog asks for the log when a verdict waits on it, and while an upstream
+            # episode runs it reads on the usual schedule, so a backend that dies too is noticed. Sequential.
+            wd = self.watchdog
+            if getattr(wd, "log_wanted", False) or getattr(wd, "upstream_since", None) is not None:
+                self.read_chiptemps(now)
         row["time"] = now
         self.read_plug()
         row["watts"] = self.plug_watts

@@ -133,40 +133,52 @@ class ChipTempsTest(unittest.TestCase):
         with open(os.path.join(os.path.dirname(__file__), "fixtures", "dbg_minersyslog.txt"), encoding="utf-8") as f:
             self.text = f.read()
 
+    def readings(self, text, cursor=None, first_minutes=None):
+        return api.parse_chiptemps(text, cursor=cursor, first_minutes=first_minutes)[0]
+
     def test_every_temperature_line_is_a_tuple_in_log_order(self):
-        rows = api.parse_chiptemps(self.text)
+        rows = self.readings(self.text)
         self.assertEqual(len(rows), 6)
         self.assertEqual(rows[0], ("2026-09-15 07:36:01", 54.0, 65.0))
         self.assertEqual(rows[-1], ("2026-09-15 07:36:31", 70.0, 82.0))
         self.assertEqual(max(r[2] for r in rows), 93.0)
 
-    def test_after_keeps_only_newer_lines(self):
-        rows = api.parse_chiptemps(self.text, after="2026-09-15 07:36:16")
+    def test_a_cursor_keeps_only_lines_after_it_in_the_log(self):
+        lines = self.text.splitlines(keepends=True)
+        cut = next(i for i, line in enumerate(lines) if "07:36:16" in line) + 1
+        _, cursor = api.parse_chiptemps("".join(lines[:cut]))
+        rows, cursor = api.parse_chiptemps(self.text, cursor=cursor)
         self.assertEqual([r[0] for r in rows], ["2026-09-15 07:36:21", "2026-09-15 07:36:26", "2026-09-15 07:36:31"])
-        self.assertEqual(api.parse_chiptemps(self.text, after="2026-09-15 07:36:31"), [])
+        self.assertEqual(api.parse_chiptemps(self.text, cursor=cursor)[0], [])
+
+    def test_the_cursor_holds_nothing_of_the_logs_text(self):
+        _, cursor = api.parse_chiptemps(self.text + " [2026-09-15 08:00:00] Pool 0 example.worker1 alive\n")
+        self.assertIsInstance(cursor, api.LogCursor)
+        self.assertNotIn("example.worker1", repr(cursor))
+        self.assertEqual(cursor.stamp, "2026-09-15 08:00:00")
 
     def test_output_holds_numbers_and_timestamps_only(self):
         # the log repeats the pool user; the parser's output must never be able to carry it
         self.assertIn("example.worker1", self.text)
-        for ts, avg, mx in api.parse_chiptemps(self.text):
+        for ts, avg, mx in self.readings(self.text):
             self.assertRegex(ts, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
             self.assertIsInstance(avg, float)
             self.assertIsInstance(mx, float)
 
     def test_garbage_and_empty_text_parse_to_nothing(self):
-        self.assertEqual(api.parse_chiptemps(""), [])
-        self.assertEqual(api.parse_chiptemps("Chip Avgtemp nope'C, MaxTemp 'C\n[bad] C0: Chip Avgtemp 1'C"), [])
+        self.assertEqual(api.parse_chiptemps(""), ([], None))
+        self.assertEqual(self.readings("Chip Avgtemp nope'C, MaxTemp 'C\n[bad] C0: Chip Avgtemp 1'C"), [])
 
     def test_readings_before_the_newest_boot_line_belong_to_the_run_before(self):
         two = self.text + " [2026-09-15 08:00:00] C0: SCBOX Init sucessed. 16 chips, 256 Total goodcores. Wait 5s!!!\n"
-        self.assertEqual(api.parse_chiptemps(two), [])
+        self.assertEqual(self.readings(two), [])
         two += " [2026-09-15 08:00:05] C0: Chip Avgtemp 30.000000'C, MaxTemp 38.000000'C\n"
-        self.assertEqual(api.parse_chiptemps(two), [("2026-09-15 08:00:05", 30.0, 38.0)])
+        self.assertEqual(self.readings(two), [("2026-09-15 08:00:05", 30.0, 38.0)])
 
     def test_a_run_start_phrase_inside_another_line_is_not_a_run_start(self):
         # review of 0.9.1: the log repeats the pool user, which the owner chooses; it must not move the run start
         echoed = self.text + " [2026-09-15 08:00:00] Pool 0 stratum+tcp://example.invalid user Started intminer \n"
-        self.assertEqual(api.parse_chiptemps(echoed), api.parse_chiptemps(self.text))
+        self.assertEqual(self.readings(echoed), self.readings(self.text))
 
     def test_a_boot_with_no_time_yet_is_placed_by_its_position_in_the_log(self):
         # 0.9.1, 2026-09-21 09:44: a cold boot's clock reads 2007 until it reaches a time server. Compared by
@@ -175,12 +187,17 @@ class ChipTempsTest(unittest.TestCase):
         old = (" [2026-09-21 19:20:00] C0: Chip Avgtemp 64.000000'C, MaxTemp 79.000000'C\n"
                " [2026-09-21 19:27:20] C0: Chip Avgtemp 64.000000'C, MaxTemp 78.000000'C\n")
         boot = " [2007-01-01 08:03:18] Started intminer 5.4.2-unknown\n"
-        self.assertEqual(api.parse_chiptemps(old + boot), [])
-        self.assertEqual(api.parse_chiptemps(old + boot, after="2026-09-21 19:27:20"), [])
+        _, at_old = api.parse_chiptemps(old)
+        self.assertEqual(self.readings(old + boot), [])
+        rows, at_boot = api.parse_chiptemps(old + boot, cursor=at_old)
+        self.assertEqual(rows, [])
         early = " [2007-01-01 08:03:30] C0: Chip Avgtemp 25.000000'C, MaxTemp 30.000000'C\n"
         later = " [2026-09-21 21:44:40] C0: Chip Avgtemp 30.000000'C, MaxTemp 38.000000'C\n"
-        self.assertEqual([r[0] for r in api.parse_chiptemps(old + boot + early + later, after="2007-01-01 08:03:30")],
+        _, at_early = api.parse_chiptemps(old + boot + early, cursor=at_boot)
+        self.assertEqual([r[0] for r in self.readings(old + boot + early + later, cursor=at_early)],
                          ["2026-09-21 21:44:40"])
+        self.assertEqual(self.readings(old + boot + early + later, first_minutes=5),
+                         [("2026-09-21 21:44:40", 30.0, 38.0)])       # a first read stops at the jump
 
     def test_miner_syslog_is_one_get_of_text(self):
         fm = FakeMiner().start()

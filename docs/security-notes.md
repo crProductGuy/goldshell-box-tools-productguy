@@ -297,3 +297,45 @@ left open:
   first answers. A service that starts while `/dbg/minerinfo` is up but port
   4028 is not yet still settles on `/dbg/minerinfo` for the run (unverified
   whether a boot opens them in that order).
+
+## The log cursor is a place in the log (0.10.0)
+
+The first of the two findings above is closed. Both log cursors (chip
+temperatures and `minerlog.csv`) are now a place: the index of the last line
+read, the number of lines the log had then, and a SHA-256 of that line. The
+line's text is never held, so a cursor that reaches a traceback or a `repr`
+carries nothing of the pool user. A read trusts the cursor only when the log
+still has at least that many lines and the line at the index hashes the same;
+then it reads from the next line. That is exact for a log that is only
+appended to, whatever the miner's clock did, and it reads a line written
+later in the same second as the cursor, which 0.9.1 missed.
+
+Otherwise (the first read of a service's life, or a log that was truncated
+or rewritten) the read scans backward from the end and stops at the newest
+process banner (`Started intminer`), at a stamp that goes up while scanning
+backward (the far side of a clock set back), or five minutes before the
+log's last stamp, whichever comes first. The board's init line is not a stop:
+the miner re-inits its board mid-run after a fault, and the lines before it
+are the ones that say why. No miner timestamp is compared across a boot or a
+clock jump. A line still being written when the log is read (no line end
+yet) is left for the next read.
+
+Three consequences, each covered by a scenario test:
+
+- A line stamped in the future (a clock glitch) no longer needs to be
+  skipped. It cannot hide later lines, because the cursor is not a time. It
+  is counted with its stamp, and a first read stops at it as at any jump.
+- After a truncation, the stretch the fallback finds may still hold lines
+  the cursor already read. Only when that stretch is one run with no clock
+  jump, and the cursor's stamp is not later than its last line, are its lines
+  at or before the cursor's stamp dropped. A new line in the same second as
+  the cursor is dropped with them in that case.
+- **Accepted residual:** a truncation AND a boot with no time server between
+  two reads, with the new boot's banner cut from the log, can duplicate or
+  drop a few lines. The miner writes about one line every five seconds and
+  the log is read every five minutes, so this needs two rare events inside
+  one read interval.
+
+Not verified: whether the firmware's log ever ends without a line end. If it
+always does, each read leaves its newest line to the next one: correct, one
+read late for that line.

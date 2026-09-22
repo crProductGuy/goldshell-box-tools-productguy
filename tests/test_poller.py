@@ -3,6 +3,7 @@ import csv
 import datetime
 import json
 import os
+import socket
 import tempfile
 import unittest
 from pathlib import Path
@@ -1490,7 +1491,7 @@ class MinerLogTest(HottestChipPollerTest):
         self.fm.syslog = failures
         p = self.poller()
         p.poll_once()
-        self.assertIsNone(p._syslog_cursor)
+        self.assertEqual(p._syslog_cursor, p._minerlog_cursor)    # 0.10.0: both are the log's end, a place
         self.now += 300
         p.poll_once()
         self.now += 300
@@ -1534,7 +1535,8 @@ class MinerLogTest(HottestChipPollerTest):
         self.assertEqual(self.minerlog()[-1]["label"], "bist_error")
 
     def test_nothing_of_the_log_text_reaches_the_disk(self):
-        self.fm.syslog = self.incident().replace("2026-09-21 05:13:19] Pool 0 user", "2026-09-21 05:33:41] Pool 0 user")
+        pool = next(line for line in self.incident().splitlines(keepends=True) if "] Pool 0 user " in line)
+        self.fm.syslog = self.incident() + pool.replace("2026-09-21 05:13:19", "2026-09-21 05:33:46")
         self.poller().poll_once()
         self.assertIn(("other", "1"), [(r["label"], r["count"]) for r in self.minerlog()])
         for name in os.listdir(self.tmp.name):
@@ -1586,7 +1588,8 @@ class MinerLogTest(HottestChipPollerTest):
 
     def test_a_future_stamped_line_does_not_make_reads_repeat(self):
         # security pass: a line stamped past the log's end used to become the cursor; the next read skipped
-        # everything, the one after re-counted the window, and the cycle repeated while the line stayed
+        # everything, the one after re-counted the window, and the cycle repeated while the line stayed.
+        # 0.10.0: the cursor is a place, and a first read stops at the jump, so only the line after it counts.
         self.fm.syslog = (" [2026-09-21 05:40:00] C0: Init failed 5 Times\n"
                           " [2099-01-01 00:00:00] C0: Init failed 5 Times\n"
                           " [2026-09-21 05:40:01] C0: Init failed 5 Times\n")
@@ -1597,20 +1600,245 @@ class MinerLogTest(HottestChipPollerTest):
             self.now += 300
             p.poll_once()
         self.assertEqual([(r["label"], r["count"]) for r in self.minerlog()],
-                         [("init_failed", "2"), ("bist_error", "1"), ("bist_error", "1"), ("bist_error", "1")])
+                         [("init_failed", "1"), ("bist_error", "1"), ("bist_error", "1"), ("bist_error", "1")])
 
-    def test_a_miner_clock_that_went_back_is_picked_up_on_the_next_read(self):
+    def test_a_miner_clock_that_went_back_is_read_at_once_and_once_only(self):
+        # 0.9.1 wrote nothing on this read (older than the cursor) and counted it one read late; 0.10.0 sees a log
+        # that no longer holds its cursor and reads it as a first read
         self.fm.syslog = self.incident()
         p = self.poller()
         p.poll_once()
         n = len(self.minerlog())
         self.fm.syslog = " [2020-01-01 00:00:05] C0: BistStart err\n"    # a boot with no time yet
         self.now += 300
-        p.poll_once()                                            # older than the cursor: start over, write nothing
-        self.assertEqual(len(self.minerlog()), n)
+        p.poll_once()
+        self.assertEqual(len(self.minerlog()), n + 1)
+        self.assertEqual(self.minerlog()[-1]["label"], "bist_error")
         self.now += 300
         p.poll_once()
-        self.assertEqual(self.minerlog()[-1]["label"], "bist_error")
+        self.assertEqual(len(self.minerlog()), n + 1)
+
+
+class LogByPositionScenarioTest(unittest.TestCase):
+    """0.10.0: both log cursors are a place in the log, not a timestamp to find again.
+
+    Written first, against 0.9.1. The miner's clock is not evidence of order: it restarts at 2007 on a boot with no
+    time server (for hours, or for good behind a firewall), and a clock set wrong and then corrected goes backward.
+    Each scenario reads the log twice, as the service does, and checks what the second read added.
+    """
+
+    RUN = (" [2026-09-21 19:20:00] C0: Chip Avgtemp 60.000000'C, MaxTemp 70.000000'C\n"
+           " [2026-09-21 19:25:00] C0: Chip Avgtemp 61.000000'C, MaxTemp 71.000000'C\n")
+    BOOT = (" [2007-01-01 08:03:18] Started intminer 5.4.2-unknown\n"
+            " [2007-01-01 08:03:25] C0: SCBOX Init sucessed. 16 chips, 256 Total goodcores. Wait 5s!!!\n")
+
+    def setUp(self):
+        self.fm = FakeMiner().start()
+        self.addCleanup(self.fm.stop)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.csv = Path(self.tmp.name) / "log.csv"
+        self.now = 1_000_000.0
+        self.p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30,
+                               clock=lambda: self.now, syslog_interval=300)
+        self.seen = 0
+
+    def read(self, text):
+        """One log read of `text`: (the minerlog rows it added as {label: count}, its hot_peak column)."""
+        self.fm.syslog = text
+        self.p.poll_once()
+        self.now += 300
+        path = self.csv.with_name("minerlog.csv")
+        rows = []
+        if path.exists():
+            with open(path, newline="", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+        added, self.seen = rows[self.seen:], len(rows)
+        with open(self.csv, newline="", encoding="utf-8") as f:
+            peak = list(csv.DictReader(f))[-1]["hot_peak"]
+        return {r["label"]: int(r["count"]) for r in added}, peak
+
+    def test_two_boots_with_identical_2007_stamps_keep_the_first_boots_tail(self):
+        # no time server, ever: every boot writes the same stamps. 0.9.1 found the cursor's stamp in the SECOND
+        # boot and skipped the first boot's last lines, the ones that say why it restarted.
+        tail = (" [2007-01-01 08:03:40] C0: Write Chip0 Reg 4 Failed\n"
+                " [2007-01-01 08:03:41] INCS 0 failure, exiting\n")
+        self.read(self.RUN + self.BOOT)
+        added, _ = self.read(self.RUN + self.BOOT + tail + self.BOOT)
+        self.assertEqual(added, {"chip_write_failed": 1, "fatal_exit": 1, "process_started": 1, "init_succeeded": 1})
+
+    def test_hours_without_a_time_server_then_a_forward_jump(self):
+        hours = self.BOOT + "".join(" [2007-01-01 %02d:%02d:00] C0: Chip Avgtemp 60.000000'C, MaxTemp 70.000000'C\n"
+                                    % (h, m) for h in range(9, 12) for m in (0, 30))
+        self.read(self.RUN + hours)
+        later = (" [2007-01-01 11:45:00] C0: BistStart err\n"
+                 " [2026-09-22 14:12:19] C0: Init failed 5 Times\n"
+                 " [2026-09-22 14:12:20] C0: Chip Avgtemp 62.000000'C, MaxTemp 75.000000'C\n")
+        added, peak = self.read(self.RUN + hours + later)
+        self.assertEqual(added, {"bist_error": 1, "init_failed": 1})
+        self.assertEqual(peak, "75.0")
+
+    def test_a_first_read_after_a_forward_jump_does_not_reach_back_into_2007(self):
+        hours = self.BOOT + "".join(" [2007-01-01 09:%02d:00] C0: BistStart err\n" % m for m in range(0, 60, 10))
+        added, _ = self.read(self.RUN + hours + " [2026-09-22 14:12:19] C0: Init failed 5 Times\n")
+        self.assertEqual(added, {"init_failed": 1})
+
+    def test_a_clock_set_wrong_then_corrected_backward_loses_nothing(self):
+        # +12 h, the offset this owner's unit ran at, then corrected. 0.9.1 skipped every line stamped later than
+        # the log's own last line, so the lines written before the correction were never counted.
+        wrong = (" [2026-09-22 14:00:00] Started intminer 5.4.2-unknown\n"
+                 " [2026-09-22 14:00:30] C0: Chip Avgtemp 60.000000'C, MaxTemp 70.000000'C\n")
+        self.read(wrong)
+        more = (" [2026-09-22 14:00:40] C0: BistStart err\n"
+                " [2026-09-22 14:00:45] C0: Chip Avgtemp 66.000000'C, MaxTemp 88.000000'C\n"
+                " [2026-09-22 02:00:50] C0: Init failed 5 Times\n"
+                " [2026-09-22 02:00:55] C0: Chip Avgtemp 61.000000'C, MaxTemp 72.000000'C\n")
+        added, peak = self.read(wrong + more)
+        self.assertEqual(added, {"bist_error": 1, "init_failed": 1})
+        self.assertEqual(peak, "88.0")
+
+    def test_a_first_read_stops_where_the_clock_went_back(self):
+        # read backward from the end, a stamp that goes UP is the far side of a correction: not this stretch
+        wrong = (" [2026-09-22 14:00:00] Started intminer 5.4.2-unknown\n"
+                 " [2026-09-22 14:00:40] C0: BistStart err\n")
+        added, _ = self.read(wrong + " [2026-09-22 02:00:50] C0: Init failed 5 Times\n")
+        self.assertEqual(added, {"init_failed": 1})
+
+    def test_a_line_written_later_in_the_same_second_as_the_cursor_is_read(self):
+        first = self.RUN + " [2026-09-21 19:26:00] C0: Init failed 5 Times\n"
+        self.read(first + " [2026-09-21 19:27:00] C0: Chip Avgtemp 60.000000'C, MaxTemp 70.000000'C\n")
+        same = (" [2026-09-21 19:27:00] C0: Init failed 5 Times\n"
+                " [2026-09-21 19:27:00] C0: Chip Avgtemp 66.000000'C, MaxTemp 90.000000'C\n")
+        added, peak = self.read(first + " [2026-09-21 19:27:00] C0: Chip Avgtemp 60.000000'C, MaxTemp 70.000000'C\n"
+                                + same)
+        self.assertEqual(added, {"init_failed": 1})
+        self.assertEqual(peak, "90.0")
+
+    def test_truncation_mid_run_counts_nothing_twice(self):
+        # 2026-09-20: 3.8 MB to 36 KB with no restart. Kept head or kept tail, a line already read is not new.
+        log = "".join(" [2026-09-21 05:%02d:00] C0: Chip Avgtemp 60.000000'C, MaxTemp 70.000000'C\n" % m
+                      for m in range(30, 34)) + " [2026-09-21 05:34:00] C0: BistStart err\n"
+        self.read(log)
+        added, _ = self.read(" [2026-09-21 05:34:00] C0: BistStart err\n"
+                             " [2026-09-21 05:36:00] C0: Init failed 5 Times\n")
+        self.assertEqual(added, {"init_failed": 1})
+        added, _ = self.read(" [2026-09-21 05:37:00] C0: Write Chip0 Reg 4 Failed\n")     # emptied, then written
+        self.assertEqual(added, {"chip_write_failed": 1})
+
+    def test_truncation_and_a_boot_with_no_time_between_two_reads(self):
+        # 0.9.1 compared the new 2007 lines with a 2026 cursor, called them old, and counted them a read late
+        self.read(self.RUN + " [2026-09-21 19:27:20] C0: BistStart err\n")
+        boot = self.BOOT + (" [2007-01-01 08:03:30] C0: Init failed 5 Times\n"
+                            " [2007-01-01 08:03:35] C0: Chip Avgtemp 30.000000'C, MaxTemp 38.000000'C\n")
+        added, peak = self.read(boot)
+        self.assertEqual(added, {"process_started": 1, "init_succeeded": 1, "init_failed": 1})
+        self.assertEqual(peak, "38.0")
+        added, peak = self.read(boot)
+        self.assertEqual((added, peak), ({}, ""))
+
+    def test_a_line_stamped_in_the_future_hides_nothing_after_it(self):
+        self.read(self.RUN + " [2099-01-01 00:00:00] C0: BistStart err\n"
+                  " [2026-09-21 19:26:00] C0: Chip Avgtemp 60.000000'C, MaxTemp 70.000000'C\n")
+        added, _ = self.read(self.RUN + " [2099-01-01 00:00:00] C0: BistStart err\n"
+                             " [2026-09-21 19:26:00] C0: Chip Avgtemp 60.000000'C, MaxTemp 70.000000'C\n"
+                             " [2026-09-21 19:27:00] C0: Init failed 5 Times\n")
+        self.assertEqual(added, {"init_failed": 1})
+
+    def test_a_line_still_being_written_is_read_once_it_is_whole(self):
+        head = self.RUN + " [2026-09-21 19:26:00] C0: Init fa"
+        self.read(head)
+        added, _ = self.read(head + "iled 5 Times\n")
+        self.assertEqual(added, {"init_failed": 1})
+
+
+class UpstreamScenarioTest(unittest.TestCase):
+    """0.10.0 B: a miner waiting on its pool is not restarted. Written first, against 0.9.1.
+
+    Measured 2026-09-22 with the cable to the router pulled: shares stop at once, the log says
+    `stratum_interrupted` at about +2 min and `pool_not_responding` at +2.5, and at about +8 min port 4028 dies
+    while the web backend goes on answering. The miner recovers by itself about 15 s after the link returns.
+    """
+
+    POOL = (" [2026-09-23 01:50:11] Stratum connection to pool 0 interrupted\n"
+            " [2026-09-23 01:50:41] Pool 0 stratum+tcp://example.invalid:3333 not responding!\n")
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.csv = Path(self.tmp.name) / "log.csv"
+        self.now = 1_000_000.0
+        self.events = EventLog(Path(self.tmp.name) / "events.log")
+
+    def start(self, syslog_interval=300, **kw):
+        self.fm = FakeMiner(**kw).start()
+        self.addCleanup(self.fm.stop)
+        miner = api.Miner(self.fm.address, password="password")
+        self.wd = Watchdog(miner.restart, self.events, 30, stall_minutes=5, unreachable_minutes=2,
+                           min_gap_minutes=5, max_restarts_per_day=12, clock=lambda: self.now)
+        src = {"board_source": "4028", "devs4028_port": self.fm.devs4028_port} if kw.get("port4028") else {}
+        self.p = poller.Poller(miner, self.csv, 30, clock=lambda: self.now, watchdog=self.wd, events=self.events,
+                               syslog_interval=syslog_interval, **src)
+
+    def polls(self, n):
+        for _ in range(n):
+            self.p.poll_once()
+            self.now += 30
+
+    def lines(self, word):
+        return [line for line in self.events.tail(500) if word in line]
+
+    def test_a_stall_with_the_pool_not_responding_is_not_restarted(self):
+        self.start()
+        self.fm.syslog += self.POOL
+        self.polls(60)                                   # 30 min, frozen from the first sample
+        self.assertEqual(self.fm.restarts, 0)
+        self.assertEqual(len(self.lines("pool unreachable")), 1)
+
+    def test_a_stall_at_a_boot_that_only_probes_for_a_pool_is_not_restarted(self):
+        self.start()
+        self.fm.syslog += (" [2026-09-23 02:12:19] Started intminer 5.4.2-unknown\n"
+                           " [2026-09-23 02:12:19] Probing for an alive pool\n"
+                           " [2026-09-23 02:12:24] C0: SCBOX Init sucessed. 16 chips, 256 Total goodcores. Wait 5s!!!\n")
+        self.polls(30)
+        self.assertEqual(self.fm.restarts, 0)
+        self.assertEqual(len(self.lines("pool unreachable")), 1)
+
+    def test_a_plain_stall_is_still_restarted(self):
+        self.start()
+        self.polls(12)
+        self.assertEqual(self.fm.restarts, 1)
+        self.assertEqual(self.lines("pool unreachable"), [])
+
+    def test_a_pool_line_written_after_the_last_read_is_waited_for(self):
+        # the read is every syslog_interval, not every poll: the stall rule must see a read newer than its verdict
+        self.start(syslog_interval=600)
+        self.polls(8)                                    # first read at the first poll, next due at +10 min
+        self.fm.syslog += self.POOL                      # written at +4 min, after that read
+        self.polls(12)
+        self.assertEqual(self.fm.restarts, 0)
+
+    def test_4028_dead_with_the_web_backend_answering_and_pool_lines_newest_is_upstream(self):
+        self.start(fixtures="sc5proii", port4028=True, dbg_locked_icinfo=True)
+        self.fm.syslog = self.POOL
+        self.polls(3)
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            closed = s.getsockname()[1]
+        self.p.devs4028_port = closed                    # +8 min in the measurement: cgminer's API goes dark
+        self.polls(40)
+        self.assertEqual(self.fm.restarts, 0)
+        self.assertTrue(self.lines("pool unreachable"))
+
+    def test_4028_dead_with_a_fault_after_the_pool_lines_is_a_miner_fault(self):
+        self.start(fixtures="sc5proii", port4028=True, dbg_locked_icinfo=True)
+        self.fm.syslog = self.POOL + " [2026-09-23 01:52:00] C0: WatchDog Exit for CPB Idle\n"
+        self.polls(3)
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            closed = s.getsockname()[1]
+        self.p.devs4028_port = closed
+        self.polls(8)
+        self.assertEqual(self.fm.restarts, 1)
 
 
 class BoardAbsentFlagTest(unittest.TestCase):

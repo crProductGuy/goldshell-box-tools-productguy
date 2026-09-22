@@ -280,6 +280,10 @@ class ServerTest(unittest.TestCase):
         self.assertIs(p["cycle"], False)
         self.assertEqual(p["cycles_today"], 0)
         self.assertIsNone(p["last_reason"])
+        self.assertIsNone(h["watchdog"]["upstream_since"])        # 0.10.0: no pool episode running
+        self.state.watchdog.upstream_since = 1_700_000_000.0
+        h = json.loads(self.get("/api/health")[2])
+        self.assertRegex(h["watchdog"]["upstream_since"], r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$")
         self.assertEqual(h["model"], "Goldshell-SCBox")      # the miner's model, read once on the first good poll
         self.assertEqual(h["rated"]["rated_watts"], 200.0)
         self.assertEqual(h["rated"]["name"], "SC-BOX")

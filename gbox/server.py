@@ -123,6 +123,8 @@ class ServiceState:
                 "enabled": w is not None,
                 "restarts_today": w.restarts_today() if w else 0,
                 "last_reason": w.last_reason if w else None,
+                # 0.10.0: since when the pool, not the miner, explains the stall (None: no such episode)
+                "upstream_since": w._stamp(w.upstream_since) if w and w.upstream_since is not None else None,
             },
             "power": self.power_health(),
             "ladder": self.ladder(),

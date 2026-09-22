@@ -402,10 +402,14 @@ class ClassifySyslogTest(unittest.TestCase):
     def setUp(self):
         self.text = fixture("dbg_minersyslog_incident.txt")
 
+    def upto(self, stamp):
+        """The fixture as it stood when its last line was the last one stamped `stamp` or earlier."""
+        return "".join(line for line in self.text.splitlines(keepends=True) if line[2:21] <= stamp)
+
     def test_every_label_is_counted_and_routine_lines_are_not(self):
         rows, last = api.classify_syslog(self.text)
         self.assertEqual({label: count for label, count, _, _ in rows}, self.EXPECTED)
-        self.assertEqual(last, "2026-09-21 05:33:45")            # the newest line of any kind, routine or not
+        self.assertEqual(last.stamp, "2026-09-21 05:33:45")      # the log's last line, routine or not
 
     def test_each_row_carries_the_first_and_last_miner_timestamp(self):
         rows = {label: (first, newest) for label, _, first, newest in api.classify_syslog(self.text)[0]}
@@ -429,22 +433,31 @@ class ClassifySyslogTest(unittest.TestCase):
             self.assertRegex(first, r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$")
             self.assertRegex(newest, r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$")
 
-    def test_after_keeps_only_newer_lines(self):
-        rows, last = api.classify_syslog(self.text, after="2026-09-21 05:28:00")
+    def test_a_cursor_keeps_only_the_lines_after_it(self):
+        _, cursor = api.classify_syslog(self.upto("2026-09-21 05:28:00"))
+        rows, last = api.classify_syslog(self.text, cursor=cursor)
         self.assertEqual({label: count for label, count, _, _ in rows},
                          {"process_started": 1, "init_succeeded": 2, "invalid_nonce": 1, "readnonce_reinit": 1})
-        self.assertEqual(last, "2026-09-21 05:33:45")
-        rows, last = api.classify_syslog(self.text, after="2026-09-21 05:33:45")
+        self.assertEqual(last.stamp, "2026-09-21 05:33:45")
+        rows, again = api.classify_syslog(self.text, cursor=last)
         self.assertEqual(rows, [])
-        self.assertIsNone(last)                                  # nothing newer: the caller keeps its cursor
+        self.assertEqual(again, last)                            # nothing new: the cursor stays where it was
 
     def test_first_minutes_looks_back_from_the_newest_line_only(self):
         rows, _ = api.classify_syslog(self.text, first_minutes=5)
         self.assertEqual({label: count for label, count, _, _ in rows},
                          {"init_succeeded": 1, "invalid_nonce": 1, "readnonce_reinit": 1})
-        # `after` wins when both are given: first_minutes is for the first read of a service's life
-        rows, _ = api.classify_syslog(self.text, after="2026-09-21 05:33:00", first_minutes=500)
+        # a cursor that fits wins: first_minutes is for a first read, or a log that no longer holds the cursor
+        _, cursor = api.classify_syslog(self.upto("2026-09-21 05:33:00"))
+        rows, _ = api.classify_syslog(self.text, cursor=cursor, first_minutes=500)
         self.assertEqual([label for label, _, _, _ in rows], ["readnonce_reinit", "init_succeeded"])
+
+    def test_a_board_reinit_is_not_where_a_first_read_stops(self):
+        # the miner re-inits its board mid-run after a fault; the lines before the re-init say why
+        text = (" [2026-09-21 05:40:00] C0: Write Chip0 Reg 4 Failed\n"
+                " [2026-09-21 05:40:05] C0: SCBOX Init sucessed. 16 chips, 256 Total goodcores. Wait 5s!!!\n")
+        rows, _ = api.classify_syslog(text, first_minutes=5)
+        self.assertEqual([label for label, _, _, _ in rows], ["chip_write_failed", "init_succeeded"])
 
     def test_garbage_is_no_rows_and_no_exception(self):
         for junk in ("", "\x00\x01\x02" * 50, "[not a stamp] C0: Init failed 5 Times\n", "a" * 100000,
@@ -457,17 +470,20 @@ class ClassifySyslogTest(unittest.TestCase):
         arabic = "٢٠٢٦-٠٩-٢٠ ١٢:٠٠:٠٠"
         for stamp in ("9999-99-99 99:99:99", arabic):
             rows, last = api.classify_syslog(" [%s] C0: Init failed 5 Times\n" % stamp)
-            self.assertEqual((rows, last), ([], None), stamp)
+            self.assertEqual(rows, [], stamp)
+            self.assertIsNone(last.stamp, stamp)
 
-    def test_a_line_stamped_after_the_logs_own_last_line_is_skipped(self):
-        # a clock glitch into the future would otherwise become the cursor, and every later read would skip,
-        # reset and re-count
+    def test_a_line_stamped_in_the_future_hides_nothing_after_it(self):
+        # 0.9.0 skipped it so it could not become a timestamp cursor that hid every later line. 0.10.0's cursor is
+        # a place in the log, so the line is only data; a first read stops at it, as at any clock jump.
         text = (" [2026-09-21 05:40:00] C0: Init failed 5 Times\n"
                 " [2099-01-01 00:00:00] C0: BistStart err\n"
                 " [2026-09-21 05:40:01] C0: Init failed 5 Times\n")
-        rows, last = api.classify_syslog(text)
-        self.assertEqual([(label, count) for label, count, _, _ in rows], [("init_failed", 2)])
-        self.assertEqual(last, "2026-09-21 05:40:01")
+        rows, last = api.classify_syslog(text, first_minutes=5)
+        self.assertEqual([(label, count) for label, count, _, _ in rows], [("init_failed", 1)])
+        self.assertEqual(last.stamp, "2026-09-21 05:40:01")
+        rows, _ = api.classify_syslog(text + " [2026-09-21 05:41:00] C0: BistStart err\n", cursor=last)
+        self.assertEqual([(label, count) for label, count, _, _ in rows], [("bist_error", 1)])
 
     # 0.9.1: a cold boot restarts the miner's clock at 2007 until it reaches a time server, and the log survives
     # the power loss. 2026-09-21 09:44: the first read after an outage ended on a 2007 line, and the next one,
@@ -483,16 +499,17 @@ class ClassifySyslogTest(unittest.TestCase):
     def test_a_boot_with_no_time_yet_is_counted_and_the_run_before_it_is_not_counted_again(self):
         rows, last = api.classify_syslog(self.OLD_RUN + self.BOOT_2007, first_minutes=5)
         self.assertEqual([(label, count) for label, count, _, _ in rows], [("process_started", 1)])
-        self.assertEqual(last, "2007-01-01 08:03:18")
-        rows, last = api.classify_syslog(self.OLD_RUN + self.BOOT_2007 + self.CLOCK_SET, after=last)
+        self.assertEqual(last.stamp, "2007-01-01 08:03:18")
+        rows, last = api.classify_syslog(self.OLD_RUN + self.BOOT_2007 + self.CLOCK_SET, cursor=last)
         self.assertEqual([(label, count) for label, count, _, _ in rows], [("init_succeeded", 1), ("init_failed", 1)])
-        self.assertEqual(last, "2026-09-21 21:45:00")
+        self.assertEqual(last.stamp, "2026-09-21 21:45:00")
 
     def test_lines_after_the_cursor_count_even_when_the_clock_went_back(self):
         # the cursor sits in the run before the boot; the boot's 2007 lines come after it in the log, so they are new
-        rows, last = api.classify_syslog(self.OLD_RUN + self.BOOT_2007, after="2026-09-21 19:27:20")
+        _, cursor = api.classify_syslog(self.OLD_RUN)
+        rows, last = api.classify_syslog(self.OLD_RUN + self.BOOT_2007, cursor=cursor)
         self.assertEqual([(label, count) for label, count, _, _ in rows], [("process_started", 1)])
-        self.assertEqual(last, "2007-01-01 08:03:18")
+        self.assertEqual(last.stamp, "2007-01-01 08:03:18")
 
     def test_a_very_long_line_is_classified_without_backtracking(self):
         import time
