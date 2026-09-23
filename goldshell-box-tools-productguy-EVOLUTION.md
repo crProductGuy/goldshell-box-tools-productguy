@@ -2807,12 +2807,18 @@ could carry a complete JSON write: a hold with no expiry, the plug On, a junk to
 against a scratch server. 0.10.0 had the same flaw, and the agent's new security-notes text had claimed
 cross-site writes were closed. Fixed: the connection closes after any request whose body was not read
 whole, and chunked bodies are refused. A second pass by the same reviewer tried 17 variants and found
-nothing a browser can reach. Two lows were left for later: duplicate Content-Length headers, and no read
-timeout. Only a raw client can send either, and a raw client can already send any request directly.
+nothing a browser can reach. One low was left for later: duplicate Content-Length headers, which only a
+raw client can send, and a raw client can already send any request directly.
 An Origin check was considered and left out; with the connection fix it only guards a future route.
 
-**Verified.** Every fix came with a test that failed first. The full suite on the final tree, 18 modules
-one at a time plus 68 Node tests: 17 modules and Node green; `test_server` had one error during a run that
-overlapped the reviewer's own probes, with its traceback not captured, then passed alone twice (119
-tests). The suspected cause is a TCP reset in a new raw-socket test; it was not changed, under the
-brief's three-fixes stop-loss on one file. Nothing merged, pushed or deployed.
+**The fix had a side effect, found by running the tests five times.** In the full run `test_server` had
+one unexplained error. The agent stopped under the brief's three-fixes stop-loss on one file and asked.
+Mark chose a test-only hardening and five runs. The traceback then showed the cause: on Windows, closing a
+connection with its body unread sends a reset, which can destroy the 413 or 415 reply before the client
+reads it. It hit the new tests first, then two tests from 0.10.0 that check exact status codes. The agent
+said its own recommendation (tolerate the reset in the tests) had been wrong, because it would stop those
+tests checking the API. Mark chose the server fix: read and drop a refused body up to 64 KB before closing,
+and a 30-second socket timeout, which also closed the reviewer's "no read timeout" low.
+
+**Verified.** Every fix came with a test that failed first. See the next session's entry, or STATUS, for
+the final-tree run. Nothing merged, pushed or deployed.
