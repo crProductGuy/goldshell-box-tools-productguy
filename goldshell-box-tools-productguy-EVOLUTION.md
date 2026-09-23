@@ -2771,3 +2771,48 @@ is a lateral-movement risk if any machine or IoT device is compromised.
 **Verified.** Every fix came with a test that failed first. The full suite on the first fixes: 736 Python
 tests in 18 modules, one at a time, and 68 Node, green. After the second round, the six affected modules
 were re-run green. Nothing merged, pushed or deployed.
+
+**Correction, written in session AK.** That line was true when written and stale an hour later: at Mark's
+word ("merge it, push, tag v0.10.0 and restart the service") session AJ merged, pushed and tagged 0.10.0
+and restarted the live service on it the same evening.
+
+## 2026-09-22 night, session AK (79079c12): 0.10.1, the dashboard answers only to its own name
+
+**The goal.** The brief from AJ: "Close two dashboard security holes and one watchdog residual found after
+the 0.10.0 release, as 0.10.1." Both holes predate 0.10: no Host-header check, so DNS rebinding worked
+(verified in AJ: a forged `Host: attacker.example:8765` got 200 from the live service); and
+`/api/hold/release` took an empty POST with no JSON check. The residual is the service-restart variant of
+the 8 h hold.
+
+**The question that mattered.** The brief said to accept "the bind address". The agent asked what that
+meant for a wildcard bind, since no browser ever sends `0.0.0.0`. Mark supplied the AJ discussion: the
+bind address means `--bind` to the box's own LAN address, so the Mac can reach the dashboard; the other
+route is an SSH tunnel, which arrives as localhost. The wildcard case never came up. The agent proposed
+treating it as loopback-only with a warning, and dropped its own first idea of an `--allow-host` flag as
+a feature, not a patch fix. Mark agreed. The agent also said plainly that a Host check stops rebinding
+only, not a LAN device that can reach a `--bind` port directly, and put that in the security notes.
+
+**What was built.** A request must carry exactly one Host header naming 127.0.0.1, localhost, [::1] or
+the `--bind` address with the port, matched whole, or it gets 403 before any route runs. Hold release
+needs JSON like every other write; app.js already sent `{}`. On a service's first read of the miner log, a
+pool line is spent when share lines after it span a minute of log time. A test the agent wrote for a clock
+set back to 2007 and forward again showed that looks like years of shares, so a step between shares that
+goes back, or forward by more than 5 minutes, restarts the span. The measured outage (two shares 30 s
+apart, then silence) is still held.
+
+**The review found a hole older than both fixes.** The `reviewer` agent, in a fresh context, showed that
+a refused POST (415, 413, 404) was answered without reading its body and the connection kept open, so the
+body was parsed as the next request. A no-cors `text/plain` POST from any site, which needs no preflight,
+could carry a complete JSON write: a hold with no expiry, the plug On, a junk token. It reproduced this
+against a scratch server. 0.10.0 had the same flaw, and the agent's new security-notes text had claimed
+cross-site writes were closed. Fixed: the connection closes after any request whose body was not read
+whole, and chunked bodies are refused. A second pass by the same reviewer tried 17 variants and found
+nothing a browser can reach. Two lows were left for later: duplicate Content-Length headers, and no read
+timeout. Only a raw client can send either, and a raw client can already send any request directly.
+An Origin check was considered and left out; with the connection fix it only guards a future route.
+
+**Verified.** Every fix came with a test that failed first. The full suite on the final tree, 18 modules
+one at a time plus 68 Node tests: 17 modules and Node green; `test_server` had one error during a run that
+overlapped the reviewer's own probes, with its traceback not captured, then passed alone twice (119
+tests). The suspected cause is a TCP reset in a new raw-socket test; it was not changed, under the
+brief's three-fixes stop-loss on one file. Nothing merged, pushed or deployed.
