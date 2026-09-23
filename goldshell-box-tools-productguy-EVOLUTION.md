@@ -2837,3 +2837,51 @@ where 0.10.0 gave 200, and a blind text/plain hold release got 415. The first br
 reason outside the code: the Chrome tools were connected only to the Mac's browser, so 127.0.0.1 was the
 Mac. Once Mark connected this PC's Chrome, the dashboard loaded with every API call answered and the
 page's own token hand-off accepted.
+
+## 2026-09-23 afternoon, session AL (ad4a18b6): the Mac as the full console, designed
+
+**The goal.** "Push it, then start the Mac access design." Asked what the Mac needed to do, Mark chose
+everything, password buttons included, LAN only: "That dedicated management machine might not be physically
+as accessible, so I want the Mac to be able to be the full remote management console for me."
+
+**Scope moved three times, each by a fact.** Mark plans to move the service off the Windows PC to a
+dedicated Linux box; his wall-meter readings (65 W and 37 W for two old laptops) against a ~2-3 W Raspberry
+Pi settled that a 2013 Pi goes first. A second miner (an HS-BOX, Handshake or Blake2b-SC) arrives tomorrow,
+so the controls redesign must be drawn for two miners. And Mark's wish for a phone glance at the stock
+Goldshell page led to the question of how to administer an isolated miner later; the agent's answer was
+three separate needs: push alerts for "is it hashing", a read-only glance page only if alerts leave a gap,
+and pool or payout changes through the gbox box as a jump host. It flagged the payout address as the
+highest-value target on the setup, since changing it breaks nothing visible, and proposed pinning it.
+Mark set the order: console access, multi-miner design, controls redesign, then alerts with the pin.
+
+**Approaches.** An SSH tunnel to the unchanged loopback service (chosen); the same plus a forward to the
+miner's own web UI (later, once the miner is isolated, and only if the stock UI survives being opened as
+localhost); a login inside gbox with a LAN bind (rejected by both: new authentication code in the service
+that holds the plug, plain HTTP, a password form in place of an SSH key). The gbox key is tunnel-only; a
+shell key for general administration is a separate line.
+
+**The finding that shaped the build.** Reading the page showed every open dashboard polls the miner from
+its own browser every 10 s. A Mac tab beside the PC tab doubles the load on firmware that crashes under
+bursts, and the two browsers would overwrite each other's miner token at the service. Mark chose a lease:
+one page per service polls; the newest page load wins; a returning page does not take a held lease, so it
+does not jump between machines as each wakes. Mark's overnight habit (Mac asleep, lid shut) added two rules:
+a hidden page stops polling and gives up the lease, and a launchd agent keeps the tunnel alive across sleep.
+
+**Plugs.** The agent showed from `plug.py` and python-kasa's device list that the KP125M plugs Mark had
+ordered speak only the encrypted protocol, which needs the TP-Link cloud login on the gbox box; Mark
+cancelled them. A Tapo strip failed the same test. Shelly passes technically but failed Mark's reliability
+bar on reviews; a research agent could not read Amazon ratings at all and said so rather than guess. Miner 2
+gets the meterless HS105 that already drove the full restart ladder on hardware.
+
+**Corrections, both the agent's.** It told Mark AES is not in the standard library; `gbox/aes.py` already
+implements it, so the plug decision rests on the cloud login alone. It described the systemd unit as new
+work; `scripts/install-linux.sh` already writes one.
+
+**Built.** No code. Two dashboard bugs logged by Mark and queued for the controls redesign: the hold reason
+stays in its box after the hold ends (fix: mirror the service's reason read-only while held, clear after);
+and confirmation dialogs get "Sent" and "Confirmed" timestamps. The design spec was committed. A handoff and
+a small visibility-probe page went to the transfer drive for a Mac session to run two sleep experiments.
+
+**Deferred.** Mark reviews the spec tomorrow, then the implementation plan. The real-miner token test (two
+browsers logged in at once) runs tomorrow with Mark present, before the build. Security review once, at
+feature-complete.
