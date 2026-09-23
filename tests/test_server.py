@@ -509,8 +509,8 @@ class HoldAndPowerRoutesTest(ServerTest):
                     if not chunk:
                         break
                     data += chunk
-            except socket.timeout:
-                pass
+            except (socket.timeout, ConnectionError):
+                pass                              # Windows resets a connection closed with its body unread
         import re
         return re.findall(rb"HTTP/1\.[01] \d{3} ", data)             # a JSON body has no line end before the next
 
@@ -526,12 +526,34 @@ class HoldAndPowerRoutesTest(ServerTest):
             method = b"GET" if path == b"/api/health" else b"POST"
             outer = (method + b" " + path + b" HTTP/1.1\r\nHost: " + host + b"\r\nContent-Type: " + ctype
                      + b"\r\nOrigin: http://evil.example\r\nContent-Length: %d\r\n\r\n" % len(smuggled) + smuggled)
-            self.assertEqual(len(self.raw(outer)), 1, path)
+            self.assertLessEqual(len(self.raw(outer)), 1, path)          # a reset can eat the one reply
             self.assertIsNone(self.wd.hold, path)
         chunked = (b"POST /api/token HTTP/1.1\r\nHost: " + host + b"\r\nContent-Type: text/plain\r\n"
                    b"Transfer-Encoding: chunked\r\n\r\n" + smuggled)
-        self.assertEqual(len(self.raw(chunked)), 1)
+        self.assertLessEqual(len(self.raw(chunked)), 1)
         self.assertIsNone(self.wd.hold)
+
+    def test_a_body_that_never_arrives_does_not_hold_a_thread(self):
+        # 0.10.1 review, LOW: rfile.read(n) waited for ever on a Content-Length larger than what was sent
+        import socket
+        from unittest import mock
+        from gbox import server
+        with mock.patch.object(server, "READ_TIMEOUT", 1):
+            srv = make_server(self.state)
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        port = srv.server_address[1]
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as s:
+            s.sendall(b"POST /api/event HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nContent-Type: application/json\r\n"
+                      b"Content-Length: 100\r\n\r\n{\"message\"" % port)
+            try:
+                closed = s.recv(65536) == b"" or s.recv(65536) == b""   # a reply, if any, then the close
+            except ConnectionError:
+                closed = True
+            except socket.timeout:
+                closed = False
+        self.assertTrue(closed)
 
     def test_keep_alive_still_works_after_a_request_that_was_read(self):
         host = ("127.0.0.1:%d" % self.srv.server_address[1]).encode()

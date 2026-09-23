@@ -162,7 +162,13 @@ never open this way, because they need the miner's password.
   write happened. Now the connection closes after any request whose body
   was not read whole, including a GET that carries one, and a chunked body
   is refused. A test sends exactly that request and checks the hold is
-  not set.
+  not set. Before closing, the service reads and drops a body of up to
+  64 KB, because on Windows closing with bytes unread resets the
+  connection, and the reset can destroy the 413 or 415 before the client
+  reads it. A connection that sits idle, or a body that does not arrive,
+  is dropped after 30 seconds (at most twice that for a stalled body);
+  before 0.10.1 a client that promised more bytes than it sent held a
+  thread until it went away.
 - No Origin check. With the two fixes above it would only guard a future
   write route that forgot to require JSON. Chrome's Local Network Access
   prompt may also block public pages from reaching loopback; that is not

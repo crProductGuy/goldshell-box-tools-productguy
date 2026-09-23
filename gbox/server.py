@@ -29,6 +29,10 @@ from .power import PowerRefused
 WEB_DIR = Path(__file__).resolve().parent / "web"
 STATIC = {"/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/style.css": "style.css"}
 MAX_BODY = 8192
+# 0.10.1: a refused request's body up to this size is read and dropped before the connection closes. Closing
+# with bytes unread makes Windows reset the connection, which can destroy the 4xx reply before the client reads it.
+DRAIN_MAX = 65536
+READ_TIMEOUT = 30          # seconds a connection may sit idle, or a body may take to arrive
 MAX_EVENT = 500            # characters of a dashboard-reported event line (200 cut hand-written notes; 2026-09-12)
 HOLD_DEFAULT_MINUTES = 60  # a hold with no `minutes` given; long enough for a swap, short enough to notice
 HOLD_MAX_MINUTES = 1440
@@ -202,6 +206,7 @@ def make_handler(state):
         protocol_version = "HTTP/1.1"
         server_version = "gbox/" + __version__
         sys_version = ""
+        timeout = READ_TIMEOUT      # a Content-Length the client never fills held the thread for ever (0.10.1)
 
         def log_message(self, format, *args):
             pass
@@ -232,6 +237,22 @@ def make_handler(state):
                 body = f.read()
             self._send(200, body, ctype or mimetypes.guess_type(str(path))[0] or "application/octet-stream")
 
+        def _discard_body(self):
+            """Close after this reply, first reading and dropping a body nobody used, up to DRAIN_MAX, so the close
+            does not reset the reply away. A larger or chunked body is left and the connection just closes."""
+            self.close_connection = True
+            if self.headers.get("Transfer-Encoding"):
+                return
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                return
+            if 0 < n <= DRAIN_MAX:
+                try:
+                    self.rfile.read(n)
+                except OSError:
+                    pass                                           # the timeout, or the client gave up
+
         def _host_ok(self):
             """False after a 403 when the Host header does not name this service (`host_allowed`)."""
             hosts = self.headers.get_all("Host") or []
@@ -246,7 +267,7 @@ def make_handler(state):
 
         def do_GET(self):
             if self.headers.get("Transfer-Encoding") or (self.headers.get("Content-Length") or "0") != "0":
-                self.close_connection = True                       # a body nobody reads is not a next request
+                self._discard_body()                               # a body nobody reads is not a next request
             if not self._host_ok():
                 return
             path = self.path.split("?", 1)[0]
@@ -334,13 +355,13 @@ def make_handler(state):
         def do_POST(self):
             # 0.10.1 review, HIGH: a reply sent without reading the body left that body to be parsed as the next
             # request on the connection, so a refused no-cors text/plain POST from any site could carry a JSON
-            # one. Unless the body was read whole, the connection closes after the reply.
+            # one. Unless the body was read whole, the connection closes after the reply (`_discard_body`).
             self._body_read = False
             try:
                 self._route_post()
             finally:
                 if not self._body_read:
-                    self.close_connection = True
+                    self._discard_body()
 
         def _route_post(self):
             if not self._host_ok():
