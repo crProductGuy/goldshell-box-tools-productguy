@@ -2830,3 +2830,10 @@ a row, 120 tests each, all green, some runs under the reviewer's parallel load (
 produced the resets); `test_cli`, the other module that imports the server, green. The other 16 modules
 and Node were green on `aec8c9e`, and nothing they import changed since. Nothing merged, pushed or
 deployed.
+
+**Released, same session, 2026-09-23.** At Mark's word main was fast-forwarded, pushed and tagged
+`v0.10.1`, and the live service restarted on it. Checked against the live service: a forged Host got 403
+where 0.10.0 gave 200, and a blind text/plain hold release got 415. The first browser check failed for a
+reason outside the code: the Chrome tools were connected only to the Mac's browser, so 127.0.0.1 was the
+Mac. Once Mark connected this PC's Chrome, the dashboard loaded with every API call answered and the
+page's own token hand-off accepted.
