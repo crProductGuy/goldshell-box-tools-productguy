@@ -2820,5 +2820,13 @@ said its own recommendation (tolerate the reset in the tests) had been wrong, be
 tests checking the API. Mark chose the server fix: read and drop a refused body up to 64 KB before closing,
 and a 30-second socket timeout, which also closed the reviewer's "no read timeout" low.
 
-**Verified.** Every fix came with a test that failed first. See the next session's entry, or STATUS, for
-the final-tree run. Nothing merged, pushed or deployed.
+A third reviewer pass found nothing above low. It corrected one doc claim: a stalled body costs 30 s, not
+60, and the timeout is a gap between bytes, so a raw client sending a byte at a time is still not
+bounded. It also raised an unverified risk that the timeout could cut off a large log download on a slow
+direct `--bind` link. Both are written into the security notes.
+
+**Verified.** Every fix came with a test that failed first. On the final code: `test_server` five times in
+a row, 120 tests each, all green, some runs under the reviewer's parallel load (the load that had
+produced the resets); `test_cli`, the other module that imports the server, green. The other 16 modules
+and Node were green on `aec8c9e`, and nothing they import changed since. Nothing merged, pushed or
+deployed.

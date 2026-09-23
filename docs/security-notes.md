@@ -165,10 +165,17 @@ never open this way, because they need the miner's password.
   not set. Before closing, the service reads and drops a body of up to
   64 KB, because on Windows closing with bytes unread resets the
   connection, and the reset can destroy the 413 or 415 before the client
-  reads it. A connection that sits idle, or a body that does not arrive,
-  is dropped after 30 seconds (at most twice that for a stalled body);
-  before 0.10.1 a client that promised more bytes than it sent held a
-  thread until it went away.
+  reads it. A connection that sits idle, or sends no byte for 30 seconds,
+  is dropped; before 0.10.1 a client that promised more bytes than it sent
+  held a thread until it went away. The 30 seconds is a gap between bytes,
+  not a total: a raw client that sends a byte every 29 seconds still holds
+  its thread, as it always could with slow header lines. A browser always
+  sends what it declared.
+- **Unverified side effect of that timeout:** Python's `sendall` treats
+  it as the budget for a whole send, so a direct `--bind` client on a link
+  slower than about 200 KB/s might get a truncated `/api/log.csv` (about
+  6 MB) with no log line. Loopback and an SSH tunnel are not affected.
+  Not reproducible on Windows loopback, which buffers the whole reply.
 - No Origin check. With the two fixes above it would only guard a future
   write route that forgot to require JSON. Chrome's Local Network Access
   prompt may also block public pages from reaching loopback; that is not
