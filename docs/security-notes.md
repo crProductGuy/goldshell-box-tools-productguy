@@ -130,6 +130,33 @@ the same power a forged `/api/event` line never had but a LAN client with
   so the model, firmware and hardware strings are stripped of
   non-printable characters and cut to 40 before anything prints them.
 
+## The service answers only to its own name (0.10.1)
+
+Binding to 127.0.0.1 keeps other machines out, not other web pages. Up to
+0.10.0 a page on any site could use DNS rebinding: its name is re-pointed
+at 127.0.0.1, the browser treats the service as the page's own origin, and
+the page can read everything and send `/api/hold` with no expiry, a junk
+`/api/token`, or `/api/power` On. Verified on the live 0.10.0 service: a
+request with `Host: attacker.example:8765` got 200. Off and Cycle were
+never open this way, because they need the miner's password.
+
+- Every request must carry exactly one Host header, and it must be
+  `127.0.0.1:<port>`, `localhost:<port>`, `[::1]:<port>` or the `--bind`
+  address with its port, matched whole. Anything else gets 403 before
+  any route runs. A rebinding page still sends its own name, so it is
+  refused. An SSH tunnel arrives as `localhost` and works.
+- A wildcard bind (`0.0.0.0`, `::`) adds no name, since no browser sends
+  one. Such a service answers remote browsers with 403: reach it through a
+  tunnel, or bind the machine's own address.
+- `/api/hold/release` now needs `application/json` like every other write.
+  Before this a page on any site could release a hold with a blind form
+  POST, no rebinding needed. A JSON POST from another site needs a CORS
+  preflight, and the service answers `OPTIONS` with 501.
+- **What it does not do:** it does not stop anything that can reach a
+  `--bind` port directly. A device on the LAN sends whatever Host header it
+  likes. The warning `gbox serve` prints for a non-loopback bind still
+  stands: there is no login, so use a firewall, a VPN or an SSH tunnel.
+
 ## What the 0.8.0 security pass changed, and what it deliberately left
 
 One adversarial review at feature-complete, 2026-09-20, over everything gate 3
@@ -373,12 +400,17 @@ can only delay the one restart, never add one.
   a genuine hang, with no fault line written after it, holds the watchdog for
   up to `upstream_restart_hours`. The known hangs of 2026-09-21 and 09-22
   wrote fault lines and took the web backend down with them. Either one
-  releases the hold. Since the review fixes the window is wider in two ways:
-  one bump of the counter no longer spends a pool line, and a service
-  started within 30 minutes of a blip that had already cleared reads the
-  blip again. The log alone cannot tell that from the measured outage (pool
-  lines, a few shares, silence); how long shares kept flowing after the pool
-  line could, and is left for gate 2.
+  releases the hold. Since the review fixes one bump of the counter no
+  longer spends a pool line, which widens the window.
+- **Narrowed in 0.10.1:** a service started within 30 minutes of a blip
+  that had already cleared used to read the blip again and hold for the
+  full 8 h. A first read now spends a pool line when the log shows share
+  lines spanning at least a minute after it, by the log's own stamps, the
+  same span the counter needs. A step between share stamps that goes back,
+  or forward by more than 5 minutes, starts the span again, so a clock
+  jump is not a minute of shares. The measured outage (two shares 30 s
+  apart, then silence) is still held. What remains is a service started
+  after a blip whose shares, in the log, span under a minute.
 - **Accepted residual:** two shares let through by a dead pool at least a
   minute apart end the episode, as one did before the review fixes.
 - A single failed log read during an unreachable episode reads as "backend

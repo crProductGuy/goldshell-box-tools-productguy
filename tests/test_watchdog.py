@@ -1112,6 +1112,12 @@ class UpstreamTest(unittest.TestCase):
         self.feed(12)
         self.assertEqual(self.restart.restarts, 1)
 
+    def test_shares_in_the_log_for_a_minute_spend_the_pool_line(self):
+        # 0.10.1: a first read that shows the pool came back before the service started (api.classify_syslog)
+        self.feed(1, log=["start", "pool", "accepted", "shares"])
+        self.feed(12)
+        self.assertEqual(self.restart.restarts, 1)
+
     def test_a_process_start_begins_the_evidence_again(self):
         self.feed(1, log=["pool", "start"])
         self.feed(12)

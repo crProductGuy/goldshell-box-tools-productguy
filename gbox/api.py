@@ -328,11 +328,19 @@ SYSLOG_LABELS = tuple(label for label, _ in _SYSLOG_LABEL_RES)
 # 0.10.0: what a read says about the pool, for the watchdog (`classify_syslog`'s `signals`). "pool": the pool is
 # not answering. "fault": a line that points at the miner itself. "start": the mining process started. "probing":
 # it is looking for a pool (routine in minerlog.csv, evidence here). "accepted": a share line. The last two are
-# never an episode's end: on 2026-09-22 two "Accepted" lines were logged eight minutes into a real outage.
+# never an episode's end: on 2026-09-22 two "Accepted" lines were logged eight minutes into a real outage. "shares"
+# (0.10.1, first read only, see classify_syslog): share lines spanning a minute after a pool line, which is one.
 POOL_LABELS = ("pool_not_responding", "stratum_interrupted")
 FAULT_LABELS = ("init_failed", "chip_write_failed", "reg_read_error", "bist_error", "sendjob_reinit",
                 "readnonce_reinit", "addressing_failed", "set_clock_failed", "clock_nan", "tsensor_failed",
                 "fatal_exit", "thread_shutdown", "cpb_idle")
+# 0.10.1: on a first read, "shares" follows a pool line when share lines after it span this long by the log's own
+# stamps: the pool came back before the service started. The same span the watchdog asks of the counter
+# (watchdog.SHARES_BACK_SECONDS; a test holds them equal), so the measured outage's two shares 30 s apart stay held.
+LOG_SHARES_BACK_SECONDS = 60
+# A step between two share lines that goes back, or forward by more than this, restarts the span: a clock set back
+# to 2007 and then forward again is not years of shares. A pool that is back gives one every 10-40 s (2026-09-22).
+LOG_SHARES_MAX_STEP_SECONDS = 300
 _PROBING_RE = re.compile(r"Probing for an alive pool")
 _ACCEPTED_RE = re.compile(r"Accepted ")
 # What a healthy miner writes all day, and the banner of a start. Ignored, not counted.
@@ -378,6 +386,11 @@ def classify_syslog(text, cursor=None, first_minutes=None, signals=None, signal_
     read the signals look back `signal_minutes` (when wider than `first_minutes`) while the rows keep to
     `first_minutes`: a service started after the log went quiet in an outage must still see the pool lines
     (0.10.0 review, M2). Any cursor, fitting or not (a truncation), gives both the same start.
+
+    Also on a first read only, "shares" follows a pool line once share lines after it span
+    LOG_SHARES_BACK_SECONDS of log time (0.10.1): that outage ended before the service started. After a cursor
+    the watchdog's counter decides that instead. A step between share stamps that goes back, or forward by more
+    than LOG_SHARES_MAX_STEP_SECONDS, restarts the span.
     """
     lines = _whole_lines(text)
     found = {}
@@ -386,6 +399,7 @@ def classify_syslog(text, cursor=None, first_minutes=None, signals=None, signal_
     if signals is not None and cursor is None and first_minutes is not None and signal_minutes is not None \
             and signal_minutes > first_minutes:
         first = min(start, _start(lines, cursor, signal_minutes))
+    pool_pending, shares_since, shares_last = False, None, None
     for i in range(first, len(lines)):
         line = lines[i]
         m = _SYSLOG_TS_RE.match(line)
@@ -402,6 +416,18 @@ def classify_syslog(text, cursor=None, first_minutes=None, signals=None, signal_
             sig = _signal(label, msg)
             if sig is not None and (not signals or signals[-1] != sig):
                 signals.append(sig)
+            if cursor is None and sig in ("pool", "fault", "start"):
+                pool_pending, shares_since = sig == "pool", None
+            elif cursor is None and sig == "accepted" and pool_pending:
+                t = _stamp(line)
+                step = None if shares_since is None else (t - shares_last).total_seconds()
+                if step is None or not 0 <= step <= LOG_SHARES_MAX_STEP_SECONDS:
+                    shares_since = shares_last = t                # the first share, or the far side of a clock jump
+                elif (t - shares_since).total_seconds() >= LOG_SHARES_BACK_SECONDS:
+                    signals.append("shares")
+                    pool_pending, shares_since = False, None
+                else:
+                    shares_last = t
         if i < start:
             continue                                              # evidence only; minerlog.csv keeps its window
         if label is None:

@@ -418,6 +418,64 @@ class SignalWindowTest(unittest.TestCase):
         self.assertEqual(signals, ["accepted"])
 
 
+class FirstReadSharesTest(unittest.TestCase):
+    """0.10.1 (0.10.0 review, MEDIUM 1): on a first read, a pool line followed by shares for at least
+    SHARES_BACK_SECONDS of log time is spent: the pool came back before the service started."""
+
+    START = " [2026-09-23 01:40:00] Started intminer 5.4.2-unknown\r\n"
+    POOL = (" [2026-09-23 01:50:11] Stratum connection to pool 0 interrupted\r\n"
+            " [2026-09-23 01:50:41] Pool 0 stratum+tcp://example.invalid:3333 not responding!\r\n")
+
+    @staticmethod
+    def accepted(*stamps):
+        return "".join(" [2026-09-23 %s] Accepted 0000000d INCS 0 Diff 9.99k/4.1k\r\n" % s for s in stamps)
+
+    def signals(self, text, cursor=None):
+        out = []
+        api.classify_syslog(text, cursor=cursor, first_minutes=5, signals=out, signal_minutes=30)
+        return out
+
+    def test_the_span_is_the_one_the_watchdog_asks_of_the_counter(self):
+        from gbox import watchdog
+        self.assertEqual(api.LOG_SHARES_BACK_SECONDS, watchdog.SHARES_BACK_SECONDS)
+
+    def test_shares_for_a_minute_after_the_pool_line_spend_it(self):
+        text = self.START + self.POOL + self.accepted("01:52:00", "01:52:30", "01:53:00")
+        self.assertEqual(self.signals(text), ["start", "pool", "accepted", "shares"])
+
+    def test_the_measured_outage_is_not_spent(self):
+        # 2026-09-22: two shares 30 s apart after the pool lines, then silence
+        text = self.START + self.POOL + self.accepted("01:55:40", "01:56:10")
+        self.assertEqual(self.signals(text), ["start", "pool", "accepted"])
+
+    def test_shares_before_the_pool_line_do_not_count(self):
+        text = self.START + self.accepted("01:45:00", "01:48:00") + self.POOL + self.accepted("01:51:00")
+        self.assertEqual(self.signals(text), ["start", "accepted", "pool", "accepted"])
+
+    def test_a_pool_line_after_the_shares_stands(self):
+        text = (self.START + self.POOL + self.accepted("01:51:00", "01:52:00")
+                + " [2026-09-23 01:53:00] Stratum connection to pool 0 interrupted\r\n")
+        self.assertEqual(self.signals(text), ["start", "pool", "accepted", "shares", "pool"])
+
+    def test_a_clock_set_back_between_two_shares_is_not_a_minute(self):
+        text = self.START + self.POOL + self.accepted("01:52:00") + \
+            " [2007-01-01 00:00:05] Accepted 0000000e INCS 0 Diff 9.99k/4.1k\r\n" + self.accepted("01:52:30")
+        out = []
+        api.classify_syslog(text, signals=out)                        # the whole log, clock jumps and all
+        self.assertNotIn("shares", out)
+
+    def test_two_shares_far_apart_are_not_a_minute_of_shares(self):
+        text = self.START + self.POOL + self.accepted("01:52:00", "01:58:00")
+        self.assertEqual(self.signals(text), ["start", "pool", "accepted"])
+        text = self.START + self.POOL + self.accepted("01:52:00", "01:58:00", "01:58:30", "01:59:00")
+        self.assertEqual(self.signals(text), ["start", "pool", "accepted", "shares"])
+
+    def test_a_read_after_a_cursor_leaves_it_to_the_counter(self):
+        text = self.START + self.POOL + self.accepted("01:52:00", "01:52:30", "01:53:00")
+        at_start = api.LogCursor("2026-09-23 01:40:00", 0, api._digest(self.START.rstrip("\r\n")), 1)
+        self.assertEqual(self.signals(text, at_start), ["pool", "accepted"])
+
+
 class ClassifySyslogTest(unittest.TestCase):
     """0.9.0: the non-routine lines of the miner's log as labels and counts, never as text.
 

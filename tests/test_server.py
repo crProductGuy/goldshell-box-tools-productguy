@@ -486,6 +486,69 @@ class HoldAndPowerRoutesTest(ServerTest):
         self.assertIn("gbox power init", body["error"])
         self.assertEqual(fake.relay, 1)
 
+    def test_hold_release_refuses_a_post_that_is_not_json(self):
+        # A page on any site can send a blind form POST; only a JSON one needs a preflight, which gets 501 (0.10.1).
+        self.post_json("/api/hold", {"minutes": 30})
+        self.assertEqual(self.post("/api/hold/release", b"", ctype=""), 415)                 # the 0.10.0 blind POST
+        self.assertEqual(self.post("/api/hold/release", b"", ctype="text/plain"), 415)
+        self.assertEqual(self.post("/api/hold/release", b""), 413)                           # JSON, but no body
+        self.assertEqual(self.post("/api/hold/release", b"x=1", ctype="application/x-www-form-urlencoded"), 415)
+        self.assertIsNotNone(self.wd.hold)
+        self.assertEqual(self.post_json("/api/hold/release")[0], 200)     # {} as JSON, what app.js sends
+        self.assertIsNone(self.wd.hold)
+
+
+class HostHeaderTest(ServerTest):
+    """DNS rebinding: a page on attacker.example re-pointed at 127.0.0.1 is same-origin but sends its own Host (0.10.1)."""
+
+    def request(self, method, path, host, body=None):
+        import http.client
+        port = self.srv.server_address[1]
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        self.addCleanup(c.close)
+        c.putrequest(method, path, skip_host=True, skip_accept_encoding=True)
+        if host is not None:
+            c.putheader("Host", host % port if "%d" in host else host)
+        if body is not None:
+            c.putheader("Content-Type", "application/json")
+            c.putheader("Content-Length", str(len(body)))
+        c.endheaders(body)
+        r = c.getresponse()
+        r.read()
+        return r.status
+
+    def test_loopback_names_are_served(self):
+        for host in ("127.0.0.1:%d", "localhost:%d", "LOCALHOST:%d", "[::1]:%d"):
+            self.assertEqual(self.request("GET", "/api/health", host), 200, host)
+
+    def test_a_foreign_host_is_refused_on_every_route(self):
+        for host in ("attacker.example:%d", "attacker.example", "127.0.0.1", "localhost:1", "127.0.0.1:%d.evil",
+                     "localhost.:%d", "", "127.0.0.1:%d@x"):
+            for method, path in (("GET", "/"), ("GET", "/api/health"), ("GET", "/api/log.csv"), ("HEAD", "/")):
+                self.assertEqual(self.request(method, path, host), 403, (host, method, path))
+            self.assertEqual(self.request("POST", "/api/event", host, b'{"message": "x"}'), 403, host)
+        self.assertNotIn("dashboard: x", "".join(self.events.tail()))
+
+    def test_no_host_header_is_refused(self):
+        self.assertEqual(self.request("GET", "/api/health", None), 403)
+
+    def test_the_bind_address_is_served_and_a_wildcard_bind_adds_nothing(self):
+        from gbox.server import host_allowed
+        self.assertTrue(host_allowed("192.168.8.10:8765", "192.168.8.10", 8765))
+        self.assertTrue(host_allowed("localhost:8765", "192.168.8.10", 8765))     # an SSH tunnel arrives as localhost
+        self.assertFalse(host_allowed("192.168.8.10:9000", "192.168.8.10", 8765))
+        self.assertFalse(host_allowed("192.168.8.11:8765", "192.168.8.10", 8765))
+        self.assertTrue(host_allowed("[2001:db8::5]:8765", "2001:db8::5", 8765))
+        self.assertTrue(host_allowed("gbox.lan:8765", "gbox.lan", 8765))
+        for wildcard in ("0.0.0.0", "", "::"):
+            self.assertFalse(host_allowed("192.168.8.10:8765", wildcard, 8765), wildcard)
+            self.assertFalse(host_allowed("0.0.0.0:8765", wildcard, 8765), wildcard)
+            self.assertFalse(host_allowed("[::]:8765", wildcard, 8765), wildcard)
+            self.assertTrue(host_allowed("127.0.0.1:8765", wildcard, 8765), wildcard)
+        self.assertTrue(host_allowed("localhost", "127.0.0.1", 80))                # a browser drops :80
+        self.assertFalse(host_allowed("localhost", "127.0.0.1", 8765))
+        self.assertFalse(host_allowed(None, "127.0.0.1", 8765))
+
 
 if __name__ == "__main__":
     unittest.main()

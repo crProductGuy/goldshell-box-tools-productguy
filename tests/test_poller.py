@@ -1845,6 +1845,22 @@ class UpstreamScenarioTest(unittest.TestCase):
         self.assertEqual(self.fm.restarts, 0)
         self.assertTrue(self.lines("pool unreachable"))
 
+    def test_a_service_started_after_the_pool_came_back_judges_as_usual(self):
+        # 0.10.1 (review MEDIUM 1): the old outage's pool lines are followed by two minutes of shares, then the
+        # miner hangs. Before 0.10.1 a service started now held for upstream_restart_hours.
+        self.start(fixtures="sc5proii", port4028=True, dbg_locked_icinfo=True)
+        self.fm.syslog = (self.POOL
+                          + " [2026-09-23 01:52:00] Accepted 0000000c INCS 0 Diff 9.99k/4.1k\n"
+                          + " [2026-09-23 01:54:00] Accepted 0000000d INCS 0 Diff 9.99k/4.1k\n")
+        self.polls(3)
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            closed = s.getsockname()[1]
+        self.p.devs4028_port = closed
+        self.polls(8)
+        self.assertEqual(self.fm.restarts, 1)
+        self.assertEqual(self.lines("pool unreachable"), [])
+
     def test_4028_dead_with_a_fault_after_the_pool_lines_is_a_miner_fault(self):
         self.start(fixtures="sc5proii", port4028=True, dbg_locked_icinfo=True)
         self.fm.syslog = self.POOL + " [2026-09-23 01:52:00] C0: WatchDog Exit for CPB Idle\n"
