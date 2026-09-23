@@ -8,7 +8,8 @@ since 0.5.0 it can start or release a hold and switch the plug (off and
 cycle only with the miner's password, checked by a login). The dashboard
 talks to the miner itself; the service never proxies a settings write.
 
-Binds to 127.0.0.1 unless told otherwise. Never logs a request line: the
+Binds to 127.0.0.1 unless told otherwise, and since 0.10.1 answers only a
+request whose Host header names it (`host_allowed`). Never logs a request line: the
 miner login URL carries the encrypted password, and tokens are password-
 equivalent on this firmware.
 """
@@ -176,6 +177,26 @@ class ServiceState:
         }
 
 
+_LOOPBACK_NAMES = ("127.0.0.1", "localhost", "[::1]")
+_WILDCARD_BINDS = ("", "0.0.0.0", "::")
+
+
+def host_allowed(host, bind, port):
+    """True when a request's Host header names this service: a loopback name, or the address it was told to
+    `--bind`, with its port (0.10.1). A DNS-rebinding page is same-origin with 127.0.0.1 but still sends its own
+    name, so this is what keeps it out; an SSH tunnel arrives as localhost. A wildcard bind adds no name, since
+    no browser sends 0.0.0.0: reach such a service through a tunnel. Matched whole, so nothing can be appended."""
+    if not host:
+        return False
+    names = list(_LOOPBACK_NAMES)
+    if bind not in _WILDCARD_BINDS:
+        names.append("[%s]" % bind if ":" in bind else bind)
+    allowed = {"%s:%d" % (n.lower(), port) for n in names}
+    if port == 80:
+        allowed.update(n.lower() for n in names)                   # a browser leaves the default port out
+    return host.lower() in allowed
+
+
 def make_handler(state):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -211,10 +232,21 @@ def make_handler(state):
                 body = f.read()
             self._send(200, body, ctype or mimetypes.guess_type(str(path))[0] or "application/octet-stream")
 
+        def _host_ok(self):
+            """False after a 403 when the Host header does not name this service (`host_allowed`)."""
+            hosts = self.headers.get_all("Host") or []
+            if len(hosts) == 1 and host_allowed(hosts[0], state.cfg.bind, self.server.server_address[1]):
+                return True
+            self.close_connection = True                           # any body is left unread
+            self._send(403, "refused: this service answers to 127.0.0.1, localhost or its --bind address only")
+            return False
+
         def do_HEAD(self):
             self.do_GET()
 
         def do_GET(self):
+            if not self._host_ok():
+                return
             path = self.path.split("?", 1)[0]
             if path in STATIC:
                 return self._file(WEB_DIR / STATIC[path])
@@ -293,6 +325,8 @@ def make_handler(state):
             return body
 
         def do_POST(self):
+            if not self._host_ok():
+                return
             path = self.path.split("?", 1)[0]
             if path == "/api/token":
                 return self._post_token()
@@ -325,7 +359,9 @@ def make_handler(state):
             self._json(200, {"hold": state.watchdog.hold_info()})
 
         def _post_hold_release(self):
-            if (self.headers.get("Content-Length") or "0") != "0" and self._json_body() is None:
+            # JSON like every other write (0.10.1): a page on another site can send a form POST blind, and only a
+            # JSON one needs a preflight, which this server refuses. The page sends {}.
+            if self._json_body() is None:
                 return
             if state.watchdog is None:
                 return self._error(409, "the watchdog is off for this run (--no-watchdog), so there is no hold")

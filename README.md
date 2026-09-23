@@ -284,6 +284,11 @@ so gbox can learn your unit without one on the bench.
   software down. So with `--bind`, someone on your LAN could switch the
   miner on or ask the watchdog to wait; they could not switch it off or
   change its clock without the password.
+- Since 0.10.1 the service answers only requests addressed to
+  `127.0.0.1`, `localhost` or the `--bind` address, so a web page cannot
+  reach it by re-pointing its own name at your machine (DNS rebinding). An
+  SSH tunnel works; a `0.0.0.0` bind answers remote browsers with 403.
+  Details in `docs/security-notes.md`.
 
 ## How this was built
 

@@ -249,7 +249,8 @@ class Watchdog:
     def observe_log(self, ok, signals=(), t=None):
         """One read of the miner's log: `ok` whether the web backend answered it, `signals` the read's pool
         evidence in log order (`api.classify_syslog`). A pool line stands until the accepted counter moves or a
-        line that points at the miner itself comes after it; a process start begins a new run's evidence."""
+        line that points at the miner itself comes after it, or a first read shows a minute of shares after it
+        ("shares", 0.10.1); a process start begins a new run's evidence."""
         self._log_read_at = self._clock() if t is None else t
         self._log_ok = bool(ok)
         self.log_wanted = False
@@ -266,6 +267,10 @@ class Watchdog:
                 self._run_probing = True
             elif s == "accepted":
                 self._run_accepted = True
+            elif s == "shares":                    # a first read: shares flowed for a minute after the pool line
+                self._pool_down = False
+                self._run_accepted = True
+                self._first_rise = None
 
     def _counter_rose(self, t):
         """The accepted counter went up. The pool counts as back once it has gone up on two samples at least
