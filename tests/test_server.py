@@ -497,6 +497,49 @@ class HoldAndPowerRoutesTest(ServerTest):
         self.assertEqual(self.post_json("/api/hold/release")[0], 200)     # {} as JSON, what app.js sends
         self.assertIsNone(self.wd.hold)
 
+    def raw(self, request):
+        """Send `request` bytes on one connection; the status lines that come back before the server closes."""
+        import socket
+        with socket.create_connection(("127.0.0.1", self.srv.server_address[1]), timeout=5) as s:
+            s.sendall(request)
+            data = b""
+            try:
+                while True:
+                    chunk = s.recv(65536)
+                    if not chunk:
+                        break
+                    data += chunk
+            except socket.timeout:
+                pass
+        import re
+        return re.findall(rb"HTTP/1\.[01] \d{3} ", data)             # a JSON body has no line end before the next
+
+    def test_a_refused_request_cannot_carry_another_in_its_body(self):
+        # 0.10.1 review, HIGH: a no-cors text/plain POST from any site gets 415, and the server read its unread
+        # body as the next request on the connection: a JSON hold with no expiry, sent without a preflight.
+        host = ("127.0.0.1:%d" % self.srv.server_address[1]).encode()
+        inner = json.dumps({"minutes": None}).encode()
+        smuggled = (b"POST /api/hold HTTP/1.1\r\nHost: " + host + b"\r\nContent-Type: application/json\r\n"
+                    b"Content-Length: %d\r\n\r\n" % len(inner) + inner)
+        for path, ctype in ((b"/api/token", b"text/plain"), (b"/api/hold", b"text/plain"),
+                            (b"/api/nope", b"text/plain"), (b"/api/health", b"text/plain")):
+            method = b"GET" if path == b"/api/health" else b"POST"
+            outer = (method + b" " + path + b" HTTP/1.1\r\nHost: " + host + b"\r\nContent-Type: " + ctype
+                     + b"\r\nOrigin: http://evil.example\r\nContent-Length: %d\r\n\r\n" % len(smuggled) + smuggled)
+            self.assertEqual(len(self.raw(outer)), 1, path)
+            self.assertIsNone(self.wd.hold, path)
+        chunked = (b"POST /api/token HTTP/1.1\r\nHost: " + host + b"\r\nContent-Type: text/plain\r\n"
+                   b"Transfer-Encoding: chunked\r\n\r\n" + smuggled)
+        self.assertEqual(len(self.raw(chunked)), 1)
+        self.assertIsNone(self.wd.hold)
+
+    def test_keep_alive_still_works_after_a_request_that_was_read(self):
+        host = ("127.0.0.1:%d" % self.srv.server_address[1]).encode()
+        get = b"GET /api/health HTTP/1.1\r\nHost: " + host + b"\r\n\r\n"
+        bad = b"POST /api/hold HTTP/1.1\r\nHost: " + host + b"\r\nContent-Type: application/json\r\nContent-Length: 1\r\n\r\nx"
+        close = b"GET /api/health HTTP/1.1\r\nHost: " + host + b"\r\nConnection: close\r\n\r\n"
+        self.assertEqual(len(self.raw(get + bad + close)), 3)          # a 400 whose body was read keeps the connection
+
 
 class HostHeaderTest(ServerTest):
     """DNS rebinding: a page on attacker.example re-pointed at 127.0.0.1 is same-origin but sends its own Host (0.10.1)."""
