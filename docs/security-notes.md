@@ -152,6 +152,21 @@ never open this way, because they need the miner's password.
   Before this a page on any site could release a hold with a blind form
   POST, no rebinding needed. A JSON POST from another site needs a CORS
   preflight, and the service answers `OPTIONS` with 501.
+- **That was not enough on its own, and 0.10.0 was open too** (found by the
+  0.10.1 review). When the service refused a POST (415, 413, 404) it
+  replied without reading the body and kept the connection open, so the
+  body was parsed as the next request. A page on any site could send a
+  no-cors `text/plain` POST, which needs no preflight, whose body was a
+  complete JSON request to `/api/hold` with no expiry, `/api/power` On,
+  `/api/token` or `/api/event`. The page could not read the reply, but the
+  write happened. Now the connection closes after any request whose body
+  was not read whole, including a GET that carries one, and a chunked body
+  is refused. A test sends exactly that request and checks the hold is
+  not set.
+- No Origin check. With the two fixes above it would only guard a future
+  write route that forgot to require JSON. Chrome's Local Network Access
+  prompt may also block public pages from reaching loopback; that is not
+  relied on.
 - **What it does not do:** it does not stop anything that can reach a
   `--bind` port directly. A device on the LAN sends whatever Host header it
   likes. The warning `gbox serve` prints for a non-loopback bind still
@@ -410,7 +425,10 @@ can only delay the one restart, never add one.
   or forward by more than 5 minutes, starts the span again, so a clock
   jump is not a minute of shares. The measured outage (two shares 30 s
   apart, then silence) is still held. What remains is a service started
-  after a blip whose shares, in the log, span under a minute.
+  after a blip whose shares, in the log, span under a minute. As with the
+  counter, "Probing for an alive pool" lines between the shares do not
+  restart the span, and a stray third share a few minutes after the
+  measured outage's two would spend it.
 - **Accepted residual:** two shares let through by a dead pool at least a
   minute apart end the episode, as one did before the review fixes.
 - A single failed log read during an unreachable episode reads as "backend

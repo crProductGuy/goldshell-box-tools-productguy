@@ -245,6 +245,8 @@ def make_handler(state):
             self.do_GET()
 
         def do_GET(self):
+            if self.headers.get("Transfer-Encoding") or (self.headers.get("Content-Length") or "0") != "0":
+                self.close_connection = True                       # a body nobody reads is not a next request
             if not self._host_ok():
                 return
             path = self.path.split("?", 1)[0]
@@ -304,6 +306,9 @@ def make_handler(state):
 
         def _json_body(self):
             """The POST body as parsed JSON, or None after an error reply has been sent."""
+            if self.headers.get("Transfer-Encoding"):
+                self._send(400, "chunked bodies are not accepted; send Content-Length")
+                return None
             if not (self.headers.get("Content-Type") or "").startswith("application/json"):
                 self._send(415, "expected application/json")
                 return None
@@ -314,8 +319,10 @@ def make_handler(state):
             if not 0 < n <= MAX_BODY:
                 self._send(413, "bad length")
                 return None
+            raw = self.rfile.read(n)
+            self._body_read = len(raw) == n
             try:
-                body = json.loads(self.rfile.read(n).decode("utf-8"))
+                body = json.loads(raw.decode("utf-8"))
             except ValueError:
                 self._send(400, "bad json")
                 return None
@@ -325,6 +332,17 @@ def make_handler(state):
             return body
 
         def do_POST(self):
+            # 0.10.1 review, HIGH: a reply sent without reading the body left that body to be parsed as the next
+            # request on the connection, so a refused no-cors text/plain POST from any site could carry a JSON
+            # one. Unless the body was read whole, the connection closes after the reply.
+            self._body_read = False
+            try:
+                self._route_post()
+            finally:
+                if not self._body_read:
+                    self.close_connection = True
+
+        def _route_post(self):
             if not self._host_ok():
                 return
             path = self.path.split("?", 1)[0]
