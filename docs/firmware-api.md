@@ -126,7 +126,7 @@ The plan string differs by model. Seen or documented so far:
 
 | Dialect | Example | Where |
 |---|---|---|
-| `box` | `575 MHz 0.41 V 90 RPM 90 RPM` | SC-BOX, read from the unit. The HS Box writes the same form (`750 MHz 0.41 V 50 RPM 50 RPM` in the other developer's notes) |
+| `box` | `575 MHz 0.41 V 90 RPM 90 RPM` | SC-BOX, read from the unit. The HS-BOX writes the same form, read from the maintainer's unit (MCB_V5_4, fw 2.2.6) on 2026-09-25: `850 MHz 0.44 V 50 RPM 50 RPM` for Blake2B (Sia), `750 MHz 0.41 V 50 RPM 50 RPM` for Handshake, no `PV` term |
 | `mv_pv` | `625 MHz 9100 V 40 RPM 40 RPM PV 9400` | SC Lite, firmware 2.2.0, from Maveth/goldshell-config, and read from his unit's `/mcb/setting` on 2026-09-22. The volts field is an integer (their notes call it millivolts) and a trailing `PV` term follows. `/dbg/minerhistory` shows the internal form `intchains_qomo:vfff=<pv>:<MHz>:<fanA>:<fanB>:<mV>` |
 | `float_pv` | `750 MHz 0.41 V 50 RPM 50 RPM PV 9400` | the "float-V / optional-PV" form the same notes give for the HS Box; no verbatim example with a PV term is on record |
 
@@ -136,6 +136,21 @@ back exactly as the firmware wrote it (`with_mhz` in `gbox/api.py`,
 `withMhz` in `app.js`). Nobody has confirmed what the SC Lite's integer
 volts or the `PV` term mean, and nothing in gbox needs to know; the
 confirm dialog shows the exact string either way.
+
+**The HS-BOX nests its presets per algorithm.** It mines two algorithms, and
+its `/mcb/setting` carries `algoname` (the running one, `blake2b(SC)` on
+2026-09-25) and a `powerplans` list of `{algo, mode: [{level, info}]}`, one
+entry per algorithm, Handshake first. Every other model on record has a flat
+`[{level, info}]` list, and the clock code reads only that shape
+(`max_preset_mhz` and `set_plan` in `gbox/api.py`, `presetPlan`,
+`clockRange` and `presetList` in `app.js`). Against this unit it would
+find no presets, fall back to a 725 MHz ceiling below the unit's own 850 MHz
+preset, and start a clock change from `manualPowerplan`, which held the
+Handshake plan while the unit ran the Sia preset (`manual` false, `select`
+0). **Do not use gbox's clock control on an HS-BOX until the nested shape is
+read and the plan is taken from the running algorithm.** The fan target is
+unaffected: `temp_targets` (`[70, 80]`) and `temp_target` are flat, as on
+the SC-BOX.
 
 ## Reliability quirks
 

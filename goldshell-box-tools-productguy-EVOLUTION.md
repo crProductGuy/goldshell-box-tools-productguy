@@ -2885,3 +2885,38 @@ a small visibility-probe page went to the transfer drive for a Mac session to ru
 **Deferred.** Mark reviews the spec tomorrow, then the implementation plan. The real-miner token test (two
 browsers logged in at once) runs tomorrow with Mark present, before the build. Security review once, at
 feature-complete.
+
+## 2026-09-25 evening, session AM (dc599025): Miner 2 arrives, and the HS-BOX earns a table row
+
+**The goal.** "scan my network for a new goldshell HS box. iT's running now", then, once it was found and
+mining, "ensure you've added it to the device table".
+
+**Found.** `gbox discover` found it on its first real use for a second miner: model string
+`Goldshell-HSBox`, firmware 2.2.6, and it skipped the configured SC-BOX so the live watchdog was never
+competed with. Mark gave the box and its HS105 plug router reservations; the box moved at once on a cable
+re-plug, the plug still holds its old lease. Mark declined to bounce the plug's power to move it until the
+box has run long enough to judge, and nothing needs the new address yet.
+
+**Sources, and a correction from Mark.** The agent first took rated figures from a retailer listing (470 GH/s
+at 130 W on Blake2B-Sia). Mark pointed to Goldshell's own BOX-series table: 540 GH/s at 145 W, 0.27 W/GH.
+The help centre refuses automated fetches, so the row cites the page and says Mark read the figures. The
+two-algorithm question (Handshake rates differently) is settled by rating the row on Sia, which the unit runs.
+Mark's meter read 149 W at the wall on a 1200 W supply at about 12% load; the agent did not claim the
+supply's loss, which nobody has measured.
+
+**Tokenless first, then a login with Mark.** Board and fan counts came from port 4028 without a password.
+Mark then ran a small read-only capture script in his own terminal (four GETs, no writes, pool and network
+fields masked before the file was written) so the password never passed through the session. It settled
+the `box` plan dialect, open `/dbg/`, one 16-chip board and a 70-80 C fan-target range. After 48 minutes
+the unit averaged 99.6% of rated.
+
+**The finding that changed the design.** The HS-BOX nests its presets per algorithm in `/mcb/setting`; the
+clock code reads only the flat list every other model writes. Against this unit it would see no presets, cap
+the clock below the unit's own preset, and start a change from the manual plan, which held the Handshake
+settings while the unit mined Sia. Recorded in `docs/firmware-api.md` as a do-not-use; the fix belongs to
+the controls work. The row itself changes nothing here: an unknown model took the same path.
+
+**Built and verified.** The row in `gbox/models.py` and its mirror in `app.js`, with a test. Every Python
+module and the 68 Node tests green, run one module at a time. No version bump: no log, CLI or API change.
+
+**Left out.** The multi-miner service, plug config for Miner 2, and the clock-code fix.

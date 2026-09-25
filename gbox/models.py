@@ -1,7 +1,7 @@
 """The per-model table: rated figures for the "% of rated" axes, and the capability profile behind the model seam.
 
 Keyed by the `model` string `/mcb/status` returns. The lookup ignores case,
-spaces and hyphens, because only the SC-BOX, SC Lite and SC5 Pro II strings
+spaces and hyphens, because only the SC-BOX, HS-BOX, SC Lite and SC5 Pro II strings
 have been read from a real unit; the others are a guess at the pattern (SC BOX
 II, SC5 Pro) and are marked as such in `source`.
 
@@ -79,6 +79,27 @@ MODELS = {
         "temp_target_basis": "board_sensor",
         "plan_names": None,
         "absent_signature": False,      # assumed like the SC-BOX in every other way; this one is not assumed
+    },
+    "Goldshell-HSBox": {                # exact string from /mcb/status on the maintainer's unit, 2026-09-25
+        "name": "HS-BOX",
+        "rated_mhs": 540000.0,          # Blake2B 540 GH/s, Goldshell help centre
+        "rated_watts": 145.0,           # Blake2B 145 W, 0.27 W/GH
+        "fans": 2,                      # fan_num 2 on 4028 stats
+        "fan_max_rpm": None,
+        "boards": 1,                    # one INCS device on 4028 devs, miner_count 1
+        "source": "Goldshell help centre, BOX Series Miner Specifications (goldshellhelp.zendesk.com article 17466093334809), "
+                  "read by the maintainer 2026-09-25: Blake2B 540 GH/s at 145 W, 0.27 W/GH; model string, 1 board and 2 "
+                  "fans from the maintainer's unit (MCB_V5_4, fw 2.2.6, hw 10.10.SA, 2026-09-25); plan dialect, open "
+                  "/dbg/, one 16-chip board on icinfo and temp_targets 70-80 from its /mcb/setting and /dbg/ the same "
+                  "day; its powerplans are nested per algorithm, which the clock code does not read yet",
+        "verified_string": True,
+        "plan_dialect": "box",          # "850 MHz 0.44 V 50 RPM 50 RPM" (Sia), "750 MHz 0.41 V ..." (Handshake)
+        "board_source": "icinfo",       # /dbg/icinfo: CPB0, 16 chips
+        "dbg_expected": True,           # /dbg/minerinfo and /dbg/icinfo answered 200 with the token
+        "fan_target": True,             # temp_targets [70, 80], temp_target 70
+        "temp_target_basis": "board_sensor",   # fans low with the board sensor under target and chips over it; one read
+        "plan_names": None,
+        "absent_signature": False,
     },
     "Goldshell-SCLITE": {
         "name": "SC Lite",

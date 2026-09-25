@@ -100,6 +100,24 @@ class ProfileTest(unittest.TestCase):
         self.assertIsNone(p["plan_names"])
         self.assertFalse(p["absent_signature"])      # its fan log shows lone -150 board readings on a hashing board
 
+    def test_the_hs_box_profile_from_the_unit(self):
+        p = models.profile_for("Goldshell-HSBox")        # exact string from /mcb/status on the maintainer's unit, 2026-09-25
+        self.assertTrue(p["known"])
+        self.assertTrue(p["verified_string"])
+        self.assertEqual(p["name"], "HS-BOX")
+        self.assertEqual(p["rated_mhs"], 540000.0)            # Blake2B, Goldshell help centre table
+        self.assertEqual(p["rated_watts"], 145.0)
+        self.assertEqual(p["boards"], 1)                      # one INCS device on 4028 devs, miner_count 1
+        self.assertEqual(p["fans"], 2)                        # fan_num 2 on 4028 stats
+        self.assertIsNone(p["fan_max_rpm"])
+        self.assertEqual(p["plan_dialect"], "box")            # "850 MHz 0.44 V 50 RPM 50 RPM" in /mcb/setting
+        self.assertEqual(p["board_source"], "icinfo")         # /dbg/icinfo answered: CPB0, 16 chips
+        self.assertTrue(p["dbg_expected"])                    # /dbg/ answered 200 with the token, no debug unlock
+        self.assertTrue(p["fan_target"])                      # temp_targets [70, 80] in /mcb/setting
+        self.assertEqual(p["temp_target_basis"], "board_sensor")
+        self.assertIsNone(p["plan_names"])
+        self.assertFalse(p["absent_signature"])               # no log of a lost board on this model yet
+
     def test_the_sc5_pro_ii_profile(self):
         p = models.profile_for("Goldshell-SC5ProⅡ")
         self.assertTrue(p["known"])
