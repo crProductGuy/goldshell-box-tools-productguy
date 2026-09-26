@@ -2941,3 +2941,41 @@ a supply-side dropout and a silent controller freeze, both out of clean running.
 his password in his own window; it showed no errors before either event, which argues against the clock. The agent
 had first argued that the syslog surviving meant no power loss, then found the log survives real power cuts and
 withdrew it. The run restarted at 23:53; a supply swap is the test if it recurs.
+
+## 2026-09-26 morning, session AN (bc5950a1): the hold reason fixed, and the HS-BOX read end to end
+
+**The goal.** "pick up the goldshell project", then "push it, then do the hold-reason fix", with the HS-BOX
+questions arriving in between: "look at the HS BOX log", "from 22:00 onwards till it lost power", and "see if
+there is any leftover prior user info on the HS BOX".
+
+**The overnight check first.** No power cycle since the last session, so the standing check had nothing to
+read; the 525 MHz run had gone nine hours with no process restart, no new hardware errors and no rejects.
+
+**The hold "why" box.** Built to the shape Mark chose in session AL: while the service reports a hold, the box
+shows the service's stored reason, read-only, so every browser shows the same reminder; when the hold ends by
+any route it clears and is editable again. Without a service reading the box is left alone, so a failed fetch
+cannot wipe it, and the poll never rewrites an unchanged value, so typing survives it. A pure function carries
+the logic so Node can test it. A browser-checker subagent drove it against a scratch service and the fake miner;
+the service's own event log then showed the hold had ended by auto-lift just before the checker pressed Release,
+so the report was corrected to say so. A reviewer pass found nothing above LOW. It noted three things: a stale
+60-second tick can briefly show the reason again; pressing Hold while held carries the old reason forward; an
+empty read-only box still reads "why (optional)". Merged without a version bump at Mark's choice, because a bump
+would leave the live service reporting the old version until a restart, and a restart would end the 72-hour run.
+
+**The HS-BOX went dark.** The first look for its log found the miner unreachable and its plug's relay open.
+The agent did not switch it back on and asked instead: an old Kasa lighting schedule had turned it off. Mark
+disabled the schedule. The miner's own log, read with Mark's password in his own window and analysed by a
+scanner subagent, put the cut at 06:30. On this unit a hard power cut looks the same whether a plug does it or a
+hand does: the controller logs that it lost the hashboard, then goes silent. The scanner called that a brownout;
+the agent corrected it. The HS-BOX showed nothing at either of the SC-BOX's night events, which supports a cause
+local to the SC-BOX. Its log survives power loss, like the SC-BOX's. It threw 52 hardware errors in its first 15
+minutes after the 3.5-hour cold stop, against 4 and 5 after short outages. That points to cold-board warm-up
+errors, but it is inferred from three data points and is not proven.
+
+**Leftovers.** A second script read the settings and both logs. It showed real values only in Mark's window and
+wrote the agent only fingerprints: length, a short hash and first-seen time. There was no previous owner's pool,
+Wi-Fi (the unit has no Wi-Fi hardware) or static network setting, and no pool identity older than Mark's own
+setup. The logs do keep pool passwords in plain text across power loss, which matters only at a future handover.
+
+**Left out.** The reviewer's LOW findings as follow-ups; HS-BOX plug schedules as a possible gbox warning (the
+plug protocol can read them), noted as an idea only.
