@@ -2920,3 +2920,24 @@ the controls work. The row itself changes nothing here: an unknown model took th
 module and the 68 Node tests green, run one module at a time. No version bump: no log, CLI or API change.
 
 **Left out.** The multi-miner service, plug config for Miner 2, and the clock-code fix.
+
+**Later the same night (session AM continued).** A windstorm glitch at 17:45 dropped both miners; the SC-BOX came
+back unaided and the watchdog correctly did nothing. Mark then told the agent this PC cannot power itself back on
+(a two-switch manual start), so any outage that drops it leaves both miners unwatched. He put a Back-UPS 650 on the
+PC, pull-tested it four times, installed PowerChute (hibernate 30 s after line loss), measured the PC at 110-130 W,
+and moved the SC-BOX onto the same UPS under a gbox hold. Mark also moved a power strip by mistake at 22:45; the
+watchdog recovered the SC-BOX from a powered-but-hung state by the full ladder, as designed.
+
+**Findings that changed the plan.** The house has a Tesla Powerwall 3; its outage history matched both September PC
+shutdowns to within 30 s, so the agent's earlier "loose GFCI connection" theory (its own inference, never Mark's)
+was withdrawn. Tesla's cloud is useless in a real outage because the internet goes down with the grid, so the
+grid-down trigger must be local: the UPS's own blip at each Powerwall takeover, or a local Powerwall read. Mark
+decided the policy: on grid loss, stop both miners with their plugs left off and hibernate the PC, to save the
+Powerwall for the house; backstop at about 17%. Not built.
+
+**525 MHz.** 52.7 h at 525 showed zero steady-running hardware errors and only power-caused restarts; Mark judged
+it happier than 550 and asked for a 72 h negative-proof run. The first start was invalidated within 35 minutes by
+a supply-side dropout and a silent controller freeze, both out of clean running. Mark read the miner's syslog with
+his password in his own window; it showed no errors before either event, which argues against the clock. The agent
+had first argued that the syslog surviving meant no power loss, then found the log survives real power cuts and
+withdrew it. The run restarted at 23:53; a supply swap is the test if it recurs.
