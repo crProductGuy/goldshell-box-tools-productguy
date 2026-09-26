@@ -5,6 +5,9 @@ the same firmware and are expected to match. These are notes for owners,
 not vulnerability disclosures; nothing here is new to anyone who has read
 the firmware's own web UI.
 
+For the owner's summary, and what is still on a unit when you sell it, see
+[`security-and-privacy-weaknesses.md`](security-and-privacy-weaknesses.md).
+
 ## The password is the token, forever
 
 - Login is `GET /user/login?username=admin&password=<hex>&cipher=true`, where
