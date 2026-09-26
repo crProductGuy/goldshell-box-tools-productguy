@@ -2979,3 +2979,14 @@ setup. The logs do keep pool passwords in plain text across power loss, which ma
 
 **Left out.** The reviewer's LOW findings as follow-ups; HS-BOX plug schedules as a possible gbox warning (the
 plug protocol can read them), noted as an idea only.
+
+**Later the same session: what a seller leaves behind.** Mark asked for "a note ... called something like
+Goldshell Miner Security and Privacy Weaknesses, and record what's left that should be erased before selling
+a unit". The agent found `docs/security-notes.md` already held most of the evidence, so the new
+`docs/security-and-privacy-weaknesses.md` became the owner's summary plus a checklist. It says what can be
+cleared on the unit (pools), what cannot (saved Wi-Fi networks, which even a factory reset kept on the SC-BOX,
+and both logs), and what to change off the unit instead (the Wi-Fi password, a real pool password, the Kasa
+plug's account). Three open questions are left open, not answered: whether a factory reset clears the logs,
+whether the HS-BOX's earliest lines really hold nothing, and whether a new web password changes the shared token.
+Writing it exposed one overstatement: the agent had told Mark the HS-BOX logs held "no trace" of a previous
+owner, when a pattern search that finds nothing proves less than that. The doc says so.
