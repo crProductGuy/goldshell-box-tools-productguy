@@ -767,9 +767,16 @@ function holdLine(h) {
   const twice = "the miner hashes twice in a row" + (hold.ok_streak ? " (" + hold.ok_streak + " so far)" : "");
   return head + ": nothing is judged until " + twice + ", or " + (hold.until ? hold.minutes_left + " min pass" : "you press Release") + ".";
 }
+// The hold "why" box: while held it shows the service's reason, read-only, so every browser shows the same reminder;
+// when the hold ends (Release, expiry or auto-lift) it clears and is editable again. Null without a service: no change.
+function holdWhyState(wasHeld, h, typed) {
+  if (!h) return null;
+  if (h.hold) return { value: h.hold.reason || "", readOnly: true, held: true };
+  return { value: wasHeld ? "" : typed, readOnly: false, held: false };
+}
 if (typeof module !== "undefined") module.exports = { VERSION, hottestChip, clockLabel, newestFirst, ladderLine, encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, withMhz, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
-  powerActionRequest, holdRequest, holdReleaseRequest, holdLine, seriesRows, errorTip, resetsTip, clockTip, axisTicks, parseStamp, errorFacts, markerWords,
+  powerActionRequest, holdRequest, holdReleaseRequest, holdLine, holdWhyState,seriesRows, errorTip, resetsTip, clockTip, axisTicks, parseStamp, errorFacts, markerWords,
   markerGlyph, markerRow, dropClose, markerKind, markerTitle, chartKey, powerLine, logLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf, alarmBucket, resetsSuffix, profileFor, modelNote,
   powerTile, envRowsFrom, lastHour, recentHashrate, interventions, interventionCounts,
   parseMinerInfoBoards, boardTotals, boardRow, hottestIndex, fmtNum, fansTileText, hotsubText, fanTargetText };
@@ -833,7 +840,14 @@ async function probeService() {
   return service;
 }
 // The hold banner in the Service section, and the Power block in Controls (served only: a browser cannot speak the plug's protocol).
-function renderHold() { const t = holdLine(service); $("hold").textContent = t; $("hold").hidden = !t; }
+let holdHeld = false;   // whether the last service reading had a hold, so the "why" box clears only on the transition
+function renderHold() {
+  const t = holdLine(service); $("hold").textContent = t; $("hold").hidden = !t;
+  const box = $("holdwhy"), st = holdWhyState(holdHeld, service, box.value);
+  if (!st) return;
+  if (box.value !== st.value) box.value = st.value;   // only on a change: the poll must not disturb someone typing
+  box.readOnly = st.readOnly; holdHeld = st.held;
+}
 function renderPowerControls() {
   $("powerctl").hidden = !service;
   if (!service) return;
