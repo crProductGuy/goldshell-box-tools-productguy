@@ -76,6 +76,7 @@ dl { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:0 } dt {
 .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap } .ctrl .row { margin-top:6px }
 .ctrl select,.ctrl button { font:inherit; padding:6px 10px; border:1px solid var(--line); border-radius:6px; background:var(--surface); color:var(--ink) }
 button.act { cursor:pointer; font-weight:600 } button.danger { color:var(--critical) } button:disabled { opacity:.5; cursor:default }
+#holdwhy[readonly] { background:transparent; border-style:dashed; color:var(--ink2); cursor:default }   /* shows the running hold's reason */
 /* "what is this?" disclosures under the controls, and the Terms section */
 button.why { font:inherit; font-size:12px; padding:0; border:0; background:none; color:var(--series); cursor:pointer; margin-top:8px; display:block; text-align:left }
 button.why::before { content:"\25B8  "; font-size:11px } button.why[aria-expanded="true"]::before { content:"\25BE  "; }

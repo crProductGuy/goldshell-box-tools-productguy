@@ -394,6 +394,18 @@ const tests = {
     assert.strictEqual(app.holdLine({ hold: null }), "");
     assert.strictEqual(app.holdLine(null), "");
   },
+  "hold why box: shows the service's reason read-only while held, clears once the hold ends, leaves typing alone otherwise"() {
+    const hold = { since: "2026-09-25 23:03:21", until: null, reason: "moving the PSU", source: "page" };
+    // held: the service's reason, whatever was typed (another browser may have started the hold)
+    assert.deepStrictEqual(app.holdWhyState(false, { hold }, "typed here"), { value: "moving the PSU", readOnly: true, held: true });
+    assert.deepStrictEqual(app.holdWhyState(true, { hold: Object.assign({}, hold, { reason: "" }) }, "x"), { value: "", readOnly: true, held: true });
+    // the held -> not-held transition (Release, expiry, auto-lift): cleared and editable again
+    assert.deepStrictEqual(app.holdWhyState(true, { hold: null }, "moving the PSU"), { value: "", readOnly: false, held: false });
+    // never held: whatever is being typed stays
+    assert.deepStrictEqual(app.holdWhyState(false, { hold: null }, "about to hold"), { value: "about to hold", readOnly: false, held: false });
+    // no service (opened as a file, or a failed fetch): no information, so the box and the held flag are left as they are
+    assert.strictEqual(app.holdWhyState(true, null, "moving the PSU"), null);
+  },
   "power action requests: off and cycle ask for the password, on does not; the summary reads the plug"() {
     const service = { power: { configured: true, alias: "workbench", model: "HS110(US)", meter: true, watts: 197.3, state: "on" },
                       ladder: { settle_minutes: 20, after_minutes: 5 } };
