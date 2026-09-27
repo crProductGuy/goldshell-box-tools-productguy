@@ -40,7 +40,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import api, models
+from . import api, markers, models
 
 COLUMNS = ["time", "http", "elapsed", "mhs_av", "mhs_20s", "hwerr", "hwerr_pct", "accepted",
            "rejected", "clock", "fan0", "fan1", "tstemp0", "tstemp1", "tstemp2", "rebootcnt",
@@ -302,6 +302,9 @@ class Poller(threading.Thread):
         if watchdog is not None:
             watchdog.log_reader = self.syslog_interval > 0      # 0.10.0 B needs the log; without it B is off
         self.events = events
+        # 0.10.2: event lines for what the miner does on its own (a restart, fans running high); see gbox.markers
+        self.markers = markers.Markers(events) if events is not None else None
+        self._markers_failed = False
         self._clock = clock
         self._stop = threading.Event()
         self.latest = None          # last row written, as a dict, with "time"
@@ -462,6 +465,7 @@ class Poller(threading.Thread):
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
             row = self._sample()
+            sampled_at = self._clock()      # 0.10.2 markers: the uptime's moment, before the slower reads below
             self.samples += 1
             self.last_error = None
             if not row.get("_icinfo_locked"):
@@ -479,10 +483,12 @@ class Poller(threading.Thread):
             row["hot_peak"], row["hot_level"], row["chip_avg"] = self.read_chiptemps(now)   # a fourth request, when due
         except api.NoCredentials:
             row = {"http": "ERR:NoCredentials:waiting for a token from the dashboard"}
+            sampled_at = self._clock()
             self.errors += 1
             self.last_error = row["http"]
         except Exception as e:
             row = error_row(e)
+            sampled_at = self._clock()
             self.errors += 1
             self.last_error = row["http"]
             # 0.10.0 B: a failed sample can still leave the web backend answering (port 4028 dies about 8 min
@@ -509,6 +515,20 @@ class Poller(threading.Thread):
             self.watchdog.observe(ok, row.get("accepted"), self._clock(), hashing=ok and (row.get("mhs_20s") or 0) > 0,
                                   absent=ok and self._board_absent(row))
             self.watchdog.check()
+        if self.markers is not None:
+            try:
+                rated = models.rated_for((self.miner_status or {}).get("model")) or {}
+                self.markers.observe(row, sampled_at, rated.get("fan_max_rpm"))
+                self._markers_failed = False
+            except Exception as e:          # a marker bug must never cost a sample; one line per failure streak
+                if not self._markers_failed:
+                    # an OSError's text carries the full path on Windows and this line is served to the page
+                    why = type(e).__name__ if isinstance(e, OSError) else "%s: %s" % (type(e).__name__, e)
+                    try:
+                        self.events.write("service: event markers failed: %s" % why)
+                    except Exception:
+                        pass                # the failure may be the event log itself
+                self._markers_failed = True
         if self.scheduler is not None:
             try:
                 self.scheduler.tick()

@@ -228,7 +228,7 @@ const tests = {
     assert.match(marks[0].label, /^power: would cycle/);
     assert.strictEqual(app.markerGlyph(marks[0].label), "P");
     assert.strictEqual(app.markerGlyph("watchdog: restart #1 sent"), "W");
-    assert.strictEqual(app.markerGlyph("dashboard: clock set to 575 MHz"), "▼");
+    assert.strictEqual(app.markerGlyph("dashboard: clock set to 575 MHz"), "clock 575");   // 0.10.2: the word, as on the three-day chart
   },
   "the service line says what the plug reads, or nothing without one"() {
     assert.strictEqual(app.powerLine({ power: { configured: false } }), "");
@@ -617,16 +617,61 @@ const tests = {
     assert.strictEqual(app.markerRow("hold: released, miner back after 3 min"), null);
     assert.strictEqual(app.markerRow("watchdog: restart attempt failed: PUT mcb/restart: timed out (miner unreachable for 2 min)"), "in");
     assert.strictEqual(app.markerRow("service: started v0.7.1, miner 192.0.2.1"), "in");
-    assert.strictEqual(app.markerRow("dashboard: clock set to 550 MHz"), "in");
+    // 0.10.2: a settings change sits above the plot as its word, as on the three-day chart; other page lines stay inside
+    assert.strictEqual(app.markerRow("dashboard: clock set to 550 MHz"), "top");
+    assert.strictEqual(app.markerRow("dashboard: fan target set to 66 C (was 65)"), "top");
+    assert.strictEqual(app.markerRow("dashboard: soft restart sent"), "in");
+    assert.strictEqual(app.markerRow("dashboard: trial: step 1/1, clock set to 600 MHz, holding 6 h after 10 min settle"), "in");
+  },
+  "markerRow and markerGlyph for what the miner does on its own (0.10.2): R and F inside; caused restarts and recoveries unmarked"() {
+    const own = "miner: restarted on its own; mining uptime had been 13 h 4 min, now 11 s; unreachable for 30 s";
+    const caused = "miner: restarted after [power: cycled #3 in 24 h: off 120 s, on]; mining uptime had been 8 h 31 min, now 18 s";
+    assert.strictEqual(app.markerRow(own), "in");
+    assert.strictEqual(app.markerGlyph(own), "R");
+    assert.strictEqual(app.markerKind(own), "the miner restarted on its own");
+    assert.strictEqual(app.markerRow(caused), null);                 // the P or W line already marks it
+    assert.strictEqual(app.markerRow("fans: high, 3840 / 3900 RPM against 1260 / 1200 RPM settled in this run"), "in");
+    assert.strictEqual(app.markerGlyph("fans: high, 3840 / 3900 RPM against 1260 / 1200 RPM settled in this run"), "F");
+    assert.strictEqual(app.markerRow("fans: back to normal after 12 min (peak 4000 RPM)"), null);
+    assert.strictEqual(app.markerRow("miner: port 4028 closed or silent; reading boards from /dbg/minerinfo"), null);
+    const log = "2026-09-27 09:10:48 " + own + "\n2026-09-27 09:40:00 fans: back to normal after 2 min (peak 4000 RPM)\n" +
+      "2026-09-27 09:41:00 miner: /dbg/icinfo 401 persisted; chip-level columns blank until it answers\n";
+    assert.deepStrictEqual(app.eventMarkers(log).map(m => m.label.slice(0, 16)), ["miner: restarted", "fans: back to no"]);
+  },
+  "markerWords for the miner's own lines: self-restart and fans high on the three-day chart, nothing for the rest"() {
+    assert.strictEqual(app.markerWords("miner: restarted on its own; mining uptime had been 15 min, now 24 s"), "self-restart");
+    assert.strictEqual(app.markerWords("miner: restarted after [watchdog: restart #2 sent]; mining uptime had been 1 h 0 min"), "");
+    assert.strictEqual(app.markerWords("fans: high, 3840 RPM against 1260 RPM settled in this run"), "fans high");
+    assert.strictEqual(app.markerWords("fans: back to normal after 2 min (peak 4000 RPM)"), "");
+  },
+  "a settings change reads the same on both chart sets: the three-day chart's word is the 24-hour chart's glyph"() {
+    ["dashboard: clock set to 525 MHz (plan \"525 MHz 0.41 V 90 RPM 90 RPM\", was \"550 MHz\")",
+     "dashboard: fan target set to 66 C (was 65)", "dashboard: switched to preset 2"].forEach(l => {
+      assert.ok(/^(clock|fan|preset) \d+$/.test(app.markerWords(l)), l);
+      assert.strictEqual(app.markerGlyph(l), app.markerWords(l));
+      assert.strictEqual(app.markerKind(l), "you, from Controls");
+    });
+    assert.strictEqual(app.settingWords("dashboard: soft restart sent"), "");
+    assert.strictEqual(app.markerGlyph("dashboard: soft restart sent"), "▼");
   },
   "dropClose: one glyph per run of close marks, the first of each run kept"() {
     assert.deepStrictEqual(app.dropClose([10, 12, 15, 30, 33, 60], 6), [true, false, false, true, false, true]);
     assert.deepStrictEqual(app.dropClose([], 6), []);
     assert.deepStrictEqual(app.dropClose([5], 6), [true]);
   },
+  "keepTop: letters above the plot always win; a word that would print over a letter or another word is dropped"() {
+    // 0.10.2 review: a clock change at 100 then a power cycle at 140 kept the word and hid the P
+    assert.deepStrictEqual(app.keepTop([100, 140], [60, 0]), [false, true]);
+    assert.deepStrictEqual(app.keepTop([100, 104], [0, 60]), [true, false]);   // a P just before the word
+    // a word with room: kept; a second word inside the first one's width: dropped; one clear of it: kept
+    assert.deepStrictEqual(app.keepTop([10, 40, 75, 200], [60, 60, 60, 0]), [true, false, true, true]);
+    // letters alone behave as dropClose
+    assert.deepStrictEqual(app.keepTop([10, 12, 15, 30], [0, 0, 0, 0]), app.dropClose([10, 12, 15, 30], 6));
+    assert.deepStrictEqual(app.keepTop([], []), []);
+  },
   "chartKey, markerKind, markerTitle: one vocabulary for what the miner did to itself and what gbox did to the miner"() {
     const glyphs = app.chartKey({ bars: true, band: true });
-    assert.deepStrictEqual(glyphs.filter(i => i.glyph).map(i => i.glyph), ["▼", "W", "P", "S", "H"]);
+    assert.deepStrictEqual(glyphs.filter(i => i.glyph).map(i => i.glyph), ["▼", "W", "P", "S", "H", "R", "F", "clock 525"]);
     assert.ok(glyphs.find(i => i.glyph === "W").text.includes("soft restart"));
     assert.ok(glyphs.find(i => i.glyph === "P").text.includes("power cycle"));
     assert.ok(glyphs.find(i => i.swatch === "bar").text.startsWith("board resets"));

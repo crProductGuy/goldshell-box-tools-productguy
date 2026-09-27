@@ -177,7 +177,25 @@ Verified 2026-09-08 on the SC-BOX, from the gbox log:
 - `Device Elapsed`, `Accepted`, `Rejected`, `Hardware Errors` and
   `rebootcnt` all reset to zero on a controller restart (soft restart, power
   cycle, or the watchdog). A drop in `Device Elapsed` is the reliable sign
-  of one.
+  of one. gbox compares the implied start time (`now - Elapsed`) rather
+  than the uptime itself, so a restart behind a long outage, where the new
+  uptime is already larger than the old one, is still caught (0.10.2).
+- **The unit also restarts itself, faster than a watchdog notices.** Verified
+  2026-09-27 from a replay of the SC-BOX's log from 2026-09-05: 15 restarts
+  with no restart, cycle or page action before them (two of those across a
+  gap when gbox itself was not running, so not certain), three of them on
+  2026-09-26/27 at 525 MHz, each unreachable for 30 s to 1 min (a refused
+  connection, the draw down to about 20 W, then hashing again). That is under
+  the watchdog's two-minute unreachable rule, so until 0.10.2 they left no
+  event line. Cause not known; the miner's own log was not read for them.
+- **Fans start near full speed and ramp down.** After every restart the
+  SC-BOX's fans read 4,260 to 4,380 RPM (the rated maximum is about 4,900)
+  on a board at 43 to 51 C, falling to their settled speed (1,200 to 1,260 RPM
+  at 525 MHz) over about 15 minutes as the board warms to its target.
+  **A clock or fan-target change from the page does the same ramp without
+  resetting `Device Elapsed`:** six such surges in the same replay, each
+  within a minute of a `dashboard: clock set` or `fan target set` line, none
+  with an uptime reset. So a fan surge alone does not say the unit restarted.
 - `Accepted` can also reset without a restart when the pool connection is
   re-established, and shares per hour follow the pool's per-connection
   difficulty as much as the miner: the same unit logged 1521 and 643

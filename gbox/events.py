@@ -14,6 +14,7 @@ from pathlib import Path
 # service to know what it already did today. The whole old file becomes events.log.1, which nothing reads.
 MAX_BYTES = 5 * 1024 * 1024
 KEEP_LINES = 4000
+RECENT_LINES = 200
 
 
 class EventLog:
@@ -22,6 +23,10 @@ class EventLog:
         self.max_bytes = int(max_bytes or 0)        # 0: no rotation
         self.keep_lines = int(keep_lines)
         self._lock = threading.Lock()
+        # 0.10.2: the lines this process wrote, newest last, for per-poll readers (gbox.markers) that must not
+        # read the file every 30 s. `written` counts every line ever written, so a reader can tell new from seen.
+        self.recent = deque(maxlen=RECENT_LINES)
+        self.written = 0
 
     def _rotate(self):
         """At the cap, carry the last `keep_lines` into a fresh file and archive the whole old one as .1.
@@ -89,7 +94,18 @@ class EventLog:
                     if note:
                         f.write("%s %s\n" % (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), note))
                     f.write(line + "\n")
+            self.recent.append(line)
+            self.written += 1
         return line
+
+    def recent_since(self, seen):
+        """(the lines this process wrote after the first `seen` ones, as far as `recent` still holds them, and the
+        new `written` count). Both read under the lock, so a line written by another thread meanwhile is either
+        in the list and the count or in neither."""
+        with self._lock:
+            new = self.written - seen
+            lines = list(self.recent)[-new:] if new > 0 else []
+            return lines, self.written
 
     def tail(self, n=200):
         if not self.path or not self.path.exists():
