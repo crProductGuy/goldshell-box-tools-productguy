@@ -2990,3 +2990,36 @@ plug's account). Three open questions are left open, not answered: whether a fac
 whether the HS-BOX's earliest lines really hold nothing, and whether a new web password changes the shared token.
 Writing it exposed one overstatement: the agent had told Mark the HS-BOX logs held "no trace" of a previous
 owner, when a pattern search that finds nothing proves less than that. The doc says so.
+
+## 2026-09-27, session AO (acb66fad): the HS-BOX goes dark at 06:30 again
+
+Investigation only; no code in the repo changed.
+
+**The ask.** "check the HS BOX log. When did it go down? I cleared the schedule in the Kasa app but some other app
+must have turned it off. I powered it on manually."
+
+**When.** The miner's open API only gives time since the last start (10:53:57, when Mark switched it on). The
+off time needed the miner's own log, so Mark ran session AN's read-only script in his own window. The log writes a
+line every 5 seconds and stops at 06:29:57, with the last accepted share at 06:29:42 and no error first: a power
+cut at 06:30, down about 4 h 24 min. Mark's pool graphs suggested 06:40. The agent held to 06:30: a pool
+estimates hashrate from shares averaged over a window, so a drop shows up a bucket late.
+
+**Where from.** The plug held no rules at all: schedule, countdown and away mode empty. The agent first read that
+as an outside command and listed cloud automations and LAN devices. Mark ruled them out one by one: no Alexa
+knowledge of the plug, no Smart Actions, no IFTTT, Google Home, HomeKit or SmartThings, and his second phone's
+Kasa app is not signed in. gbox itself was ruled out from its own event log. Then Mark supplied the fact that
+settled the direction: 06:30 was his own rule, set months ago to switch off a UV lamp run overnight in the
+basement against mildew, and deleted midday on 09-26. The lead hypothesis became a deleted rule that still fires
+from somewhere. It is inferred, not proven.
+
+**Pushback.** Mark said the plug was "just a dumb relay controlled by the API". The agent disagreed with evidence
+read from the plug: it answers with its own rule table, keeps its own clock and time zone, and holds its own
+connection to TP-Link's cloud, which is how the app reaches it over mobile data.
+
+**Built outside the repo.** A read-only watcher, run once by a Windows scheduled task from 06:15 to 06:40 on
+09-28, logs the plug's relay, uptime, rule lists and cloud link and the miner's uptime every 15 seconds, then
+deletes its own task. It was tested for 45 seconds before being scheduled.
+
+**Deferred.** A new page, `docs/kasa-plugs.md`, on how this plug series works, with the 06:30 story as its worked
+example. Mark chose a separate page over a section in `power-cycle.md`. It waits for the 09-28 result so the
+story has its real ending.
