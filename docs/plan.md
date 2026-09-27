@@ -79,6 +79,7 @@ goldshell-box-tools-productguy/
 │   ├── watchdog.py          stall rules, capped soft restarts, the power rung (dry run by default)
 │   ├── plug.py              smart plug drivers (Kasa legacy), LAN discovery, the driver interface
 │   ├── events.py            the event log (one line per thing the tools did)
+│   ├── markers.py           lines for what the miner does on its own: a restart, fans running high (0.10.2)
 │   ├── trials.py            log.csv -> runs per clock and fan target -> table; run_trial (the unattended runner)
 │   ├── server.py            static, CSV, events, trials table, trial progress, token hand-off, event line, plug state; 127.0.0.1
 │   ├── cli.py               init | status | chips | plan | fantarget | restart | trials [run] | power ... | serve
@@ -91,6 +92,7 @@ goldshell-box-tools-productguy/
 │   ├── test_api.py          session lock, 401 retry, re-login
 │   ├── test_parsers.py      minerinfo / icinfo / setting fixtures (sanitized)
 │   ├── test_poller.py       one sample to CSV, error rows, header migration, config round trip
+│   ├── test_markers.py      restart and fans-high rules on synthetic runs; the poller's wiring and failure guard
 │   ├── test_watchdog.py     stall detection with a fake clock, caps, gaps; the power rung's five conditions
 │   ├── test_plug.py         the Kasa driver against the fake plug: framing, meter shapes, cycle, discovery
 │   ├── test_config.py       the optional power block: defaults, validation, round trip

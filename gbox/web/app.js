@@ -310,18 +310,27 @@ function describeRequest(base, req) {
 function eventMarkers(text) {
   const out = [];
   (text || "").split(/\r?\n/).forEach(line => {
-    const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) ((?:dashboard|watchdog|power|hold): .*|service: started .*)$/.exec(line);
+    const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) ((?:dashboard|watchdog|power|hold|fans): .*|miner: restarted .*|service: started .*)$/.exec(line);
     if (m) out.push({ t: new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime(), label: m[7] });
   });
   return out;
 }
 // Which glyph row an event line sits on, on the 24-hour charts: "top" (above the plot: P for a plug cycle or a
-// deliberate switch from the page, H for a hold's start), "in" (inside the top edge: ▼ W S), or null for a line
-// that gets no mark at all (plug back or unreachable, a hold's release: they stay in the interventions table).
+// deliberate switch from the page, H for a hold's start, and a settings change as its word, "clock 525"), "in"
+// (inside the top edge: ▼ W S R F), or null for a line that gets no mark at all (plug back or unreachable, a hold's
+// release, fans back to normal, a restart gbox caused and already marked: they stay in the interventions table).
 function markerRow(label) {
   if (label.startsWith("power: ")) return /^power: (cycled|switched)/.test(label) ? "top" : null;
   if (label.startsWith("hold: ")) return label.startsWith("hold: started") ? "top" : null;
+  if (label.startsWith("miner: ")) return label.startsWith("miner: restarted on its own") ? "in" : null;
+  if (label.startsWith("fans: ")) return label.startsWith("fans: high") ? "in" : null;
+  if (settingWords(label)) return "top";
   return "in";
+}
+// A settings change from the page as the same word the three-day chart uses ("clock 525", "fan 66", "preset 2"), or "".
+function settingWords(label) {
+  const w = /^dashboard: (clock set|fan target set|switched to preset)/.test(label) ? markerWords(label) : "";
+  return /^(clock|fan|preset) \d/.test(w) ? w : "";
 }
 // Glyphs closer than minGap px to the previous kept glyph are dropped (their lines stay), so a storm reads as one
 // letter over a comb of lines. Returns one boolean per x, in order.
@@ -329,20 +338,42 @@ function dropClose(xs, minGap) {
   let last = -Infinity;
   return xs.map(x => { if (x - last < minGap) return false; last = x; return true; });
 }
+// The row above the plot holds letters (P, H) and words ("clock 525", `widths` px wide; 0 for a letter). Letters are
+// kept as dropClose keeps them and always win: a word that would print over a kept letter, or over the word before
+// it, is dropped instead (its line and hover title stay). A P after a clock change is the mark that matters.
+function keepTop(xs, widths) {
+  const out = xs.map(() => false), letters = xs.map((x, i) => i).filter(i => !widths[i]);
+  dropClose(letters.map(i => xs[i]), 6).forEach((k, j) => { out[letters[j]] = k; });
+  const kept = letters.filter(i => out[i]).map(i => xs[i]);
+  let end = -Infinity;
+  xs.forEach((x, i) => {
+    if (!widths[i] || x < end || kept.some(g => g > x - 10 && g < x + widths[i])) return;
+    out[i] = true; end = x + widths[i];
+  });
+  return out;
+}
 function markerGlyph(label) {
-  return label.startsWith("service") ? "S" : label.startsWith("power") ? "P" : label.startsWith("watchdog") ? "W" : label.startsWith("hold") ? "H" : "▼";
+  const w = settingWords(label);
+  if (w) return w;
+  return label.startsWith("service") ? "S" : label.startsWith("power") ? "P" : label.startsWith("watchdog") ? "W" : label.startsWith("hold") ? "H"
+    : label.startsWith("miner: restarted") ? "R" : label.startsWith("fans: ") ? "F" : "▼";
 }
 // One vocabulary, used by the key under every chart, the marker hover titles, the explainer and the Terms section:
 // a board reset is the miner's own doing (drawn as bars, never a marker); a soft restart (W, or ▼ when you pressed it)
 // and a power cycle (P) are what gbox did to the miner. Same order as the ladder.
-const MARKER_KEY = [["▼", "you, from Controls"], ["W", "watchdog soft restart"], ["P", "plug power cycle"], ["S", "service start"], ["H", "hold"]];
+const MARKER_KEY = [["▼", "you, from Controls"], ["W", "watchdog soft restart"], ["P", "plug power cycle"], ["S", "service start"], ["H", "hold"],
+  ["R", "the miner restarted on its own"], ["F", "fans running high"]];
 function markerKind(label) { const g = markerGlyph(label); return (MARKER_KEY.find(k => k[0] === g) || MARKER_KEY[0])[1]; }
 function markerTitle(t, label) { return new Date(t).toLocaleTimeString() + " · " + markerKind(label) + " · " + label; }
 // The key's items for a chart: marker glyphs (or one line about worded labels), the resets bar swatch, the alarm band swatch.
 function chartKey(opts) {
   const o = opts || {}, items = [];
-  if (o.words) items.push({ text: "labels: what you or the plug did, by name" });
-  else { MARKER_KEY.forEach(k => items.push({ glyph: k[0], text: k[1] })); items.push({ text: "P and H sit above the plot, ▼ W S inside its top edge; a run of the same mark shows one letter" }); }
+  if (o.words) items.push({ text: "labels: what you, the plug or the miner did, by name" });
+  else {
+    MARKER_KEY.forEach(k => items.push({ glyph: k[0], text: k[1] }));
+    items.push({ glyph: "clock 525", text: "a setting you changed, and its new value (fan target and preset the same)" });
+    items.push({ text: "P, H and settings sit above the plot, ▼ W S R F inside its top edge; a run of the same mark shows one letter" });
+  }
   if (o.bars) items.push({ swatch: "bar", text: "board resets: the miner reinitializing its own hashboard; nothing gbox did" });
   if (o.band) items.push({ swatch: "band", text: "alarm: a board reset, or bad share over 1%, in that bucket" });
   if (o.temps) {      // the temperature panel's three series and its guide line, hottest last, as the plan's colour table
@@ -716,6 +747,10 @@ function markerWords(label) {
   // the watchdog's own restarts and service starts are many on a bad day and already read from the reset bars and
   // the interventions table; on the worded chart they would bury the owner's own actions
   if (/^watchdog: /.test(label) || /^service: /.test(label)) return "";
+  // the miner's own restarts count for a clock trial; one gbox caused is already marked by its own line
+  if (/^miner: restarted on its own/.test(label)) return "self-restart";
+  if (/^fans: high/.test(label)) return "fans high";
+  if (/^(miner|fans): /.test(label)) return "";
   if (/^hold: started/.test(label)) return "hold";
   if (/^dashboard: /.test(label)) return "note";
   return "";
@@ -737,7 +772,7 @@ function axisTicks(spanMin, now, wide) {
   }
   return { tickEvery: 60, labels: labels };
 }
-const VERSION = "0.10.1";
+const VERSION = "0.10.2";
 // The wall-clock time under a chart's "now" label: 24-hour, minutes only, so the last refresh reads at a glance.
 function clockLabel(t) { const d = new Date(t); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
 // The service log as the page shows it: newest line on top, like the interventions table, so a short window shows what matters.
@@ -777,7 +812,7 @@ function holdWhyState(wasHeld, h, typed) {
 if (typeof module !== "undefined") module.exports = { VERSION, hottestChip, clockLabel, newestFirst, ladderLine, encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, withMhz, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
   powerActionRequest, holdRequest, holdReleaseRequest, holdLine, holdWhyState, seriesRows, errorTip, resetsTip, clockTip, axisTicks, parseStamp, errorFacts, markerWords,
-  markerGlyph, markerRow, dropClose, markerKind, markerTitle, chartKey, powerLine, logLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf, alarmBucket, resetsSuffix, profileFor, modelNote,
+  markerGlyph, markerRow, settingWords, dropClose, keepTop, markerKind, markerTitle, chartKey, powerLine, logLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf, alarmBucket, resetsSuffix, profileFor, modelNote,
   powerTile, envRowsFrom, lastHour, recentHashrate, interventions, interventionCounts,
   parseMinerInfoBoards, boardTotals, boardRow, hottestIndex, fmtNum, fansTileText, hotsubText, fanTargetText };
 
@@ -1294,7 +1329,9 @@ function drawPanels(box, panels, rows, spanMin, now, tipText, aria, opts) {
   // keeping one letter per run of close marks (dropClose); the worded chart keeps its rotated words
   const rowOf = marks.map(m => o.words ? "words" : markerRow(m.label));
   const keep = {};
-  ["top", "in"].forEach(row => { const idx = marks.map((m, i) => i).filter(i => rowOf[i] === row); dropClose(idx.map(i => xOf(marks[i].t)), 6).forEach((k, j) => { keep[idx[j]] = k; }); });
+  const wide = i => { const g = markerGlyph(marks[i].label); return g.length > 1 ? g.length * 6 + 6 : 0; };   // a word's rough width at 10 px
+  ["top", "in"].forEach(row => { const idx = marks.map((m, i) => i).filter(i => rowOf[i] === row), xs = idx.map(i => xOf(marks[i].t));
+    (row === "top" ? keepTop(xs, idx.map(wide)) : dropClose(xs, 6)).forEach((k, j) => { keep[idx[j]] = k; }); });
   marks.forEach((m, i) => {
     const xx = xOf(m.t), row = rowOf[i], words = o.words ? markerWords(m.label) : null;
     if (!row) return;                                   // a line that gets no mark on this chart
@@ -1305,7 +1342,7 @@ function drawPanels(box, panels, rows, spanMin, now, tipText, aria, opts) {
     if (o.words) {                                      // words, rotated, on the side away from a close neighbour
       const side = xx - lastMarkX < 14 ? 11 : -3; lastMarkX = xx;
       s += "<text class=\"marklbl words\" x=\"" + (xx + side).toFixed(1) + "\" y=\"" + (T - 6) + "\" text-anchor=\"end\" transform=\"rotate(-90 " + (xx + side).toFixed(1) + " " + (T - 6) + ")\">" + esc(words) + "</text>";
-    } else if (keep[i]) s += "<text class=\"marklbl\" x=\"" + (xx + 3).toFixed(1) + "\" y=\"" + (row === "top" ? T - 12 : T + 4) + "\">" + markerGlyph(m.label) + "</text>";
+    } else if (keep[i]) s += "<text class=\"marklbl\" x=\"" + (xx + 3).toFixed(1) + "\" y=\"" + (row === "top" ? T - 12 : T + 4) + "\">" + esc(markerGlyph(m.label)) + "</text>";
   });
   const id = box.id;
   s += "<line class=\"cross\" id=\"" + id + "-cx\" y1=\"" + T + "\" y2=\"" + y0 + "\" style=\"display:none\"/></svg><div class=\"tip\" id=\"" + id + "-tip\"></div>";
