@@ -3062,4 +3062,10 @@ pushed, tagged v0.10.2, service restarted at Mark's word.
 
 **Left for later.** A clock panel on the 24-hour hashrate chart, the gap the chart audit rated most confusing;
 board-reset bars on the hashrate and watts charts; a "fan stopped" marker; fans beyond the two columns log.csv
-carries. What caused the three silent reboots is still unknown; the miner's own log was not read for them.
+carries.
+
+**Later the same evening: 0.10.3.** Mark: "add the clock panel to the 24-hour hashrate chart". The panel is the
+three-day chart's, built by one shared function so the two cannot drift apart. `niceMax` moved into the data layer
+so the panel could be unit-tested. The page change went live on merge, and a browser-checker confirmed the panel,
+its tooltip and the unchanged three-day chart. The service was not restarted, because the Python code is identical
+apart from the version string. What caused the three silent reboots is still unknown; the miner's own log was not read for them.
