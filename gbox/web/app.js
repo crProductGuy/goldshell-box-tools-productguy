@@ -713,6 +713,16 @@ function resetsTip(row, bucketMin) {
   const bad = row.bad == null ? "" : " · bad " + nfmt(row.bad) + " of " + nfmt(row.good + row.bad) + " (" + nfmt(row.share, 2) + "%)";
   return win + " · " + (row.resets == null ? "resets need a previous sample" : nfmt(row.resets) + " board reset" + (row.resets === 1 ? "" : "s")) + bad + (row.clock == null ? "" : " · " + nfmt(row.clock) + " MHz");
 }
+// The clock panel both served charts draw under their main panel (the three-day errors chart since 0.7.x, the 24-hour
+// hashrate chart since 0.10.3): the clock as a filled step, on an axis from 300 MHz when every reading is 400 or more,
+// so a 25 MHz trial step is visible rather than a sliver at the top of a 0-800 axis.
+// An axis top: `v` rounded up to a half step of its decade (moved into the data layer in 0.10.3 for clockPanel's tests).
+function niceMax(v) { const p = Math.pow(10, Math.floor(Math.log10(Math.max(v, 1)))); return Math.ceil(v / p * 2) / 2 * p; }
+function clockPanel(rows, bucketMin) {
+  const clocks = rows.map(r => r.clock).filter(v => v !== null && v !== undefined && !isNaN(v));
+  const max = niceMax(Math.max.apply(null, clocks.concat([0])) * 1.1) || 800, min = clocks.length && Math.min.apply(null, clocks) >= 400 ? 300 : 0;
+  return { label: "MHz", min: min, max: max, step: (max - min) / 4, series: [["clock", "s3", "clock", { step: true, fill: true }]], rated: null, tip: best => clockTip(best, bucketMin) };
+}
 function clockTip(row, bucketMin) {
   const win = bucketWindow(row, bucketMin);
   if (!row.ok) return win + " · no samples";
@@ -772,7 +782,7 @@ function axisTicks(spanMin, now, wide) {
   }
   return { tickEvery: 60, labels: labels };
 }
-const VERSION = "0.10.2";
+const VERSION = "0.10.3";
 // The wall-clock time under a chart's "now" label: 24-hour, minutes only, so the last refresh reads at a glance.
 function clockLabel(t) { const d = new Date(t); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
 // The service log as the page shows it: newest line on top, like the interventions table, so a short window shows what matters.
@@ -811,7 +821,7 @@ function holdWhyState(wasHeld, h, typed) {
 }
 if (typeof module !== "undefined") module.exports = { VERSION, hottestChip, clockLabel, newestFirst, ladderLine, encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, withMhz, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
-  powerActionRequest, holdRequest, holdReleaseRequest, holdLine, holdWhyState, seriesRows, errorTip, resetsTip, clockTip, axisTicks, parseStamp, errorFacts, markerWords,
+  powerActionRequest, holdRequest, holdReleaseRequest, holdLine, holdWhyState, seriesRows, errorTip, resetsTip, clockTip, clockPanel, axisTicks, parseStamp, errorFacts, markerWords,
   markerGlyph, markerRow, settingWords, dropClose, keepTop, markerKind, markerTitle, chartKey, powerLine, logLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf, alarmBucket, resetsSuffix, profileFor, modelNote,
   powerTile, envRowsFrom, lastHour, recentHashrate, interventions, interventionCounts,
   parseMinerInfoBoards, boardTotals, boardRow, hottestIndex, fmtNum, fansTileText, hotsubText, fanTargetText };
@@ -1090,7 +1100,6 @@ function renderChips(boards, minutes) {
   });
 }
 
-function niceMax(v) { const p = Math.pow(10, Math.floor(Math.log10(Math.max(v, 1)))); return Math.ceil(v / p * 2) / 2 * p; }
 // Right-hand axis in percent of a rated figure: ticks at 0/25/50/75/100 that fall inside the panel, and a title.
 function rightAxis(xR, y, titleY, max, rated, title) {
   let s = "";
@@ -1201,11 +1210,10 @@ function renderErrors() {
   const rows = seriesRows(series72), now = Date.now(), spanMin = ERR_SPAN, bm = series72.bucket_minutes;
   if (rows.filter(r => r.ok).length < 2) { box.innerHTML = "<p class=\"note\">no logger samples in this window yet</p>"; return; }
   const mx = k => Math.max.apply(null, rows.map(r => r[k]).filter(v => v !== null && v !== undefined).concat([0]));
-  const shareMax = niceMax(Math.max(mx("share"), mx("worst_share"), 0.5) * 1.05), clockMax = niceMax(mx("clock") * 1.1) || 800, resetMax = niceMax(Math.max(mx("resets"), 4) * 1.1);
-  const clocks = rows.map(r => r.clock).filter(v => v !== null && v !== undefined), clockMin = clocks.length && Math.min.apply(null, clocks) >= 400 ? 300 : 0;
+  const shareMax = niceMax(Math.max(mx("share"), mx("worst_share"), 0.5) * 1.05), resetMax = niceMax(Math.max(mx("resets"), 4) * 1.1);
   const panels = [
     { label: "% bad", min: 0, max: shareMax, step: shareMax / 4, series: [["share", "", "all chips"], ["worst_share", "s2", "worst chip"]], rated: null, tip: best => errorTip(best, bm) },
-    { label: "MHz", min: clockMin, max: clockMax, step: (clockMax - clockMin) / 4, series: [["clock", "s3", "clock", { step: true, fill: true }]], rated: null, tip: best => clockTip(best, bm) },
+    clockPanel(rows, bm),
     { label: "resets", min: 0, max: resetMax, step: resetMax / 4, series: [], bars: "resets", rated: null, tip: best => resetsTip(best, bm) } ];
   const opts = Object.assign(servedOpts(box, spanMin, bm), { words: true, band: alarmBucket });
   drawPanels(box, panels, rows, spanMin, now, best => errorTip(best, bm), "errors over three days", opts);
@@ -1233,10 +1241,12 @@ function renderHashrateSeries() {
   const [unit, div] = hashUnit(Math.max.apply(null, vals)), rated = ratedFor(lastModel), ratedV = rated ? rated.rated_mhs / div : null;
   const scaled = rows.map(r => Object.assign({}, r, { h: r.hashrate === null || r.hashrate === undefined ? null : r.hashrate / div }));
   const yMax = niceMax(Math.max(Math.max.apply(null, vals) / div * 1.05, ratedV ? ratedV * 1.1 : 0));
-  drawPanels(box, [{ label: unit, min: 0, max: yMax, step: yMax / 4, series: [["h", "", unit]], rated: ratedV ? { value: ratedV, title: "% of rated" } : null }], scaled, spanMin, now,
+  // 0.10.3: the clock under the hashrate, as on the three-day chart: a hashrate step reads at once as a clock change or not
+  drawPanels(box, [{ label: unit, min: 0, max: yMax, step: yMax / 4, series: [["h", "", unit]], rated: ratedV ? { value: ratedV, title: "% of rated" } : null },
+    clockPanel(scaled, series24.bucket_minutes)], scaled, spanMin, now,
     best => clockLabel(best.t) + " · " + (best.h === null ? "no samples" : fmt(best.h, div === 1 ? 0 : 1) + " " + unit + (ratedV ? " (" + fmt(100 * best.h / ratedV) + "% of rated)" : "")) + resetsSuffix(best),
     "hashrate over 24 hours", servedOpts(box, spanMin, series24.bucket_minutes));
-  $("hashsub").textContent = "last 24 hours from the gbox service log, 5-minute means of the miner's 20 s reading; the tiles above are live";
+  $("hashsub").textContent = "last 24 hours from the gbox service log, 5-minute means of the miner's 20 s reading, with the clock under it; the tiles above are live";
   renderKey("hashkey", { band: true });
 }
 // The window both log charts share: as far back as the miner's own hashrate buffer reaches, at least an hour.
