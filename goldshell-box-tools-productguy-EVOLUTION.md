@@ -3075,3 +3075,30 @@ restarted and 0.10.3 pushed and tagged.
 deferred table, not the code, because the model table records no clock for any model. Mark confirmed the SC-BOX's
 725 MHz, the clock it ran after a factory reset, as the 100% mark, and the other models' figures are to come from
 their owners. What caused the three silent reboots is still unknown; the miner's own log was not read for them.
+
+## 2026-09-27 late evening, session AQ (9e8e8d86): a line for a fan that stops (0.10.4)
+
+Mark: "push it. add the 'fan stopped' marker, then stop for the evening." The push was session AP's evolution
+entry. Of the chart and marker items left open, the agent recommended this one first, because it is the only one
+that catches a hardware fault; the others are presentation.
+
+**The gap.** The fans-high rule judges only fans that are turning, so a fan at 0 RPM never reaches it. Nothing in
+gbox would have said a word about a dead fan, and on an air-cooled box that is the fault that cooks a board.
+
+**Checked before building.** In 61,219 hashing samples since 09-05 neither fan read 0, and the lowest reading was
+1,140 RPM. So the line sits at 300 RPM, far from anything seen in normal running, and it needs no settle window: the
+firmware starts its fans near full speed, so a fan at 0 is wrong at any uptime.
+
+**The rule.** A fan under 300 RPM on two hashing polls in a row writes `fans: fanN stopped while hashing`, with
+the other fan's speed and the board temperature. When it turns again, a second line says after how long. Three
+choices keep it quiet when nothing is wrong:
+- Only a fan seen turning since the service started is judged, so a one-fan model's empty second column is silent.
+- The miner must be hashing. The known cold-start failure spins the fans down with the hashboard dead, and that
+  is the watchdog's business, not this line's.
+- The episode lasts until the fan turns again, across restarts and outages, so a fan that stays dead writes one
+  line, not one per boot.
+
+**Verified.** 11 new Python tests and one page test; with the rule switched off, the six that expect a line fail.
+A replay of all 62,918 rows of the real log wrote no stopped line and the same 71 restarts as before. On the page
+it is the F marker ("fans running high, or a fan stopped"), the words "fan stopped" on the three-day chart, and a
+Terms entry.

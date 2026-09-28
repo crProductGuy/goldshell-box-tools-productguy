@@ -286,6 +286,96 @@ class FansTest(Base):
         self.assertEqual(len(self.lines("fans: high")), 1)         # and the new level is not flagged again
 
 
+def hashing(elapsed, fan0=1260, fan1=1200, mhs=680000.0, **kw):
+    row = ok(elapsed, fan0, fan1, **kw)
+    row["mhs_20s"] = mhs
+    return row
+
+
+class FanStoppedTest(Base):
+    """0.10.4: a fan under STOPPED_RPM while hashing."""
+
+    def run_for(self, t, el, n, **kw):
+        for i in range(n):
+            self.feed(t + i * 30, hashing(el + i * 30, **kw))
+        return t + n * 30, el + n * 30
+
+    def test_a_stopped_fan_writes_one_line_after_two_polls(self):
+        t, el = self.run_for(T0, 600, 4)
+        self.feed(t, hashing(el, fan1=0))
+        self.assertEqual(self.lines("fans:"), [])
+        self.run_for(t + 30, el + 30, 20, fan1=0)
+        [line] = self.lines("fans:")
+        self.assertEqual(line[20:], "fans: fan1 stopped while hashing, 0 RPM; fan0 at 1260 RPM; board 63 C")
+
+    def test_turning_again_says_how_long(self):
+        t, el = self.run_for(T0, 600, 4)
+        t, el = self.run_for(t, el, 20, fan0=0)            # stopped line at the second of these
+        self.feed(t, hashing(el, fan0=1300))
+        self.assertEqual(self.lines("fans: fan0 turning again")[0][20:], "fans: fan0 turning again after 9 min, 1300 RPM")
+
+    def test_one_zero_reading_writes_nothing(self):
+        t, el = self.run_for(T0, 600, 4)
+        self.feed(t, hashing(el, fan0=0))
+        self.run_for(t + 30, el + 30, 10)
+        self.assertEqual(self.lines("fans:"), [])
+
+    def test_a_fan_never_seen_turning_is_not_judged(self):
+        # a one-fan model: the second column reads 0 for ever
+        self.run_for(T0, 600, 40, fan1=0)
+        self.assertEqual(self.lines("fans:"), [])
+
+    def test_not_hashing_is_not_this_rules_business(self):
+        # the known cold-start failure: controller up, hashboard dead, fans spinning down
+        t, el = self.run_for(T0, 600, 4)
+        self.run_for(t, el, 20, fan0=0, fan1=0, mhs=0.0)
+        self.assertEqual(self.lines("fans:"), [])
+
+    def test_a_non_hashing_poll_breaks_the_run(self):
+        t, el = self.run_for(T0, 600, 4)
+        for i in range(10):
+            self.feed(t + i * 30, hashing(el + i * 30, fan1=0, mhs=680000.0 if i % 2 else 0.0))
+        self.assertEqual(self.lines("fans:"), [])
+
+    def test_a_fan_that_stays_dead_across_a_restart_writes_one_line(self):
+        t, el = self.run_for(T0, 3600, 4)
+        t, el = self.run_for(t, el, 4, fan1=0)
+        for i in range(4):
+            self.feed(t + i * 30, ERR)
+        self.run_for(t + 120, 20, 10, fan1=0)
+        self.assertEqual(len(self.lines("fans: fan1 stopped")), 1)
+        self.assertEqual(len(self.lines("miner: restarted")), 1)
+
+    def test_judged_without_an_uptime(self):
+        t, el = self.run_for(T0, 600, 4)
+        for i in range(2):
+            row = hashing(0, fan0=0)
+            del row["elapsed"]
+            self.feed(t + i * 30, row)
+        self.assertEqual(len(self.lines("fans: fan0 stopped")), 1)
+
+    def test_mhs_av_counts_when_the_20_second_rate_is_missing(self):
+        t, el = self.run_for(T0, 600, 4)
+        for i in range(2):
+            row = ok(el + i * 30, fan0=0)
+            row["mhs_av"] = 680000.0
+            self.feed(t + i * 30, row)
+        self.assertEqual(len(self.lines("fans: fan0 stopped")), 1)
+
+    def test_a_stopped_fan_is_not_also_high_and_does_not_skew_the_baseline(self):
+        t, el = self.settle()
+        for i in range(120):
+            row = ok(el + i * 30, fan1=0)
+            row["mhs_20s"] = 680000.0
+            self.feed(t + i * 30, row)
+        self.assertEqual([l[20:26] for l in self.lines("fans:")], ["fans: "])
+        self.assertEqual(self.lines("fans: high"), [])
+
+    def test_a_malformed_row_does_not_raise(self):
+        self.feed(T0, {"http": "ok", "elapsed": 600, "fan0": "x", "fan1": None, "mhs_20s": "y"})
+        self.assertEqual(self.lines("fans:"), [])
+
+
 class HelpersTest(unittest.TestCase):
     def test_duration(self):
         self.assertEqual(markers.duration(45), "45 s")

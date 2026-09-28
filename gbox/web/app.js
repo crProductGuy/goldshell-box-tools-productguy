@@ -318,12 +318,12 @@ function eventMarkers(text) {
 // Which glyph row an event line sits on, on the 24-hour charts: "top" (above the plot: P for a plug cycle or a
 // deliberate switch from the page, H for a hold's start, and a settings change as its word, "clock 525"), "in"
 // (inside the top edge: ▼ W S R F), or null for a line that gets no mark at all (plug back or unreachable, a hold's
-// release, fans back to normal, a restart gbox caused and already marked: they stay in the interventions table).
+// release, fans back to normal or turning again, a restart gbox caused and already marked: they stay in the interventions table).
 function markerRow(label) {
   if (label.startsWith("power: ")) return /^power: (cycled|switched)/.test(label) ? "top" : null;
   if (label.startsWith("hold: ")) return label.startsWith("hold: started") ? "top" : null;
   if (label.startsWith("miner: ")) return label.startsWith("miner: restarted on its own") ? "in" : null;
-  if (label.startsWith("fans: ")) return label.startsWith("fans: high") ? "in" : null;
+  if (label.startsWith("fans: ")) return /^fans: (high|fan\d+ stopped)/.test(label) ? "in" : null;
   if (settingWords(label)) return "top";
   return "in";
 }
@@ -362,7 +362,7 @@ function markerGlyph(label) {
 // a board reset is the miner's own doing (drawn as bars, never a marker); a soft restart (W, or ▼ when you pressed it)
 // and a power cycle (P) are what gbox did to the miner. Same order as the ladder.
 const MARKER_KEY = [["▼", "you, from Controls"], ["W", "watchdog soft restart"], ["P", "plug power cycle"], ["S", "service start"], ["H", "hold"],
-  ["R", "the miner restarted on its own"], ["F", "fans running high"]];
+  ["R", "the miner restarted on its own"], ["F", "fans running high, or a fan stopped"]];
 function markerKind(label) { const g = markerGlyph(label); return (MARKER_KEY.find(k => k[0] === g) || MARKER_KEY[0])[1]; }
 function markerTitle(t, label) { return new Date(t).toLocaleTimeString() + " · " + markerKind(label) + " · " + label; }
 // The key's items for a chart: marker glyphs (or one line about worded labels), the resets bar swatch, the alarm band swatch.
@@ -760,6 +760,7 @@ function markerWords(label) {
   // the miner's own restarts count for a clock trial; one gbox caused is already marked by its own line
   if (/^miner: restarted on its own/.test(label)) return "self-restart";
   if (/^fans: high/.test(label)) return "fans high";
+  if (/^fans: fan\d+ stopped/.test(label)) return "fan stopped";
   if (/^(miner|fans): /.test(label)) return "";
   if (/^hold: started/.test(label)) return "hold";
   if (/^dashboard: /.test(label)) return "note";
@@ -782,7 +783,7 @@ function axisTicks(spanMin, now, wide) {
   }
   return { tickEvery: 60, labels: labels };
 }
-const VERSION = "0.10.3";
+const VERSION = "0.10.4";
 // The wall-clock time under a chart's "now" label: 24-hour, minutes only, so the last refresh reads at a glance.
 function clockLabel(t) { const d = new Date(t); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
 // The service log as the page shows it: newest line on top, like the interventions table, so a short window shows what matters.

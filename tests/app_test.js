@@ -658,6 +658,16 @@ const tests = {
     assert.strictEqual(app.markerWords("fans: high, 3840 RPM against 1260 RPM settled in this run"), "fans high");
     assert.strictEqual(app.markerWords("fans: back to normal after 2 min (peak 4000 RPM)"), "");
   },
+  "a stopped fan (0.10.4): F inside the top edge, 'fan stopped' on the three-day chart; turning again unmarked"() {
+    const stopped = "fans: fan1 stopped while hashing, 0 RPM; fan0 at 1260 RPM; board 63 C";
+    const again = "fans: fan1 turning again after 9 min, 1300 RPM";
+    assert.strictEqual(app.markerRow(stopped), "in");
+    assert.strictEqual(app.markerGlyph(stopped), "F");
+    assert.strictEqual(app.markerKind(stopped), "fans running high, or a fan stopped");
+    assert.strictEqual(app.markerWords(stopped), "fan stopped");
+    assert.strictEqual(app.markerRow(again), null);
+    assert.strictEqual(app.markerWords(again), "");
+  },
   "a settings change reads the same on both chart sets: the three-day chart's word is the 24-hour chart's glyph"() {
     ["dashboard: clock set to 525 MHz (plan \"525 MHz 0.41 V 90 RPM 90 RPM\", was \"550 MHz\")",
      "dashboard: fan target set to 66 C (was 65)", "dashboard: switched to preset 2"].forEach(l => {
