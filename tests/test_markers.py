@@ -312,7 +312,37 @@ class FanStoppedTest(Base):
         t, el = self.run_for(T0, 600, 4)
         t, el = self.run_for(t, el, 20, fan0=0)            # stopped line at the second of these
         self.feed(t, hashing(el, fan0=1300))
-        self.assertEqual(self.lines("fans: fan0 turning again")[0][20:], "fans: fan0 turning again after 9 min, 1300 RPM")
+        self.assertEqual(self.lines("fans: fan0 turning"), [])      # one good reading is not a recovery
+        self.feed(t + 30, hashing(el + 30, fan0=1300))
+        self.assertEqual(self.lines("fans: fan0 turning again")[0][20:], "fans: fan0 turning again after 10 min, 1300 RPM")
+
+    def test_a_flickering_fan_writes_one_pair_not_a_pair_a_minute(self):
+        # review of 0.10.4: 0, 0, 1200 repeated wrote a pair every three polls
+        t, el = self.run_for(T0, 600, 4)
+        for i in range(240):
+            f = 0 if i % 4 in (0, 1) else 1200
+            self.feed(t + i * 30, hashing(el + i * 30, fan1=f))
+        most = 120 // markers.REARM_MINUTES                             # two hours: at most one per REARM_MINUTES
+        self.assertLessEqual(len(self.lines("fans: fan1 stopped")), most)   # was 60 before the re-arm
+        self.assertLessEqual(len(self.lines("fans:")), 2 * most)
+
+    def test_nan_and_inf_readings_are_no_reading(self):
+        # review of 0.10.4: NaN counted as low, then raised in the line's formatting
+        t, el = self.run_for(T0, 600, 4)
+        for i, v in enumerate((float("nan"), float("nan"), float("inf"), float("inf"))):
+            self.feed(t + i * 30, hashing(el + i * 30, fan1=v))
+        self.run_for(t + 120, el + 120, 4)
+        self.assertEqual(self.lines("fans:"), [])
+
+    def test_a_stalling_fan_stays_out_of_the_high_baseline(self):
+        # review of 0.10.4: 100 RPM readings entered the median and made the recovery read as "high"
+        t, el = self.settle(fan0=1260, fan1=1260)
+        for i in range(8 * 120):
+            self.feed(t + i * 30, ok(el + i * 30, fan0=1260, fan1=100))
+        t, el = t + 8 * 3600, el + 8 * 3600
+        for i in range(4):
+            self.feed(t + i * 30, ok(el + i * 30, fan0=1260, fan1=1260))
+        self.assertEqual(self.lines("fans: high"), [])
 
     def test_one_zero_reading_writes_nothing(self):
         t, el = self.run_for(T0, 600, 4)

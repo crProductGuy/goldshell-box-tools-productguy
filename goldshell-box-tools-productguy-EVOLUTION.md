@@ -3102,3 +3102,14 @@ choices keep it quiet when nothing is wrong:
 A replay of all 62,918 rows of the real log wrote no stopped line and the same 71 restarts as before. On the page
 it is the F marker ("fans running high, or a fan stopped"), the words "fan stopped" on the three-day chart, and a
 Terms entry.
+
+**Review.** A reviewer agent reproduced two real defects, both fixed with tests: a fan flickering between 0 and
+1,200 RPM wrote a pair of lines every three polls (now two good readings end an episode, and a new one waits
+the same 30-minute re-arm as fans-high); and a NaN reading counted as low, then raised while the line was being
+formatted, so the fan was marked stopped with no line. A third fix came from the same review: readings under 300
+RPM no longer enter the fans-high baseline, where a stalling fan would drag the median down and its recovery would
+read as "high". Three gaps were documented in the module rather than fixed tonight: the memory of which fans have
+turned is lost when the service restarts, so a fan already dead at start is never judged; a firmware that stops
+hashing when a fan dies would hide it from this rule (nobody here knows whether Goldshell's does); and a fan
+reported as missing rather than 0 is not caught. The first is the one worth fixing, by seeding from the model
+table's fan count.
