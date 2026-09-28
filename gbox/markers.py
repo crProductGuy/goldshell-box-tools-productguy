@@ -1,4 +1,4 @@
-"""Event markers for things the miner does on its own (0.10.2): a restart, and fans running high.
+"""Event markers for things the miner does on its own (0.10.2): a restart, fans running high, and (0.10.4) a fan stopped.
 
 The watchdog writes what gbox did to the miner. These two lines are about what the miner did by itself,
 which until now showed only in log.csv: on 2026-09-26/27 the SC-BOX rebooted three times in under a
@@ -28,8 +28,16 @@ Both rules are device-independent on purpose, so they work on a model nobody her
   `EPISODE_HOURS` is closed as a new level and the baseline starts again from it, so a hot room cannot
   hold one open for ever; after an episode ends, a new one waits `REARM_MINUTES`, so a fan that hunts
   around the threshold writes a pair of lines, not one every few minutes.
+- **Fan stopped** (0.10.4). A fan under `STOPPED_RPM` while the miner is hashing, on `STOPPED_SAMPLES`
+  polls in a row. The high rule cannot see this: it judges only fans that are turning. Only a fan seen
+  turning since the service started is judged, so a model with one fan, whose second column reads 0 for
+  ever, writes nothing. No settle window: the firmware starts its fans near full speed, so a fan at 0 is
+  wrong at any uptime. Hashing is required because a dead hashboard spins its fans down, and that is the
+  watchdog's business. In 61,219 hashing samples of the SC-BOX from 2026-09-05 to 09-27 neither fan read
+  under 1,140 RPM. The episode lasts until the fan turns again, across restarts and outages, so a fan that
+  stays dead writes one line, not one per boot.
 
-Neither rule acts on anything. They write lines; the watchdog is unchanged.
+None of the rules acts on anything. They write lines; the watchdog is unchanged.
 """
 import datetime
 import re
@@ -50,6 +58,8 @@ REARM_MINUTES = 30              # after an episode ends, the next one may not op
 EPISODE_HOURS = 2               # an episode this long is a new level, not an alarm: closed, and the baseline restarts
 NEAR_MAX = 0.9                  # of the model's rated fan maximum, where the table has one
 FANS = ("fan0", "fan1")         # the two fan columns log.csv carries
+STOPPED_RPM = 300               # under this a fan is stopped; the SC-BOX's lowest hashing reading is 1,140
+STOPPED_SAMPLES = 2             # hashing polls in a row under it before the line is written
 
 _STAMPED = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (.*)$")
 # What can restart the mining process from outside, strongest explanation first. The first match is quoted.
@@ -97,6 +107,9 @@ class Markers:
         self._quiet_until = None        # no new episode before this clock time (REARM_MINUTES)
         self._run_from = None           # latest NEW_RUN line seen, as clock time: the fan run restarts there
         self._seen_recent = 0           # the event log's `written` count at the last look
+        self._spun = set()              # fans seen turning since the service started: only these are judged
+        self._low = {}                  # fan -> hashing polls in a row under STOPPED_RPM
+        self._stopped = {}              # fan -> clock time its stopped line was written
 
     # --- restart -------------------------------------------------------------------------------------
 
@@ -242,6 +255,37 @@ class Markers:
         while self._base and self._base[0][0] < t - BASELINE_HOURS * 3600:
             self._base.popleft()
 
+    def _judge_stopped(self, row, t):
+        rate = row.get("mhs_20s")
+        if not isinstance(rate, (int, float)):
+            rate = row.get("mhs_av")
+        hashing = isinstance(rate, (int, float)) and rate > 0
+        for k in FANS:
+            v = row.get(k)
+            if not isinstance(v, (int, float)):
+                continue                # no reading is not a stopped fan
+            if v >= STOPPED_RPM:
+                self._spun.add(k)
+                self._low[k] = 0
+                if k in self._stopped:
+                    self._events.write("fans: %s turning again after %s, %s RPM"
+                                       % (k, duration(t - self._stopped.pop(k)), _rpm(v)))
+                continue
+            if k not in self._spun or k in self._stopped:
+                continue
+            if not hashing:
+                self._low[k] = 0        # a dead hashboard spins its fans down: not this rule's business
+                continue
+            self._low[k] = self._low.get(k, 0) + 1
+            if self._low[k] >= STOPPED_SAMPLES:
+                self._stopped[k] = t
+                others = ["%s at %s RPM" % (o, _rpm(row[o])) for o in FANS
+                          if o != k and isinstance(row.get(o), (int, float)) and row[o] >= STOPPED_RPM]
+                temp = row.get("tstemp0")
+                self._events.write("fans: %s stopped while hashing, %s RPM%s%s"
+                                   % (k, _rpm(v), ("; " + ", ".join(others)) if others else "",
+                                      ("; board %g C" % temp) if isinstance(temp, (int, float)) and temp > 0 else ""))
+
     # --- the one entry point -------------------------------------------------------------------------
 
     def observe(self, row, t, fan_max=None):
@@ -253,6 +297,7 @@ class Markers:
             if http.startswith("ERR:") and not http.startswith("ERR:NoCredentials") and self._down_since is None:
                 self._down_since = t
             return
+        self._judge_stopped(row, t)     # before the uptime check: a stopped fan needs no uptime to be seen
         elapsed = row.get("elapsed")
         if not isinstance(elapsed, (int, float)):
             self._down_since = None     # it answered; only the uptime is missing
