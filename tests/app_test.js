@@ -638,6 +638,20 @@ const tests = {
       "2026-09-27 09:41:00 miner: /dbg/icinfo 401 persisted; chip-level columns blank until it answers\n";
     assert.deepStrictEqual(app.eventMarkers(log).map(m => m.label.slice(0, 16)), ["miner: restarted", "fans: back to no"]);
   },
+  "clockPanel: one clock panel for both served charts; axis from 300 MHz when every reading is 400 or more"() {
+    const rows = [{ clock: 525, ok: true }, { clock: 550, ok: true }, { clock: null, ok: false }, { clock: undefined }];
+    const p = app.clockPanel(rows, 5);
+    assert.strictEqual(p.label, "MHz");
+    assert.strictEqual(p.min, 300);
+    assert.ok(p.max >= 550 * 1.1 - 1e-9, p.max);
+    assert.strictEqual(p.step, (p.max - p.min) / 4);
+    assert.deepStrictEqual(p.series, [["clock", "s3", "clock", { step: true, fill: true }]]);
+    assert.strictEqual(p.rated, null);
+    assert.ok(p.tip({ ok: true, clock: 525, label: "2026-09-27 21:00", t: Date.now() }).includes("525 MHz"));
+    assert.strictEqual(app.clockPanel([{ clock: 50 }, { clock: 525 }], 30).min, 0);      // a low clock keeps the full axis
+    assert.strictEqual(app.clockPanel([], 5).max, 800);                                    // no readings: the old default
+    assert.strictEqual(app.clockPanel([], 5).min, 0);
+  },
   "markerWords for the miner's own lines: self-restart and fans high on the three-day chart, nothing for the rest"() {
     assert.strictEqual(app.markerWords("miner: restarted on its own; mining uptime had been 15 min, now 24 s"), "self-restart");
     assert.strictEqual(app.markerWords("miner: restarted after [watchdog: restart #2 sent]; mining uptime had been 1 h 0 min"), "");
