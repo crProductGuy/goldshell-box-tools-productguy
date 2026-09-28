@@ -183,6 +183,7 @@ the most dangerous one.
 | Service hands its token to the page under `--remember` | changes the credential flow above (the page would never ask for a password on a served dashboard) | Mark deciding the convenience is worth the wider token exposure |
 | A settings write endpoint in the service | would let a trial be started from the page; rejected in 2b for the security reason in Decisions | never, unless the token check above exists first |
 | Runner event lines carry the `dashboard:` prefix | they go through `/api/event`; an `origin` field is a small change | cosmetic; fold into step 4 if convenient |
+| Wishlist (Mark, 2026-09-27): the clock panel gets a right-hand "% of factory clock" axis, as the hashrate panel has "% of rated" | the model table has no clock field. The SC-BOX's factory preset, 725 MHz, is known only from this unit (`clock-tuning.md`); the other models have none on record, and a preset differs by algorithm (the SC5 Pro II's plans are per algorithm). The mechanism exists: `drawPanels` draws a right axis for any panel with `rated`, so `clockPanel` needs only a value | a per-model `factory_clock_mhz` in `models.py` and `MODELS` in `app.js`, with its source, read from a unit or a spec; models without one get no right axis, as with `fan_max_rpm` |
 
 ## User Guide (before the full release to other users)
 
