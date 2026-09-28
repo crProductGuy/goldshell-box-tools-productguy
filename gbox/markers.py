@@ -34,12 +34,17 @@ Both rules are device-independent on purpose, so they work on a model nobody her
   ever, writes nothing. No settle window: the firmware starts its fans near full speed, so a fan at 0 is
   wrong at any uptime. Hashing is required because a dead hashboard spins its fans down, and that is the
   watchdog's business. In 61,219 hashing samples of the SC-BOX from 2026-09-05 to 09-27 neither fan read
-  under 1,140 RPM. The episode lasts until the fan turns again, across restarts and outages, so a fan that
-  stays dead writes one line, not one per boot.
+  under 1,140 RPM. The episode lasts until the fan turns again (`STOPPED_SAMPLES` readings over the line),
+  across miner restarts and outages, so a fan that stays dead writes one line, not one per boot; after it
+  ends, a new one waits `REARM_MINUTES`, so a failing fan that flickers writes a pair, not a pair a minute.
+  Known gaps: what was seen turning is kept in memory only, so a fan already dead when the service starts
+  is never judged; a firmware that stops hashing when a fan dies (not known for any model) hides it from
+  this rule; and a firmware that reports a stopped fan as missing rather than 0 is not caught.
 
 None of the rules acts on anything. They write lines; the watchdog is unchanged.
 """
 import datetime
+import math
 import re
 import statistics
 from collections import deque
@@ -88,6 +93,10 @@ def _rpm(v):
     return "%d" % round(v)
 
 
+def _finite(v):
+    return v if isinstance(v, (int, float)) and math.isfinite(v) else None
+
+
 def _stamp(text):
     try:
         return datetime.datetime.strptime(text, "%Y-%m-%d %H:%M:%S").timestamp()
@@ -110,6 +119,8 @@ class Markers:
         self._spun = set()              # fans seen turning since the service started: only these are judged
         self._low = {}                  # fan -> hashing polls in a row under STOPPED_RPM
         self._stopped = {}              # fan -> clock time its stopped line was written
+        self._up = {}                   # fan -> readings in a row back over STOPPED_RPM while stopped
+        self._quiet = {}                # fan -> no new stopped line before this clock time (REARM_MINUTES)
 
     # --- restart -------------------------------------------------------------------------------------
 
@@ -158,7 +169,7 @@ class Markers:
         out = {}
         for k in FANS:
             v = row.get(k)
-            if isinstance(v, (int, float)) and v > 0:
+            if isinstance(v, (int, float)) and math.isfinite(v) and v >= STOPPED_RPM:  # a stalling fan is no settled speed
                 out[k] = float(v)
         return out
 
@@ -256,22 +267,27 @@ class Markers:
             self._base.popleft()
 
     def _judge_stopped(self, row, t):
-        rate = row.get("mhs_20s")
-        if not isinstance(rate, (int, float)):
-            rate = row.get("mhs_av")
-        hashing = isinstance(rate, (int, float)) and rate > 0
+        rate = _finite(row.get("mhs_20s"))
+        if rate is None:
+            rate = _finite(row.get("mhs_av"))
+        hashing = rate is not None and rate > 0
         for k in FANS:
-            v = row.get(k)
-            if not isinstance(v, (int, float)):
-                continue                # no reading is not a stopped fan
+            v = _finite(row.get(k))
+            if v is None:
+                continue                # no reading (or NaN) is not a stopped fan
             if v >= STOPPED_RPM:
                 self._spun.add(k)
                 self._low[k] = 0
                 if k in self._stopped:
-                    self._events.write("fans: %s turning again after %s, %s RPM"
-                                       % (k, duration(t - self._stopped.pop(k)), _rpm(v)))
+                    self._up[k] = self._up.get(k, 0) + 1
+                    if self._up[k] >= STOPPED_SAMPLES:  # one good reading from a failing fan is not a recovery
+                        self._up[k] = 0
+                        self._quiet[k] = t + REARM_MINUTES * 60
+                        self._events.write("fans: %s turning again after %s, %s RPM"
+                                           % (k, duration(t - self._stopped.pop(k)), _rpm(v)))
                 continue
-            if k not in self._spun or k in self._stopped:
+            self._up[k] = 0
+            if k not in self._spun or k in self._stopped or t < self._quiet.get(k, t):
                 continue
             if not hashing:
                 self._low[k] = 0        # a dead hashboard spins its fans down: not this rule's business
@@ -279,12 +295,12 @@ class Markers:
             self._low[k] = self._low.get(k, 0) + 1
             if self._low[k] >= STOPPED_SAMPLES:
                 self._stopped[k] = t
-                others = ["%s at %s RPM" % (o, _rpm(row[o])) for o in FANS
-                          if o != k and isinstance(row.get(o), (int, float)) and row[o] >= STOPPED_RPM]
-                temp = row.get("tstemp0")
+                others = ["%s at %s RPM" % (o, _rpm(_finite(row.get(o)))) for o in FANS
+                          if o != k and (_finite(row.get(o)) or 0) >= STOPPED_RPM]
+                temp = _finite(row.get("tstemp0"))
                 self._events.write("fans: %s stopped while hashing, %s RPM%s%s"
                                    % (k, _rpm(v), ("; " + ", ".join(others)) if others else "",
-                                      ("; board %g C" % temp) if isinstance(temp, (int, float)) and temp > 0 else ""))
+                                      ("; board %g C" % temp) if temp is not None and temp > 0 else ""))
 
     # --- the one entry point -------------------------------------------------------------------------
 
