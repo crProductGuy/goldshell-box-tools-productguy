@@ -305,3 +305,7 @@ A Kasa plug on the original protocol answers anyone on the LAN, without
 authentication, and one of its replies includes the name of the TP-Link
 account that owns the plug. This tool never logs that reply. See
 `security-notes.md`.
+
+For how a Kasa plug takes commands from the LAN, the cloud and its own
+schedules, and a plug that switched a miner off three mornings running, see
+[Kasa smart plugs: how they take commands](kasa-plugs.md).
