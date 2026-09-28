@@ -3023,3 +3023,43 @@ deletes its own task. It was tested for 45 seconds before being scheduled.
 **Deferred.** A new page, `docs/kasa-plugs.md`, on how this plug series works, with the 06:30 story as its worked
 example. Mark chose a separate page over a section in `power-cycle.md`. It waits for the 09-28 result so the
 story has its real ending.
+
+## 2026-09-27 evening, session AP (904acbc5): the miner's own doing gets a line (0.10.2)
+
+**The ask.** It began as the standing power-cycle check owed from AO. Cycle #3 on 09-26 was clean: the unit was
+hashing 18 s into its new uptime. But the uptime column showed three more restarts that nothing had recorded,
+each back within a minute, too quick for the watchdog's two-minute rule. Then Mark: "the fans surged up at 09:12
+today. Can you find out why? Maybe we need a new marker for another kind of event." The surge was the firmware's
+boot ramp after one of those silent reboots: 4,380 RPM at 11 s of uptime, back to 1,260 in 15 minutes. Mark:
+"build the restart marker, do the fans high, too. This might help friends with other models, so make it as
+device-independent as you can." Midway he added the clock-change marker above the 24-hour hashrate chart, "an
+omission", and asked for other inconsistencies between the 1-day and 3-day charts.
+
+**Device independence.** The restart rule reads only cgminer's uptime, which every model reports. It compares
+the implied start time, not the uptime, so a restart behind a long outage is still caught. The fan rule judges
+each fan against its own settled speed in the current run rather than a rated maximum, because most models in
+the table have none.
+
+**The finding that changed the design.** Before any tests were written, the agent replayed the whole log since
+09-05 through the draft rules. All six fan surges it flagged came within a minute of a clock or fan-target change
+from the page, with no uptime reset: a settings change ramps the fans exactly like a boot. So a "run" for the fan
+rule now starts at a restart or at such a line. The same replay found two "restarts" that were really gbox itself
+starting after being off, and the wording now says so.
+
+**Review.** An adversarial reviewer found real defects, all fixed with tests:
+- a clock word above the plot could hide a P power-cycle mark for an hour or more
+- a fan hunting around the threshold wrote 60 lines an hour
+- a forward step of the PC's clock read as a restart
+- an unwritable event log could stop the poller thread
+
+The agent overruled one suggestion. A soft restart whose request timed out stays a cause, ranked last, because
+it may still have reached the miner; otherwise six restarts in this log would have been called the miner's own.
+
+**Built and shipped.** 0.10.2: `gbox/markers.py`, R and F glyphs, settings changes drawn as their word ("clock
+525") on the 24-hour charts, keys and Terms updated. Final replay: 71 restarts, 15 the miner's own, no false fan
+line in 22 days. Full suite 813 OK (947 s, slow because the machine was near its memory commit limit). Merged,
+pushed, tagged v0.10.2, service restarted at Mark's word.
+
+**Left for later.** A clock panel on the 24-hour hashrate chart, the gap the chart audit rated most confusing;
+board-reset bars on the hashrate and watts charts; a "fan stopped" marker; fans beyond the two columns log.csv
+carries. What caused the three silent reboots is still unknown; the miner's own log was not read for them.
