@@ -3067,5 +3067,11 @@ carries.
 **Later the same evening: 0.10.3.** Mark: "add the clock panel to the 24-hour hashrate chart". The panel is the
 three-day chart's, built by one shared function so the two cannot drift apart. `niceMax` moved into the data layer
 so the panel could be unit-tested. The page change went live on merge, and a browser-checker confirmed the panel,
-its tooltip and the unchanged three-day chart. The service was not restarted, because the Python code is identical
-apart from the version string. What caused the three silent reboots is still unknown; the miner's own log was not read for them.
+its tooltip and the unchanged three-day chart. The service was not restarted at first, because the Python code is
+identical apart from the version string. The page then showed 0.10.3 beside the service's 0.10.2, so Mark had it
+restarted and 0.10.3 pushed and tagged.
+
+**Wishlist.** Mark asked for a "% of factory clock" right-hand axis on the clock panel. It went into `docs/plan.md`'s
+deferred table, not the code, because the model table records no clock for any model. Mark confirmed the SC-BOX's
+725 MHz, the clock it ran after a factory reset, as the 100% mark, and the other models' figures are to come from
+their owners. What caused the three silent reboots is still unknown; the miner's own log was not read for them.
