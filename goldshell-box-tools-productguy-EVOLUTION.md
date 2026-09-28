@@ -3113,3 +3113,16 @@ turned is lost when the service restarts, so a fan already dead at start is neve
 hashing when a fan dies would hide it from this rule (nobody here knows whether Goldshell's does); and a fan
 reported as missing rather than 0 is not caught. The first is the one worth fixing, by seeding from the model
 table's fan count.
+
+**Next morning, 09-28: the 06:30 answer and `docs/kasa-plugs.md`.** Mark: "Miner is off. Have a look! What can we
+learn?" The read-only watcher set in session AO had read the HS105 every 15 seconds. Every rule list stayed empty
+and the next action stayed "none" up to 06:29:46; at 06:30:02 the relay was off and the plug kept answering. So
+the command came from outside the plug, at the minute of the UV-lamp rule Mark deleted on 09-26. The agent named a
+rule surviving in TP-Link's cloud as the likeliest source and said it could not be proven from the plug. Mark
+proposed removing the plug, since the HS-BOX "just works" and gbox has no watchdog on it; the agent agreed, on the
+grounds that the plug was the only recorded cause of HS-BOX downtime (about 11 hours over three mornings) and did
+nothing for its reliability. Mark plugged the miner into the wall; it was hashing again at 09:32 (read from its
+4028 API). The doc Mark asked for in AO followed, in the repo's doc register rather than his personal voice: how a
+Kasa plug takes commands (LAN, cloud, its own schedules), the read-only commands that show what it holds, advice
+for a plug that powers a miner, and the three mornings as the worked example. One oddity went in as a caution:
+the plug's `on_time` reset at 00:01 without the relay switching.
