@@ -32,15 +32,18 @@ Both rules are device-independent on purpose, so they work on a model nobody her
   polls in a row. The high rule cannot see this: it judges only fans that are turning. A fan is judged
   when the model table counts it (0.10.5: the first `fans` columns, from the first poll) or when it has
   been seen turning since the service started; so a model the table does not know, with one fan whose
-  second column reads 0 for ever, writes nothing. No settle window: the firmware starts its fans near full speed, so a fan at 0 is
-  wrong at any uptime. Hashing is required because a dead hashboard spins its fans down, and that is the
-  watchdog's business. In 61,219 hashing samples of the SC-BOX from 2026-09-05 to 09-27 neither fan read
-  under 1,140 RPM. The episode lasts until the fan turns again (`STOPPED_SAMPLES` readings over the line),
-  across miner restarts and outages, so a fan that stays dead writes one line, not one per boot; after it
-  ends, a new one waits `REARM_MINUTES`, so a failing fan that flickers writes a pair, not a pair a minute.
-  Known gaps: what was seen turning is kept in memory only, so on a model the table does not know a fan
-  already dead when the service starts is never judged; a firmware that stops hashing when a fan dies (not known for any model) hides it from
-  this rule; and a firmware that reports a stopped fan as missing rather than 0 is not caught.
+  second column reads 0 for ever, writes nothing. No settle window: the firmware starts its fans near
+  full speed, so a fan at 0 is wrong at any uptime. Hashing is required because a dead hashboard spins
+  its fans down, and that is the watchdog's business. In 61,219 hashing samples of the SC-BOX from
+  2026-09-05 to 09-27 neither fan read under 1,140 RPM; the HS-BOX, whose fans follow a temperature
+  target, read 1,260 on both at its low end (one reading, 2026-09-29). The episode lasts until the fan
+  turns again (`STOPPED_SAMPLES` readings over the line), across miner restarts and outages, so a fan
+  that stays dead writes one line per service start, not one per boot; after it ends, a new one waits
+  `REARM_MINUTES`, so a failing fan that flickers writes a pair, not a pair a minute. Known gaps: what
+  was seen turning is kept in memory only, so on a model the table does not know a fan already dead
+  when the service starts is never judged; a firmware that stops hashing when a fan dies (not known for
+  any model) hides it from this rule; and a firmware that reports a stopped fan as missing rather than 0
+  is not caught.
 
 None of the rules acts on anything. They write lines; the watchdog is unchanged.
 """
