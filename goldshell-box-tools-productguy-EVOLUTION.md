@@ -3147,4 +3147,19 @@ the run. On the comparison with 550 it pushed back in part: 525 is better on err
 (52 hours against 44), but its restart rate (about 1.3 a day) is level with where 550 had settled by 09-21 (about
 1 a day). Both findings point the same way as an earlier session's: the hangs are probably not the clock.
 
-The new count ends 09-30 09:10. No code this session.
+The new count ends 09-30 09:10.
+
+**Same session: 0.10.5, a fan dead at start gets judged.** Mark: "push it, then do option 1", the first of the
+three gaps the 0.10.4 review had documented. The "fan stopped" rule judged only fans it had seen turning since
+the service started, and that memory died with the process, so a fan already dead when the service restarted was
+never judged. The reviewer's suggested fix was taken: the poller now hands the rule the model table's fan count,
+and the fans it names are judged from the first poll. An unknown model keeps the old rule, so a one-fan unit whose
+second column reads 0 stays quiet. Saving the seen-turning set to disk was considered and dropped: a new state
+file, and it would still miss a fan dead since the very first start. Verified: each new test failed with the
+change removed and passed with it; the full suite ran 833 OK; and the whole SC-BOX log (67,643 rows) replayed
+through old and new rules wrote the same 85 lines and no stopped line. A reviewer agent found no defect, but two
+guards the tests did not pin (a zero or negative count, a boolean count); the tests were tightened until removing
+either guard failed them. It also named a real consequence, now in the docstring: a fan that stays dead writes
+one line per service start, where the old rule wrote none. And it asked whether the HS-BOX, whose fans follow a
+temperature target, could idle under the 300 RPM line; one read of its API showed 1,260 RPM on both fans at its
+low end, so the threshold stayed.
