@@ -518,7 +518,7 @@ class Poller(threading.Thread):
         if self.markers is not None:
             try:
                 rated = models.rated_for((self.miner_status or {}).get("model")) or {}
-                self.markers.observe(row, sampled_at, rated.get("fan_max_rpm"))
+                self.markers.observe(row, sampled_at, rated.get("fan_max_rpm"), rated.get("fans"))
                 self._markers_failed = False
             except Exception as e:          # a marker bug must never cost a sample; one line per failure streak
                 if not self._markers_failed:

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from gbox import api, markers, poller
+from gbox import api, markers, models, poller
 from gbox.events import EventLog
 from tests.fake_miner import FakeMiner
 
@@ -43,9 +43,9 @@ class Base(unittest.TestCase):
         self.ev = Stamped(Path(self.tmp.name) / "events.log")
         self.m = markers.Markers(self.ev)
 
-    def feed(self, t, row, fan_max=None):
+    def feed(self, t, row, fan_max=None, fans=None):
         self.ev.now = t
-        self.m.observe(row, t, fan_max)
+        self.m.observe(row, t, fan_max, fans)
 
     def lines(self, prefix):
         return [l for l in self.ev.recent if l[20:].startswith(prefix)]
@@ -355,6 +355,37 @@ class FanStoppedTest(Base):
         self.run_for(T0, 600, 40, fan1=0)
         self.assertEqual(self.lines("fans:"), [])
 
+    def test_a_fan_dead_when_the_service_starts_is_judged_where_the_model_has_two(self):
+        # review of 0.10.4, gap (a): the seen-turning memory is lost on a service restart
+        for i in range(4):
+            self.feed(T0 + i * 30, hashing(600 + i * 30, fan1=0), fans=2)
+        [line] = self.lines("fans:")
+        self.assertEqual(line[20:], "fans: fan1 stopped while hashing, 0 RPM; fan0 at 1260 RPM; board 63 C")
+
+    def test_the_model_count_seeds_only_the_fans_it_names(self):
+        for i in range(40):
+            self.feed(T0 + i * 30, hashing(600 + i * 30, fan1=0), fans=1)
+        self.assertEqual(self.lines("fans:"), [])
+
+    def test_a_model_with_more_fans_than_the_log_carries(self):
+        for i in range(4):
+            self.feed(T0 + i * 30, hashing(600 + i * 30, fan0=0, fan1=0), fans=4)
+        self.assertEqual(len(self.lines("fans: fan0 stopped")), 1)
+        self.assertEqual(len(self.lines("fans: fan1 stopped")), 1)
+
+    def test_a_malformed_fan_count_falls_back_to_seen_turning(self):
+        for fans in (0, -1, "2", 2.0, True):
+            self.ev.recent.clear()
+            self.m = markers.Markers(self.ev)
+            for i in range(10):
+                self.feed(T0 + i * 30, hashing(600 + i * 30, fan1=0), fans=fans)
+            self.assertEqual(self.lines("fans:"), [], fans)
+
+    def test_a_seeded_fan_is_still_not_judged_while_not_hashing(self):
+        for i in range(10):
+            self.feed(T0 + i * 30, hashing(600 + i * 30, fan0=0, fan1=0, mhs=0.0), fans=2)
+        self.assertEqual(self.lines("fans:"), [])
+
     def test_not_hashing_is_not_this_rules_business(self):
         # the known cold-start failure: controller up, hashboard dead, fans spinning down
         t, el = self.run_for(T0, 600, 4)
@@ -464,6 +495,18 @@ class PollerWiringTest(unittest.TestCase):
         p.poll_once()
         self.assertEqual(p.samples, 2)
         self.assertEqual(len([l for l in ev.recent if "event markers failed: ValueError: bad" in l]), 1)
+
+    def test_the_model_fan_count_reaches_the_rule(self):
+        # 0.10.5: gap (a) of 0.10.4 closed from the model table, not from memory
+        ev = EventLog()
+        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, events=ev)
+        seen = []
+        p.markers.observe = lambda row, t, fan_max=None, fans=None: seen.append(fans)
+        p.poll_once()
+        p.poll_once()
+        self.assertIsNotNone(p.miner_status)
+        self.assertEqual(seen[-1], (models.rated_for(p.miner_status.get("model")) or {}).get("fans"))
+        self.assertIsNotNone(seen[-1])
 
     def test_an_unwritable_event_log_does_not_stop_the_poller(self):
         # 0.10.2 review: the failure handler's own write raised and ended the poller thread
