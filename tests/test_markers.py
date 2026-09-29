@@ -378,7 +378,7 @@ class FanStoppedTest(Base):
             self.ev.recent.clear()
             self.m = markers.Markers(self.ev)
             for i in range(10):
-                self.feed(T0 + i * 30, hashing(600 + i * 30, fan1=0), fans=fans)
+                self.feed(T0 + i * 30, hashing(600 + i * 30, fan0=0, fan1=0), fans=fans)
             self.assertEqual(self.lines("fans:"), [], fans)
 
     def test_a_seeded_fan_is_still_not_judged_while_not_hashing(self):
@@ -506,7 +506,8 @@ class PollerWiringTest(unittest.TestCase):
         p.poll_once()
         self.assertIsNotNone(p.miner_status)
         self.assertEqual(seen[-1], (models.rated_for(p.miner_status.get("model")) or {}).get("fans"))
-        self.assertIsNotNone(seen[-1])
+        self.assertEqual(seen[0], seen[-1])                 # from the first poll
+        self.assertIsNotNone(seen[0])
 
     def test_an_unwritable_event_log_does_not_stop_the_poller(self):
         # 0.10.2 review: the failure handler's own write raised and ended the poller thread
