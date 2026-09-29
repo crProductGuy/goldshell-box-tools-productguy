@@ -3126,3 +3126,25 @@ nothing for its reliability. Mark plugged the miner into the wall; it was hashin
 Kasa plug takes commands (LAN, cloud, its own schedules), the read-only commands that show what it holds, advice
 for a plug that powers a miner, and the three mornings as the worked example. One oddity went in as a caution:
 the plug's `on_time` reset at 00:01 without the relay switching.
+
+## 2026-09-29, session AR (4c7ba010): the 72-hour run at 525 MHz, and why not 500
+
+The 72-hour negative-proof run at 525 MHz ended at 23:53 on 09-28. The bar Mark had set was 72 hours with no
+restart of the miner's own making and no hardware errors in steady running. A scanner agent read the log. The run
+failed on the first half and passed the second: four restarts with nothing outside the miner to explain them
+(three silent self-restarts, two of them 17 minutes apart on 09-26, and one hang that ended in a watchdog power
+cycle), against zero hardware errors and zero bad nonces over the whole 72 hours, boot minutes included. The
+miner has run clean since 09-27 09:10, 52 hours when read. The scanner also reported a repeated header row at the
+end of the log; the agent checked it before repeating it, and it was not there.
+
+The agent's reading: a clock that is too high shows up as errors climbing before a failure, and there were none
+before any of the four restarts, so the run does not point at 525. It recommended restarting the 72-hour count
+from the last restart. Mark agreed and added the decision that mattered: "I'm not seeing yet a reason to want to
+step down to 500 and give up even more hashrate to possibly reduce the small remaining downtime." The agent
+checked the numbers behind that rather than just agreeing. The step from 550 to 525 had cost 4.3 % of hashrate,
+and a step to 500 would cost about as much again, all the time, to win back downtime that was about 0.35 % of
+the run. On the comparison with 550 it pushed back in part: 525 is better on errors and on the longest clean run
+(52 hours against 44), but its restart rate (about 1.3 a day) is level with where 550 had settled by 09-21 (about
+1 a day). Both findings point the same way as an earlier session's: the hangs are probably not the clock.
+
+The new count ends 09-30 09:10. No code this session.
