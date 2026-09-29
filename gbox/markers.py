@@ -29,16 +29,17 @@ Both rules are device-independent on purpose, so they work on a model nobody her
   hold one open for ever; after an episode ends, a new one waits `REARM_MINUTES`, so a fan that hunts
   around the threshold writes a pair of lines, not one every few minutes.
 - **Fan stopped** (0.10.4). A fan under `STOPPED_RPM` while the miner is hashing, on `STOPPED_SAMPLES`
-  polls in a row. The high rule cannot see this: it judges only fans that are turning. Only a fan seen
-  turning since the service started is judged, so a model with one fan, whose second column reads 0 for
-  ever, writes nothing. No settle window: the firmware starts its fans near full speed, so a fan at 0 is
+  polls in a row. The high rule cannot see this: it judges only fans that are turning. A fan is judged
+  when the model table counts it (0.10.5: the first `fans` columns, from the first poll) or when it has
+  been seen turning since the service started; so a model the table does not know, with one fan whose
+  second column reads 0 for ever, writes nothing. No settle window: the firmware starts its fans near full speed, so a fan at 0 is
   wrong at any uptime. Hashing is required because a dead hashboard spins its fans down, and that is the
   watchdog's business. In 61,219 hashing samples of the SC-BOX from 2026-09-05 to 09-27 neither fan read
   under 1,140 RPM. The episode lasts until the fan turns again (`STOPPED_SAMPLES` readings over the line),
   across miner restarts and outages, so a fan that stays dead writes one line, not one per boot; after it
   ends, a new one waits `REARM_MINUTES`, so a failing fan that flickers writes a pair, not a pair a minute.
-  Known gaps: what was seen turning is kept in memory only, so a fan already dead when the service starts
-  is never judged; a firmware that stops hashing when a fan dies (not known for any model) hides it from
+  Known gaps: what was seen turning is kept in memory only, so on a model the table does not know a fan
+  already dead when the service starts is never judged; a firmware that stops hashing when a fan dies (not known for any model) hides it from
   this rule; and a firmware that reports a stopped fan as missing rather than 0 is not caught.
 
 None of the rules acts on anything. They write lines; the watchdog is unchanged.
@@ -266,11 +267,13 @@ class Markers:
         while self._base and self._base[0][0] < t - BASELINE_HOURS * 3600:
             self._base.popleft()
 
-    def _judge_stopped(self, row, t):
+    def _judge_stopped(self, row, t, fans=None):
         rate = _finite(row.get("mhs_20s"))
         if rate is None:
             rate = _finite(row.get("mhs_av"))
         hashing = rate is not None and rate > 0
+        # the model table's fan count names the fans that must turn; without one, only fans seen turning count
+        named = FANS[:fans] if type(fans) is int and fans > 0 else ()
         for k in FANS:
             v = _finite(row.get(k))
             if v is None:
@@ -287,7 +290,7 @@ class Markers:
                                            % (k, duration(t - self._stopped.pop(k)), _rpm(v)))
                 continue
             self._up[k] = 0
-            if k not in self._spun or k in self._stopped or t < self._quiet.get(k, t):
+            if (k not in self._spun and k not in named) or k in self._stopped or t < self._quiet.get(k, t):
                 continue
             if not hashing:
                 self._low[k] = 0        # a dead hashboard spins its fans down: not this rule's business
@@ -304,16 +307,17 @@ class Markers:
 
     # --- the one entry point -------------------------------------------------------------------------
 
-    def observe(self, row, t, fan_max=None):
+    def observe(self, row, t, fan_max=None, fans=None):
         """One poll's row (as written to log.csv) sampled at clock time `t`. `fan_max`: the model's rated fan
-        maximum in RPM, or None. Writes at most a few event lines; never raises on a malformed row."""
+        maximum in RPM, or None. `fans`: the model's fan count, or None. Writes at most a few event lines; never
+        raises on a malformed row."""
         http = row.get("http") or ""
         if http != "ok":
             # waiting for a token says nothing about the miner being reachable
             if http.startswith("ERR:") and not http.startswith("ERR:NoCredentials") and self._down_since is None:
                 self._down_since = t
             return
-        self._judge_stopped(row, t)     # before the uptime check: a stopped fan needs no uptime to be seen
+        self._judge_stopped(row, t, fans)   # before the uptime check: a stopped fan needs no uptime to be seen
         elapsed = row.get("elapsed")
         if not isinstance(elapsed, (int, float)):
             self._down_since = None     # it answered; only the uptime is missing
