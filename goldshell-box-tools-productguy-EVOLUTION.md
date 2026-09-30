@@ -3174,3 +3174,17 @@ session, and the fresh 72-hour count at 525 MHz clean at 60.75 hours, with no mi
 error in 7,282 samples. The agent recommended not starting the queued chart work that night, because it is a
 design conversation and the morning's pass or fail may change what the charts need to show; a failed run would
 make restart bars on the hashrate chart the first thing to read. Mark agreed and stopped the session there.
+
+## 2026-09-30, session AT (dce5c1be): the fresh 72 hours at 525 MHz pass
+
+Mark: "pick up the gbox project. check uptime study". The count had ended at 09:10 that morning; the session read
+the log at 11:10. The miner's own uptime counter stood at 74 hours, which matches the 09-27 09:10 start, so nothing
+had rebooted it unseen. Every poll since then was a good one, one every 30 seconds with no gap, the 0.10.5 service
+restart the day before included. There was no uptime reset, no hardware error and no bad nonce, the clock read 525
+on every sample, and 8 shares were rejected against about 10,200 accepted. The average was 671 GH/s at 158 W. By
+the bar Mark set, a pass.
+
+The agent reported it with a limit attached rather than as proof. This is one clean run, and the longest on
+record, but the run before it at the same clock restarted four times, so 525 has had four restarts in six days.
+The pass shows 525 can run three days clean; it does not show the restarts are gone. Nothing needs to change
+for that, but the next few days are still worth watching.
