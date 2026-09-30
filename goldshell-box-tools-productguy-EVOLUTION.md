@@ -3163,3 +3163,14 @@ either guard failed them. It also named a real consequence, now in the docstring
 one line per service start, where the old rule wrote none. And it asked whether the HS-BOX, whose fans follow a
 temperature target, could idle under the 300 RPM line; one read of its API showed 1,260 RPM on both fans at its
 low end, so the threshold stayed.
+
+## 2026-09-29 evening, session AS (ece3e0f5): a status check at 60 hours
+
+Mark: "pick up the gbox project". First, a line the AR entry left out: 0.10.5 was merged, pushed, tagged and
+deployed at Mark's word at 15:15 the same day, and the service came back reporting two rated fans.
+
+The session read the live service rather than the checkpoint: 0.10.5 running, no power cycle since the last
+session, and the fresh 72-hour count at 525 MHz clean at 60.75 hours, with no miner restart and no hardware
+error in 7,282 samples. The agent recommended not starting the queued chart work that night, because it is a
+design conversation and the morning's pass or fail may change what the charts need to show; a failed run would
+make restart bars on the hashrate chart the first thing to read. Mark agreed and stopped the session there.
