@@ -23,7 +23,7 @@ from pathlib import Path
 
 import urllib.parse
 
-from . import __version__, api, models, series, trials
+from . import __version__, api, models, series, trials, uptime
 from .power import PowerRefused
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -69,6 +69,7 @@ class ServiceState:
         self.lock = threading.Lock()
         self.trials_cache = (None, None)     # ((mtime_ns, size) of log.csv, table) so a refresh does not re-parse
         self.series_cache = {}               # (hours, bucket) -> ((mtime_ns, size), result), same idea for the charts
+        self.uptime_cache = (None, None)     # ((mtime_ns, size), result) for /api/uptime
 
     def _log_key(self):
         try:
@@ -88,6 +89,17 @@ class ServiceState:
             lines = self.events.tail(4000) if self.events else []
             result = series.buckets(rows, hours, bucket, events=lines)
             self.series_cache[(hours, bucket)] = (key, result)
+            return result
+
+    def uptime(self):
+        """Restarts and runs over the last days (gbox.uptime), recomputed only when log.csv changed."""
+        key = self._log_key()
+        with self.lock:
+            if key is not None and self.uptime_cache[0] == key:
+                return self.uptime_cache[1]
+            lines = self.events.tail(4000) if self.events else []
+            result = uptime.report(uptime.read_rows(self.data_dir / "log.csv"), lines)
+            self.uptime_cache = (key, result)
             return result
 
     def trials_table(self):
@@ -292,6 +304,8 @@ def make_handler(state):
                 return self._json(200, state.trial_progress())
             if path == "/api/series":
                 return self._get_series()
+            if path == "/api/uptime":
+                return self._json(200, state.uptime())
             self._send(404, "not found")
 
         def _csv(self):

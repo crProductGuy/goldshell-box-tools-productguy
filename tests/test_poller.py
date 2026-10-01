@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from gbox import api, config, poller, series, trials
+from gbox import api, config, poller, series, trials, uptime
 from gbox.events import EventLog
 from gbox.watchdog import Watchdog
 from tests.fake_miner import FakeMiner
@@ -979,19 +979,21 @@ class LogConfigTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
 
-    def test_defaults_are_25_mb_and_72_hours(self):
+    def test_defaults_are_25_mb_and_192_hours(self):
+        """0.11.0: the carry holds the uptime record's eight days, so a rotation does not cut it to three."""
         cfg = config.load(self.tmp.name)
         self.assertEqual(cfg.log["max_mb"], 25)
-        self.assertEqual(cfg.log["keep_hours"], 72)
+        self.assertEqual(cfg.log["keep_hours"], 192)
+        self.assertGreaterEqual(cfg.log["keep_hours"], uptime.WINDOW_DAYS * 24)
         cfg.validate()
 
     def test_round_trip_and_a_partial_block_keeps_the_other_default(self):
         config.save(config.Config(host="h", log={"max_mb": 50}), self.tmp.name)
         with open(Path(self.tmp.name) / "config.json", encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["log"], {"max_mb": 50, "keep_hours": 72})
+            self.assertEqual(json.load(f)["log"], {"max_mb": 50, "keep_hours": 192})
         back = config.load(self.tmp.name)
         self.assertEqual(back.log["max_mb"], 50)
-        self.assertEqual(back.log["keep_hours"], 72)
+        self.assertEqual(back.log["keep_hours"], 192)
 
     def test_zero_turns_rotation_off_and_is_valid(self):
         config.Config(log={"max_mb": 0}).validate()
@@ -1001,12 +1003,12 @@ class LogConfigTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 config.Config(log={"max_mb": mb}).validate()
 
-    def test_a_window_outside_24_to_168_hours_is_refused(self):
-        for hours in (23, 169):
+    def test_a_window_outside_24_to_336_hours_is_refused(self):
+        for hours in (23, 337):
             with self.assertRaises(ValueError):
                 config.Config(log={"keep_hours": hours}).validate()
         config.Config(log={"keep_hours": 24}).validate()
-        config.Config(log={"keep_hours": 168}).validate()
+        config.Config(log={"keep_hours": 336}).validate()
 
 
 class RotationWiringTest(unittest.TestCase):

@@ -102,9 +102,10 @@ Start at logon:
   from the clone under your init's supervisor; the script says as much.
 
 The data directory does not grow without limit. At a 30-second poll the log
-gains about half a megabyte a day, so `log.csv` is capped: when it reaches
-`log.max_mb` in `config.json` (25 MB, about six weeks), the last
-`log.keep_hours` of rows are carried into a fresh file and the whole old one
+gains about a megabyte a day, so `log.csv` is capped: when it reaches
+`log.max_mb` in `config.json` (25 MB, about four weeks), the last
+`log.keep_hours` of rows (8 days, so the uptime section keeps its whole window)
+are carried into a fresh file and the whole old one
 is kept beside it as `log.csv.1`. Nothing reads `.1`, so the charts, the
 errors chart and the trials table show exactly what they showed a moment
 before: the rotation is invisible on the page, and the only sign of it is a
