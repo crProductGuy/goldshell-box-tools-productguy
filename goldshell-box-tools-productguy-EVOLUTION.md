@@ -3188,3 +3188,49 @@ The agent reported it with a limit attached rather than as proof. This is one cl
 record, but the run before it at the same clock restarted four times, so 525 has had four restarts in six days.
 The pass shows 525 can run three days clean; it does not show the restarts are gone. Nothing needs to change
 for that, but the next few days are still worth watching.
+
+**Same session: 0.11.0, the uptime section.** The next item on the list was two chart gaps from the 09-27
+audit: board-reset bars on the hashrate and watts charts, and worst-half-hour facts beyond the errors chart.
+The agent recommended dropping both, with the numbers behind it: there had been no board reset in seven days at
+525, and the alarm bands already mark one. The real gap was a question the page could not answer, the one the
+runs kept asking: is the miner restarting itself, and how often? Every "resets" figure on the page meant board
+resets. Answering it that morning had taken a command over the raw log. Mark: "build the uptime strip. Should
+be at least a week, maybe 8 days to have a 1-day overlap with a rolling week. mock it up first, please."
+
+**The finding that made a cause possible.** Reading each restart against the plug's watts while the miner was
+down split them cleanly. The two power losses (the windstorm on 09-25 and a dropout the same night) read 2.6 and
+4.4 W, so the controller was off. The five restarts and hangs of the miner's own read 14 to 27 W: the controller
+was alive and only the hashboard had stopped. So the page can say "power lost" or "restarted by itself" without
+knowing the backstory. It rests on seven events, so every table row shows the watts it was decided on.
+
+**A second finding that changed the design.** At 25 MB, log rotation carries only 72 hours into the new file.
+The log was at 18 MB and growing 0.92 MB a day, so the next rotation, around 10-08, would have cut an 8-day
+section to 3. Raising the carry to 192 hours keeps it whole; the carried file starts near 7.5 MB and the next
+rotation comes about 19 days later. A separate restarts file that never rotates was the alternative, and it was
+not worth a new state file for an 8-day window.
+
+The mockup was built from the SC-BOX's real eleven restarts and published as a page for Mark to see. He decided
+the open questions: "counts over rolling 7 days, 8th day is for overlap context", the carry raised, the section
+under the 24-hour hashrate chart, a new endpoint and a minor bump. "Mockup looks good. Do it." Then he went to
+bed and asked for everything to be saved whenever the session stopped. The agent kept merge, push, tag and the
+service restart for his word in the morning.
+
+**Built.** `gbox/uptime.py` finds a restart as a fall in the miner's uptime counter, or its implied start moving
+forward across an outage or a sampling gap, and gives each one cause, first match wins: you (by hand or your
+schedule), power lost ahead of the plug, the watchdog acting (hung, or power if the plug read under 8 W before its
+first power action, because a cycle's own off period reads 0 W), not seen, then the watts. `/api/uptime` serves
+it, and the page draws four facts, a timeline with a mark per restart (filled for the miner's doing), the shaded
+context day, and the table. One plan changed on measurement. Sharing the charts' parsed log between all readers
+would have held about 180 MB in a service on a PC that has hit its memory limit before, so the uptime record got
+its own six-column reader instead: 0.74 s and about 10 MB, freed after each call. Replaying the real log
+reproduced the mockup's eleven restarts and their causes exactly.
+
+**Review.** A reviewer agent's first verdict was "do not merge". The worst finding was that the log's stamps are
+naive local time, and the module sorted rows by them. At the clocks going back on 11-01, the repeated hour would
+have interleaved into about 120 false restarts on the page for eight days. Also, a scheduled night off counted as
+a hang, the miner's own fault, and the page's own Cycle button counted as a power loss. All were fixed with tests,
+and each new test fails with its fix removed. The reviewer's suspicion about saved configs did not hold for
+Mark's own: his config has no log block, so the new default applies. The page now says when the log holds less
+than the window. The agent suspected that the restart line written by the markers module had the same
+daylight-saving hazard, and checked before writing it down. It does not: that module judges on the PC's epoch
+clock, not on the log's stamps.
