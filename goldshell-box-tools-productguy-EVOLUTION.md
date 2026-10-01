@@ -3234,3 +3234,13 @@ Mark's own: his config has no log block, so the new default applies. The page no
 than the window. The agent suspected that the restart line written by the markers module had the same
 daylight-saving hazard, and checked before writing it down. It does not: that module judges on the PC's epoch
 clock, not on the log's stamps.
+
+A second reviewer, checking only the fixes, found two of them incomplete. The spring-forward fix held only for a
+run over an hour old. And making the schedule "you" meant that a scheduled night off landing in the middle of a
+hang the watchdog was already working would hide the hang. Both were fixed with tests that fail without the fix.
+A jump in the stamps, with nothing failed and the uptime only a poll further on, is now read as the PC's clock at
+any run age. A switch counts as yours only if it came before the watchdog's first action. The replay of the real
+log was unchanged by both rounds. The agent then stopped fixing, by the session rule that a file fixed a third
+time calls for a fresh look rather than a fourth round. What is left is written down: a fall-back hour can still
+draw an event line from the wrong pass, and a restart hidden behind a backward clock step inside a gbox-off gap
+is not seen. Both are rare and named in STATUS.
