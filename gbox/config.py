@@ -61,13 +61,16 @@ DEFAULT_TEMPS = {
 }
 # 0.8.0: the data directory stops growing without limit. At the cap, log.csv and boards.csv carry the last
 # keep_hours into a fresh file and the whole old one becomes .1 (gbox.poller.rotate); events.log carries its
-# last lines the same way. 25 MB is about six weeks of log.csv at a 30 s poll. max_mb 0 turns all of it off.
+# last lines the same way. 25 MB is about four weeks of log.csv at a 30 s poll (0.92 MB a day on the SC-BOX,
+# measured 2026-09-29). max_mb 0 turns all of it off.
+# 0.11.0: keep_hours 72 -> 192, so the eight-day uptime record (gbox.uptime) survives a rotation; the carried
+# file starts near 7.5 MB, and the next rotation comes about 19 days later.
 DEFAULT_LOG = {
     "max_mb": 25,                # 0 (off), or 5 to 1000
-    "keep_hours": 72,            # 24 to 168; the three-day errors chart asks for exactly 72
+    "keep_hours": 192,           # 24 to 336; the uptime record reads 8 days (192 h), the errors chart 72
 }
 MIN_LOG_MB, MAX_LOG_MB = 5, 1000
-MIN_KEEP_HOURS, MAX_KEEP_HOURS = 24, 168
+MIN_KEEP_HOURS, MAX_KEEP_HOURS = 24, 336
 
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 

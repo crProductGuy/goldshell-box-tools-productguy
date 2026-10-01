@@ -352,6 +352,35 @@ class SeriesRouteTest(ServerTest):
         self.assertTrue(s["events"][0]["label"].startswith("watchdog:"))
 
 
+class UptimeRouteTest(ServerTest):
+    """/api/uptime (0.11.0): restarts and runs over 8 days, cached by the log's modification time."""
+
+    def test_shape_after_two_polls(self):
+        self.miner.set_token(TOKEN)
+        self.poller.poll_once(); self.poller.poll_once()
+        status, headers, body = self.get("/api/uptime")
+        u = json.loads(body)
+        self.assertEqual(status, 200)
+        self.assertEqual((u["days"], u["count_days"]), (8, 7))
+        self.assertEqual(u["restarts"], [])
+        self.assertEqual(len(u["runs"]), 1)
+        self.assertTrue(u["current"])
+        self.assertEqual(u["counts"]["total"], 0)
+        self.assertIn("pct", u["hashing"])
+
+    def test_no_log_yet(self):
+        u = json.loads(self.get("/api/uptime")[2])
+        self.assertEqual((u["runs"], u["current"]), ([], None))
+
+    def test_cached_until_the_log_changes(self):
+        self.miner.set_token(TOKEN)
+        self.poller.poll_once()
+        a = self.state.uptime()
+        self.assertIs(self.state.uptime(), a)
+        self.poller.poll_once()
+        self.assertIsNot(self.state.uptime(), a)
+
+
 class HoldAndPowerRoutesTest(ServerTest):
     """The owner's planned outages: /api/hold, /api/hold/release and /api/power."""
 
