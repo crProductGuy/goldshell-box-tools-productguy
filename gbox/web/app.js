@@ -685,7 +685,7 @@ const UPTIME_CAUSES = {
   own: { name: "restarted by itself", miner: true },
   hung: { name: "hung, gbox ended it", miner: true },
   power: { name: "power lost", miner: false },
-  you: { name: "you, by hand", miner: false },
+  you: { name: "you, by hand or schedule", miner: false },
   unseen: { name: "not seen (gbox off)", miner: false },
   unmeasured: { name: "power not measured", miner: null } };
 // "Sun 09-27 09:10" from a service stamp.
@@ -702,12 +702,12 @@ function wattsText(lo, hi) {
 function restartDetail(r) {
   const w = wattsText(r.watts_min, r.watts_max), ev = r.events || [];
   if (r.cause === "own") return "Restarted by itself while powered: " + w + " while it was down.";
-  if (r.cause === "hung") return "Stopped answering while powered (" + w + "); gbox ended it.";
+  if (r.cause === "hung") return w ? "Stopped answering while powered (" + w + "); gbox ended it." : "Stopped answering, with no wall reading to say whether it had power; gbox ended it.";
   if (r.cause === "power") {
-    if (ev.some(e => /^power: plug unreachable/.test(e))) return "Lost power ahead of the plug: the plug stopped answering too.";
-    return "Lost power: the plug read " + w + " while it was down" + (ev.length ? ", and gbox only brought it back." : ".");
+    if (r.plug_unreachable || ev.some(e => /^power: plug unreachable/.test(e))) return "Lost power ahead of the plug: the plug stopped answering too.";
+    return "Lost power: the plug read " + (w || "next to nothing") + " while it was down" + (ev.length ? ", and gbox only brought it back." : ".");
   }
-  if (r.cause === "you") return "Switched or set by you, from the page or the command line.";
+  if (r.cause === "you") return "Switched, cycled or set by you, from the page, the command line or your power schedule.";
   if (r.cause === "unseen") return "gbox was not sampling, so neither the moment nor the cause is known; the time comes from the uptime counter.";
   return "No wall reading while it was down, so whether it had power is not known.";
 }
@@ -732,6 +732,14 @@ function uptimeFacts(u) {
   out.push(["Time hashing, " + days + " days", h.pct === null || h.pct === undefined ? "—" : h.pct.toFixed(1) + " %",
     "down " + minutesText(h.down_s) + (h.unsampled_s ? " · " + minutesText(h.unsampled_s) + " not sampled (gbox off)" : ""), ""]);
   return out;
+}
+// "" when the log reaches back over the whole window; otherwise how much it holds, so a short log is not read
+// as a quiet week (a young install, or a rotation with log.keep_hours under 192 kept in config.json).
+function coverageNote(u) {
+  const from = parseStamp(u.from), have = parseStamp(u.covers_from || "");
+  if (isNaN(have) || isNaN(from) || have <= from + 3600000) return "";
+  const days = (parseStamp(u.now) - have) / 86400000;
+  return " · the log holds only the last " + (days < 1 ? Math.round(days * 24) + " h" : days.toFixed(1) + " days") + ", so the counts cover that";
 }
 // Marks closer than `gap` px share no row: each x gets the lowest row whose last mark is far enough left.
 function dodgeRows(xs, gap) {
@@ -885,7 +893,7 @@ if (typeof module !== "undefined") module.exports = { VERSION, hottestChip, cloc
   markerGlyph, markerRow, settingWords, dropClose, keepTop, markerKind, markerTitle, chartKey, powerLine, logLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf, alarmBucket, resetsSuffix, profileFor, modelNote,
   powerTile, envRowsFrom, lastHour, recentHashrate, interventions, interventionCounts,
   parseMinerInfoBoards, boardTotals, boardRow, hottestIndex, fmtNum, fansTileText, hotsubText, fanTargetText,
-  UPTIME_CAUSES, dayStamp, wattsText, restartDetail, uptimeFacts, dodgeRows };
+  UPTIME_CAUSES, dayStamp, wattsText, restartDetail, uptimeFacts, dodgeRows, coverageNote };
 
 // ---- presentation (skipped under Node, where the data layer above is unit-tested) ----
 if (typeof document !== "undefined") {
@@ -1485,10 +1493,15 @@ function renderWatts() {
 // The uptime section (0.11.0): facts over the counting window, the runs and restarts over the whole window (its
 // oldest day shaded as context), the key, and one table row per restart. Hidden when the service does not serve it.
 function renderUptime() {
+  // a malformed record hides this section only: it must not take the fans chart down with it (review, 2026-10-01)
+  try { drawUptime(); } catch (e) { $("uptime").hidden = true; }
+}
+function drawUptime() {
   const sec = $("uptime"), u = uptimeData;
   if (!service || !u) { sec.hidden = true; return; }
   sec.hidden = false;
-  $("upsub").textContent = "restarts over " + u.count_days + " days, with the day before them for context, from the miner's uptime counter; each one's cause from the event log and the plug's watts";
+  $("upsub").textContent = "restarts over " + u.count_days + " days, with the day before them for context, from the miner's uptime counter; each one's cause from the event log and the plug's watts"
+    + coverageNote(u);
   const facts = $("upfacts"); facts.innerHTML = "";
   uptimeFacts(u).forEach(([k, v, s, cls]) => { const d = document.createElement("div"); d.className = "fact" + (cls ? " " + cls : "");
     d.innerHTML = "<div class=\"k\"></div><div class=\"v\"></div><div class=\"s\"></div>";
