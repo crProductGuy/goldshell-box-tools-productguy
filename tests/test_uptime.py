@@ -149,6 +149,45 @@ class CauseTest(unittest.TestCase):
         x = self.one(recent().good(20).boot().good(5))
         self.assertEqual(x["cause"], "unmeasured")
 
+    # --- found in review, 2026-10-01 ---
+    def test_a_scheduled_night_off_is_yours_not_the_miners(self):
+        """power.schedule writes 'switched off by the schedule'; it was counted 'hung', the miner's own."""
+        log = recent().good(20).event("power: switched off by the schedule (158 W before)").failed(watts=0.0, n=20)
+        log.event("power: switched on by the schedule").boot().good(5)
+        r = log.report()
+        self.assertEqual(r["restarts"][0]["cause"], "you")
+        self.assertEqual(r["counts"]["miner"], 0)
+
+    def test_a_cycle_from_the_page_is_yours(self):
+        """The page's Cycle writes its line after the off period, so its 0 W rows came first: it read 'power'."""
+        log = recent().good(20).failed(watts=0.0, n=3).event("power: cycled by you (page): off 60 s, on (158 W before)")
+        self.assertEqual(self.one(log.boot().good(5))["cause"], "you")
+
+    def test_gbox_starting_during_an_outage_it_did_not_see_begin(self):
+        """Failed polls, no gap, and a service start in the window: not seen, whatever the watts say."""
+        log = recent().good(20).failed(watts=20.0, n=2).event("service: started v0.11.0").failed(watts=20.0).boot().good(5)
+        self.assertEqual(self.one(log)["cause"], "unseen")
+
+    def test_an_event_a_few_seconds_outside_the_down_window_still_counts(self):
+        for offset, cause in ((3, "you"), (uptime.EVENT_SLACK_SECONDS + 5, "own")):
+            with self.subTest(offset=offset):
+                log = recent().good(20).failed(watts=20.0).boot().event("dashboard: soft restart sent", offset=offset).good(5)
+                self.assertEqual(self.one(log)["cause"], cause)
+        log = recent().good(20)
+        log.event("dashboard: soft restart sent", offset=-STEP - 3)      # 3 s before the last good sample
+        self.assertEqual(self.one(log.failed(watts=20.0).boot().good(5))["cause"], "you")
+
+    def test_the_event_list_is_capped_but_the_plug_flag_sees_every_line(self):
+        log = recent().good(20).failed(watts=25.0)
+        for i in range(7):
+            log.event("watchdog: restart attempt failed: PUT mcb/restart: timed out #%d" % i).failed(watts=25.0)
+        log.event("power: plug unreachable (did not answer)").failed(watts=None).boot().good(5)
+        x = self.one(log)
+        self.assertEqual(len(x["events"]), 6)
+        self.assertTrue(x["plug_unreachable"])
+        self.assertEqual(x["cause"], "power")
+        self.assertFalse(self.one(recent().good(20).failed(watts=20.0).boot().good(5))["plug_unreachable"])
+
 
 class DetectionTest(unittest.TestCase):
     def test_a_sampling_gap_with_the_miner_still_up_is_not_a_restart(self):
@@ -172,7 +211,62 @@ class DetectionTest(unittest.TestCase):
         """Down for two hours while gbox polled; back for longer than it had been up, so the uptime did not fall."""
         log = Log(NOW - datetime.timedelta(hours=10), elapsed=600).good(4).failed(watts=20.0, n=240)
         log.boot(up=3000).good(5)
-        self.assertEqual(len(log.report()["restarts"]), 1)
+        r = log.report()
+        self.assertEqual(len(r["restarts"]), 1)
+        self.assertEqual(r["restarts"][0]["cause"], "own")              # watched throughout: not "unseen"
+
+    # --- daylight saving and clock corrections: the stamps are naive local time (review, 2026-10-01) ---
+    def dst_log(self, stamps):
+        """Good samples at the given stamps, the uptime rising 30 s each: the miner never stopped."""
+        log = Log(stamps[0], elapsed=10000)
+        for t in stamps:
+            log.t = t
+            log.good(1)
+        return log
+
+    def test_the_fall_back_hour_written_twice_is_not_a_restart(self):
+        day = datetime.datetime(2026, 11, 1)
+        first = [day + datetime.timedelta(seconds=s) for s in range(0, 2 * 3600, STEP)]        # 00:00 to 01:59:30
+        again = [day + datetime.timedelta(hours=1, seconds=s) for s in range(0, 2 * 3600, STEP)]  # 01:00 again to 02:59:30
+        log = self.dst_log(first + again)
+        r = log.report(now=again[-1])
+        self.assertEqual(r["restarts"], [])
+        self.assertEqual(len(r["runs"]), 1)
+        h = r["hashing"]
+        self.assertEqual((h["down_s"], h["unsampled_s"]), (0, 0))
+
+    def test_the_spring_forward_hour_is_not_a_restart_nor_a_gap(self):
+        day = datetime.datetime(2027, 3, 14)
+        before = [day + datetime.timedelta(hours=1, seconds=s) for s in range(0, 3600, STEP)]   # 01:00 to 01:59:30
+        after = [day + datetime.timedelta(hours=3, seconds=s) for s in range(0, 3600, STEP)]    # 03:00 on
+        r = self.dst_log(before + after).report(now=after[-1])
+        self.assertEqual(r["restarts"], [])
+        self.assertEqual((r["hashing"]["down_s"], r["hashing"]["unsampled_s"]), (0, 0))
+
+    def test_a_clock_stepped_back_is_not_a_restart(self):
+        t0 = NOW - datetime.timedelta(hours=5)
+        stamps = [t0 + datetime.timedelta(seconds=s) for s in range(0, 1800, STEP)]
+        stamps += [stamps[-1] - datetime.timedelta(minutes=5) + datetime.timedelta(seconds=s) for s in range(STEP, 1800, STEP)]
+        self.assertEqual(self.dst_log(stamps).report(now=stamps[-1])["restarts"], [])
+
+    def test_a_good_row_with_no_uptime_is_skipped_not_a_restart(self):
+        log = recent().good(20)
+        log.rows[10]["elapsed"] = None
+        self.assertEqual(log.good(5).report()["restarts"], [])
+
+    def test_failed_rows_before_the_first_good_one_are_not_an_outage(self):
+        log = recent().failed(watts=2.0, n=5).good(10)
+        r = log.report()
+        self.assertEqual(r["restarts"], [])
+        self.assertEqual(len(r["runs"]), 1)
+
+    def test_rows_after_now_are_not_read(self):
+        log = recent().good(20)
+        cut = log.t
+        log.failed(watts=20.0).boot().good(5)
+        r = log.report(now=cut)
+        self.assertEqual(r["restarts"], [])
+        self.assertEqual(r["covers_from"], log.rows[0]["t"].strftime(uptime.STAMP))
 
 
     def test_a_restart_while_gbox_was_off_is_caught_even_when_the_uptime_did_not_fall(self):
@@ -208,6 +302,8 @@ class WindowTest(unittest.TestCase):
         first = r["runs"][0]
         self.assertLess(first["start"], r["from"])                      # began 9 days ago: shown, not clipped here
         self.assertTrue(r["runs"][-1]["ongoing"])
+        self.assertTrue(all(x["end"] >= r["from"] for x in r["runs"]))  # the run that ended 9 days ago is gone
+        self.assertEqual(len(r["runs"]), 3)
 
     def test_counts_hold_every_cause_and_the_two_sums(self):
         counts = self.build().report()["counts"]
@@ -260,6 +356,22 @@ class HashingTimeTest(unittest.TestCase):
         self.assertGreater(h["down_s"], markers.UNSAMPLED_SECONDS)
         self.assertEqual(h["unsampled_s"], 0)
 
+    def test_a_clock_stepping_back_during_an_outage_takes_no_time_away(self):
+        """Two failed polls carry no uptime to correct the step by, so the backward step counts nothing."""
+        log = recent().good(2).failed(watts=20.0)
+        log.t -= datetime.timedelta(minutes=5)
+        log.failed(watts=20.0).failed(watts=20.0)
+        latest = max(r["t"] for r in log.rows)              # the third row, stamped before the step
+        h = uptime.hashing_time(log.rows, log.rows[0]["t"] - datetime.timedelta(hours=1), latest)
+        # up: the two good intervals; down: the step back counts 0, then 30 s, then the last row up to `latest`
+        tail = (latest - log.rows[-1]["t"]).total_seconds()
+        self.assertEqual((h["up_s"], h["down_s"]), (2 * STEP, STEP + tail))
+
+    def test_the_time_since_the_last_sample_counts_up_to_now(self):
+        log = recent().good(3)
+        h = uptime.hashing_time(log.rows, log.rows[0]["t"], log.rows[-1]["t"] + datetime.timedelta(seconds=60))
+        self.assertEqual(h["up_s"], 2 * STEP + 60)
+
     def test_a_good_sample_reading_zero_hashrate_is_down(self):
         log = recent().good(3)
         log.rows[1]["mhs_20s"] = 0.0
@@ -287,6 +399,12 @@ class ReadRowsTest(unittest.TestCase):
         self.assertEqual(rows[0], {"t": datetime.datetime.strptime(edge, uptime.STAMP), "ok": True, "elapsed": 20,
                                    "mhs_20s": 2.0, "clock": 525.0, "watts": 151.0})
         self.assertEqual((rows[1]["ok"], rows[1]["elapsed"], rows[1]["watts"]), (False, None, 3.5))
+
+    def test_a_non_finite_cell_reads_as_blank(self):
+        new = (NOW - datetime.timedelta(hours=1)).strftime(uptime.STAMP)
+        self.path.write_text("time,http,elapsed,mhs_20s,clock,watts\n" + new + ",ok,nan,inf,525,-inf\n", encoding="utf-8")
+        row = uptime.read_rows(self.path, now=NOW)[0]
+        self.assertEqual((row["elapsed"], row["mhs_20s"], row["watts"]), (None, None, None))
 
     def test_a_missing_log_is_no_rows(self):
         self.assertEqual(uptime.read_rows(self.path, now=NOW), [])

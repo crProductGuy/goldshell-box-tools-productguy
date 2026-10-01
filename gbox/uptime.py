@@ -9,12 +9,13 @@ behind a long gap shows (the same two tests as `gbox.markers`).
 Each restart gets one cause, from the `events.log` lines between the last good sample before it and
 the first good one after, and from the plug's wall reading while the miner was down. First match wins:
 
-1. `you`: a switch or a setting from the page or the command line (`power: switched ... by you|hand`,
-   `dashboard: soft restart sent|clock set to|...`).
+1. `you`: something the owner did or planned: a switch or a cycle from the page, the command line or the
+   power schedule (`power: switched|cycled by you|hand|the schedule`), or a button on the page
+   (`dashboard: soft restart sent|clock set to|...|power`). A planned night off is not the miner's fault.
 2. `power`: power lost ahead of the plug (the plug itself stopped answering too).
-3. `hung` or `power`: gbox acted (a soft restart, a power cycle, a scheduled switch). If the plug read
-   under `POWER_LOST_WATTS` before gbox's first power action, the miner had lost its power and gbox
-   only brought it back: `power`. Otherwise the miner was powered and stuck: `hung`.
+3. `hung` or `power`: the watchdog acted (a soft restart, a power cycle). If the plug read under
+   `POWER_LOST_WATTS` before the first power action, the miner had lost its power and the watchdog only
+   brought it back: `power`. Otherwise the miner was powered and stuck: `hung`.
 4. `unseen`: gbox itself started in the window, or no failed sample at all over a gap longer than
    `markers.UNSAMPLED_SECONDS`: nobody was watching, so neither the moment nor the cause is known.
 5. `power` or `own`: no action at all. Under `POWER_LOST_WATTS` while down, the controller had no
@@ -30,9 +31,16 @@ own off period reads 0 W and would make every hang look like a power loss.
 
 Counts cover the last `COUNT_DAYS`; the runs and the restarts list cover `WINDOW_DAYS`, the extra day
 there for context (Mark, 2026-10-01: "counts over rolling 7 days, 8th day is for overlap context").
+
+The log's stamps are naive local time, so the rows are read in file order, never sorted: at the fall-back
+of daylight saving the hour 01:00 to 02:00 is written twice, and a sort by stamp would interleave the two
+passes into a restart every other row (found in review, 2026-10-01). A stamp that steps forward with the
+miner's uptime only a poll further on is the PC's clock, not a gap: a restart across a gap needs its
+implied start after the last good sample, and the time hashing trusts the uptime's own step there.
 """
 import csv
 import datetime
+import math
 import re
 from pathlib import Path
 
@@ -47,10 +55,10 @@ CAUSES = ("own", "hung", "power", "you", "unseen", "unmeasured")
 MINERS = ("own", "hung")          # the miner's own doing; the rest are not, or not known
 
 _STAMPED = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (.*)$")
-_YOU = re.compile(r"^(?:power: switched (?:on|off) by (?:you|hand)|"
+_YOU = re.compile(r"^(?:power: (?:switched (?:on|off)|cycled) by (?:you|hand|the schedule)|hold: started by the schedule|"
                   r"dashboard: (?:soft restart sent|clock set to|fan target set to|switched to preset|power))")
 _UNREACHABLE = re.compile(r"^power: plug unreachable")
-_GBOX = re.compile(r"^(?:power: cycled|power: switched|watchdog: restart|hold: started by the schedule)")
+_GBOX = re.compile(r"^(?:power: cycled|power: switched|watchdog: restart)")
 _POWER_ACTION = re.compile(r"^power: (?:cycled|switched)")
 _SERVICE = re.compile(r"^service: started")
 
@@ -61,9 +69,10 @@ def _stamp(t):
 
 def _num(s):
     try:
-        return float(s)
+        v = float(s)
     except (TypeError, ValueError):
         return None
+    return v if math.isfinite(v) else None     # a "nan" cell would otherwise break int() on every request
 
 
 def read_rows(path, now=None):
@@ -132,12 +141,14 @@ def _hashing(r):
 def report(rows, events=(), now=None):
     """The uptime record for `/api/uptime`: runs, restarts newest first, counts, time hashing, current and longest run.
 
-    `rows` are `read_rows` rows (or `series.read_rows` rows; any order); `events` are raw `events.log` lines.
+    `rows` are `read_rows` rows (or `series.read_rows` rows) in FILE order, never sorted (see the module
+    docstring: daylight saving); `events` are raw `events.log` lines.
     """
     now = now or datetime.datetime.now()
     window_from = now - datetime.timedelta(days=WINDOW_DAYS)
     count_from = now - datetime.timedelta(days=COUNT_DAYS)
-    rows = sorted((r for r in rows if r["t"] <= now), key=lambda r: r["t"])
+    rows = [r for r in rows if r["t"] <= now]
+    covers_from = min((r["t"] for r in rows), default=None)
     evts = _events(events)
     slack = datetime.timedelta(seconds=EVENT_SLACK_SECONDS)
     unsampled = datetime.timedelta(seconds=markers.UNSAMPLED_SECONDS)
@@ -156,13 +167,17 @@ def report(rows, events=(), now=None):
         else:
             prev_start = last["t"] - datetime.timedelta(seconds=last["elapsed"])
             fell = r["elapsed"] + restart_slack < last["elapsed"]
-            moved = (start - prev_start).total_seconds() > restart_slack and (bool(down) or r["t"] - last["t"] > unsampled)
+            # across failed polls or a sampling gap, and starting after the last good sample: a restart in the
+            # gap. A stamp jumping an hour ahead (spring-forward) with the uptime one poll on starts long before.
+            moved = ((start - prev_start).total_seconds() > restart_slack and (bool(down) or r["t"] - last["t"] > unsampled)
+                     and (start - last["t"]).total_seconds() > -restart_slack)
             if fell or moved:
                 inside = [(t, x) for t, x in evts if last["t"] - slack <= t <= r["t"] + slack]
                 cause, lo, hi = _cause(down, inside, not down and r["t"] - last["t"] > unsampled)
                 restarts.append({"t": _stamp(start), "back": _stamp(r["t"]), "down_from": _stamp(last["t"]),
                                  "up_before_h": round(last["elapsed"] / 3600.0, 2), "clock": last.get("clock"),
                                  "cause": cause, "watts_min": lo, "watts_max": hi,
+                                 "plug_unreachable": any(_UNREACHABLE.match(x) for _, x in inside),
                                  "events": [x for _, x in inside if _YOU.match(x) or _UNREACHABLE.match(x)
                                             or _GBOX.match(x) or _SERVICE.match(x)][:6],
                                  "counted": start >= count_from, "_start": start})
@@ -197,7 +212,10 @@ def report(rows, events=(), now=None):
 
     out_runs = [{k: x[k] for k in ("start", "end", "hours", "ongoing")} for x in runs]
     out_restarts = [{k: v for k, v in x.items() if not k.startswith("_")} for x in reversed(restarts)]
+    # covers_from: the oldest row read. Later than `from` means the log holds less than the window (a young
+    # install, or a rotation with a log.keep_hours under 192 saved in config.json); the page says so.
     return {"now": _stamp(now), "from": _stamp(window_from), "count_from": _stamp(count_from),
+            "covers_from": _stamp(covers_from) if covers_from else None,
             "days": WINDOW_DAYS, "count_days": COUNT_DAYS, "power_lost_watts": POWER_LOST_WATTS,
             "runs": out_runs, "restarts": out_restarts, "counts": counts,
             "hashing": hashing_time(rows, count_from, now), "current": current, "longest": longest}
@@ -210,6 +228,9 @@ def hashing_time(rows, since, now):
     A longer gap next to a failed sample is an outage gbox was watching (its polls slow down while the
     watchdog works), so it is down. A longer gap between two good samples is gbox not running: not sampled,
     counted neither way. Hashing means a good sample with a hashrate over zero.
+
+    Between two good samples of one run the miner's own uptime step is the truth when the PC's stamps
+    disagree with it (a daylight-saving change or a clock correction); a step backward counts nothing.
     """
     up = dn = unk = 0.0
     seq = [r for r in rows if since <= r["t"] <= now]
@@ -217,6 +238,11 @@ def hashing_time(rows, since, now):
         seq = seq + [{"t": now, "ok": seq[-1]["ok"], "mhs_20s": seq[-1].get("mhs_20s")}]
     for a, b in zip(seq, seq[1:]):
         dt = (b["t"] - a["t"]).total_seconds()
+        ea, eb = a.get("elapsed"), b.get("elapsed")
+        if a["ok"] and b["ok"] and ea is not None and eb is not None and 0 <= eb - ea <= markers.UNSAMPLED_SECONDS:
+            dt = eb - ea
+        if dt < 0:
+            continue
         if dt <= markers.UNSAMPLED_SECONDS:
             if _hashing(a):
                 up += dt

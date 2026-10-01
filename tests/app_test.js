@@ -876,7 +876,11 @@ const tests = {
     assert.strictEqual(d("power", 2.6, 2.8), "Lost power: the plug read 2.6 to 2.8 W while it was down.");
     assert.strictEqual(d("power", 3.0, 3.0, ["power: cycled #1"]), "Lost power: the plug read 3.0 W while it was down, and gbox only brought it back.");
     assert.strictEqual(d("power", 11.8, 37.4, ["power: plug unreachable (did not answer)"]), "Lost power ahead of the plug: the plug stopped answering too.");
-    assert.ok(d("you").startsWith("Switched or set by you"));
+    assert.ok(d("you").startsWith("Switched, cycled or set by you"));
+    assert.strictEqual(d("hung", null, null), "Stopped answering, with no wall reading to say whether it had power; gbox ended it.");
+    assert.strictEqual(d("power", null, null), "Lost power: the plug read next to nothing while it was down.");
+    assert.strictEqual(app.restartDetail({ cause: "power", watts_min: 30, watts_max: 30, plug_unreachable: true, events: [] }),
+      "Lost power ahead of the plug: the plug stopped answering too.");          // the flag sees past the six-line event cap
     assert.ok(d("unseen").startsWith("gbox was not sampling"));
     assert.ok(d("unmeasured").startsWith("No wall reading"));
   },
@@ -884,6 +888,14 @@ const tests = {
     assert.deepStrictEqual(app.dodgeRows([10, 12, 14, 40, 41, 100], 15), [0, 1, 2, 0, 1, 0]);
     assert.deepStrictEqual(app.dodgeRows([], 15), []);
     assert.deepStrictEqual(app.dodgeRows([0, 15, 30], 15), [0, 0, 0]);      // exactly the gap apart is room enough
+  },
+  "coverageNote: silent over a full window, says how much a short log holds"() {
+    const u = { now: "2026-10-01 00:14:13", from: "2026-09-23 00:14:13" };
+    assert.strictEqual(app.coverageNote(Object.assign({ covers_from: "2026-09-21 00:00:00" }, u)), "");
+    assert.strictEqual(app.coverageNote(Object.assign({ covers_from: "2026-09-23 00:50:00" }, u)), "");   // within the hour
+    assert.strictEqual(app.coverageNote(Object.assign({ covers_from: "2026-09-28 00:14:13" }, u)), " · the log holds only the last 3.0 days, so the counts cover that");
+    assert.strictEqual(app.coverageNote(Object.assign({ covers_from: "2026-09-30 18:14:13" }, u)), " · the log holds only the last 6 h, so the counts cover that");
+    assert.strictEqual(app.coverageNote(Object.assign({ covers_from: null }, u)), "");
   },
   "dayStamp and wattsText"() {
     assert.strictEqual(app.dayStamp("2026-09-27 09:10:37"), "Sun 09-27 09:10");
