@@ -836,7 +836,76 @@ const tests = {
     assert.strictEqual(app.logLine({}), "");            // an older service, before the log block
     assert.strictEqual(app.logLine(null), "");
   },
+  // 0.11.0: the uptime section. The record is shaped on the real SC-BOX replay of 2026-10-01 00:14.
+  "uptimeFacts: current run, restarts over 7 days, the miner's own per day, time hashing"() {
+    const u = uptimeSample();
+    const f = app.uptimeFacts(u);
+    assert.deepStrictEqual(f.map(x => x[0]), ["Current run", "Restarts, 7 days", "The miner's own, per day", "Time hashing, 7 days"]);
+    assert.deepStrictEqual(f[0].slice(1), ["87.1 h", "since Sun 09-27 09:10 · clock 525 · the longest in 8 days", ""]);
+    assert.deepStrictEqual(f[1].slice(1), ["10", "5 the miner's own · 5 power, you or not seen", "serious"]);
+    assert.deepStrictEqual(f[2].slice(1), ["0.7", "5 in 7 days · last one 87 h ago", ""]);
+    assert.deepStrictEqual(f[3].slice(1), ["99.6 %", "down 43 min · 40 min not sampled (gbox off)", ""]);
+  },
+  "uptimeFacts: a current run that is not the longest names the longest; unknown causes are said"() {
+    const u = uptimeSample();
+    u.longest = { start: "2026-09-20 10:00:00", end: "2026-09-24 10:00:00", hours: 96.0, ongoing: false };
+    u.counts = Object.assign({}, u.counts, { unmeasured: 2, total: 12 });
+    const f = app.uptimeFacts(u);
+    assert.ok(f[0][2].endsWith(" · longest in 8 days 96.0 h"), f[0][2]);
+    assert.strictEqual(f[1][2], "5 the miner's own · 5 power, you or not seen · 2 not known");
+  },
+  "uptimeFacts: the miner down now, no own restart in the window, nothing sampled yet"() {
+    const u = uptimeSample();
+    u.current = null; u.restarts = u.restarts.filter(r => !app.UPTIME_CAUSES[r.cause].miner);
+    u.counts = { own: 0, hung: 0, power: 3, you: 1, unseen: 1, unmeasured: 0, total: 5, miner: 0 };
+    const f = app.uptimeFacts(u);
+    assert.deepStrictEqual(f[0].slice(1), ["—", "not hashing now, or gbox is not sampling", "serious"]);
+    assert.strictEqual(f[1][3], "");
+    assert.strictEqual(f[2][2], "0 in 7 days · none in 8 days");
+    const empty = { now: u.now, days: 8, count_days: 7, runs: [], restarts: [], current: null, longest: null,
+      counts: { own: 0, hung: 0, power: 0, you: 0, unseen: 0, unmeasured: 0, total: 0, miner: 0 }, hashing: { up_s: 0, down_s: 0, unsampled_s: 0, pct: null } };
+    const e = app.uptimeFacts(empty);
+    assert.deepStrictEqual(e[0].slice(1), ["—", "no samples yet", ""]);
+    assert.deepStrictEqual(e[3].slice(1), ["—", "down 0 min", ""]);
+  },
+  "restartDetail: one sentence per cause, from the watts and the event lines"() {
+    const d = (cause, lo, hi, events) => app.restartDetail({ cause: cause, watts_min: lo, watts_max: hi, events: events || [] });
+    assert.strictEqual(d("own", 17.8, 20.4), "Restarted by itself while powered: 18 to 20 W while it was down.");
+    assert.strictEqual(d("own", 26.7, 26.7), "Restarted by itself while powered: 27 W while it was down.");
+    assert.strictEqual(d("hung", 16.9, 25.4, ["power: cycled #3"]), "Stopped answering while powered (17 to 25 W); gbox ended it.");
+    assert.strictEqual(d("power", 2.6, 2.8), "Lost power: the plug read 2.6 to 2.8 W while it was down.");
+    assert.strictEqual(d("power", 3.0, 3.0, ["power: cycled #1"]), "Lost power: the plug read 3.0 W while it was down, and gbox only brought it back.");
+    assert.strictEqual(d("power", 11.8, 37.4, ["power: plug unreachable (did not answer)"]), "Lost power ahead of the plug: the plug stopped answering too.");
+    assert.ok(d("you").startsWith("Switched or set by you"));
+    assert.ok(d("unseen").startsWith("gbox was not sampling"));
+    assert.ok(d("unmeasured").startsWith("No wall reading"));
+  },
+  "dodgeRows: close marks stack into rows, far ones share the first"() {
+    assert.deepStrictEqual(app.dodgeRows([10, 12, 14, 40, 41, 100], 15), [0, 1, 2, 0, 1, 0]);
+    assert.deepStrictEqual(app.dodgeRows([], 15), []);
+    assert.deepStrictEqual(app.dodgeRows([0, 15, 30], 15), [0, 0, 0]);      // exactly the gap apart is room enough
+  },
+  "dayStamp and wattsText"() {
+    assert.strictEqual(app.dayStamp("2026-09-27 09:10:37"), "Sun 09-27 09:10");
+    assert.strictEqual(app.dayStamp("nonsense"), "—");
+    assert.strictEqual(app.wattsText(null, null), "");
+    assert.strictEqual(app.wattsText(4.4, 4.4), "4.4 W");
+    assert.strictEqual(app.wattsText(12.3, 37.1), "12 to 37 W");
+  },
 };
+
+function uptimeSample() {
+  const r = (t, cause, counted) => ({ t: t, cause: cause, counted: counted !== false, up_before_h: 1, clock: 525, watts_min: 20, watts_max: 20, events: [] });
+  return { now: "2026-10-01 00:14:13", from: "2026-09-23 00:14:13", count_from: "2026-09-24 00:14:13", days: 8, count_days: 7,
+    runs: [{ start: "2026-09-27 09:10:37", end: "2026-10-01 00:14:13", hours: 87.06, ongoing: true }],
+    restarts: [r("2026-09-27 09:10:37", "own"), r("2026-09-26 20:05:17", "hung"), r("2026-09-26 11:22:30", "own"), r("2026-09-26 11:05:36", "own"),
+      r("2026-09-25 23:52:54", "hung"), r("2026-09-25 23:26:35", "power"), r("2026-09-25 23:06:54", "you"), r("2026-09-25 22:56:52", "power"),
+      r("2026-09-25 17:46:26", "power"), r("2026-09-24 16:13:22", "unseen"), r("2026-09-23 12:36:52", "you", false)],
+    counts: { own: 3, hung: 2, power: 3, you: 1, unseen: 1, unmeasured: 0, total: 10, miner: 5 },
+    hashing: { up_s: 599833, down_s: 2559, unsampled_s: 2405, pct: 99.575 },
+    current: { start: "2026-09-27 09:10:37", hours: 87.06, clock: 525.0 },
+    longest: { start: "2026-09-27 09:10:37", end: "2026-10-01 00:14:13", hours: 87.06, ongoing: true } };
+}
 
 let failed = 0;
 for (const [name, fn] of Object.entries(tests)) {
