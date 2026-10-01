@@ -679,6 +679,65 @@ function parseStamp(s) {
   const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?$/.exec(s || "");
   return m ? new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)).getTime() : NaN;
 }
+// ---- the uptime section (0.11.0): /api/uptime as four facts, a timeline of runs and restarts, and a table ----
+// One cause per restart, decided by the service (gbox/uptime.py). miner: the miner's own doing, or not, or not known.
+const UPTIME_CAUSES = {
+  own: { name: "restarted by itself", miner: true },
+  hung: { name: "hung, gbox ended it", miner: true },
+  power: { name: "power lost", miner: false },
+  you: { name: "you, by hand", miner: false },
+  unseen: { name: "not seen (gbox off)", miner: false },
+  unmeasured: { name: "power not measured", miner: null } };
+// "Sun 09-27 09:10" from a service stamp.
+function dayStamp(s) {
+  const t = parseStamp(s);
+  return isNaN(t) ? "—" : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(t).getDay()] + " " + s.slice(5, 16);
+}
+function wattsText(lo, hi) {
+  const w = v => v.toFixed(v < 10 ? 1 : 0);
+  if (lo === null || lo === undefined) return "";
+  return hi === null || hi === undefined || w(lo) === w(hi) ? w(lo) + " W" : w(lo) + " to " + w(hi) + " W";
+}
+// What the logs show for one restart, in a sentence; the event lines it rests on follow in the table.
+function restartDetail(r) {
+  const w = wattsText(r.watts_min, r.watts_max), ev = r.events || [];
+  if (r.cause === "own") return "Restarted by itself while powered: " + w + " while it was down.";
+  if (r.cause === "hung") return "Stopped answering while powered (" + w + "); gbox ended it.";
+  if (r.cause === "power") {
+    if (ev.some(e => /^power: plug unreachable/.test(e))) return "Lost power ahead of the plug: the plug stopped answering too.";
+    return "Lost power: the plug read " + w + " while it was down" + (ev.length ? ", and gbox only brought it back." : ".");
+  }
+  if (r.cause === "you") return "Switched or set by you, from the page or the command line.";
+  if (r.cause === "unseen") return "gbox was not sampling, so neither the moment nor the cause is known; the time comes from the uptime counter.";
+  return "No wall reading while it was down, so whether it had power is not known.";
+}
+function hoursText(h) { return h === null || h === undefined ? "—" : h.toFixed(1) + " h"; }
+function minutesText(s) { return Math.round((s || 0) / 60) + " min"; }
+// The four facts over the counting window: [label, value, subline, severity class].
+function uptimeFacts(u) {
+  const c = u.counts, out = [], cur = u.current, lng = u.longest, days = u.count_days;
+  if (cur) {
+    const longest = lng && lng.start === cur.start;
+    out.push(["Current run", hoursText(cur.hours), "since " + dayStamp(cur.start) + (cur.clock ? " · clock " + Math.round(cur.clock) : "")
+      + (longest ? " · the longest in " + u.days + " days" : lng ? " · longest in " + u.days + " days " + hoursText(lng.hours) : ""), ""]);
+  } else out.push(["Current run", "—", u.runs.length ? "not hashing now, or gbox is not sampling" : "no samples yet", u.runs.length ? "serious" : ""]);
+  const other = c.total - c.miner - c.unmeasured;
+  out.push(["Restarts, " + days + " days", String(c.total), c.miner + " the miner's own · " + other + " power, you or not seen"
+    + (c.unmeasured ? " · " + c.unmeasured + " not known" : ""), c.miner ? "serious" : ""]);
+  const lastOwn = u.restarts.find(r => UPTIME_CAUSES[r.cause] && UPTIME_CAUSES[r.cause].miner), now = parseStamp(u.now);
+  const since = lastOwn ? Math.floor((now - parseStamp(lastOwn.t)) / 3600000) : null;
+  out.push(["The miner's own, per day", (c.miner / days).toFixed(1), c.miner + " in " + days + " days · "
+    + (lastOwn ? "last one " + since + " h ago" : "none in " + u.days + " days"), ""]);
+  const h = u.hashing;
+  out.push(["Time hashing, " + days + " days", h.pct === null || h.pct === undefined ? "—" : h.pct.toFixed(1) + " %",
+    "down " + minutesText(h.down_s) + (h.unsampled_s ? " · " + minutesText(h.unsampled_s) + " not sampled (gbox off)" : ""), ""]);
+  return out;
+}
+// Marks closer than `gap` px share no row: each x gets the lowest row whose last mark is far enough left.
+function dodgeRows(xs, gap) {
+  const ends = [];
+  return xs.map(x => { let k = 0; while (ends[k] !== undefined && x - ends[k] < gap) k++; ends[k] = x; return k; });
+}
 // One row per bucket for drawPanels, timed at the bucket's middle. Nulls stay null (a gap), never 0.
 function seriesRows(s) {
   const half = (s.bucket_minutes || 30) * 30000;
@@ -783,7 +842,7 @@ function axisTicks(spanMin, now, wide) {
   }
   return { tickEvery: 60, labels: labels };
 }
-const VERSION = "0.10.5";
+const VERSION = "0.11.0";
 // The wall-clock time under a chart's "now" label: 24-hour, minutes only, so the last refresh reads at a glance.
 function clockLabel(t) { const d = new Date(t); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
 // The service log as the page shows it: newest line on top, like the interventions table, so a short window shows what matters.
@@ -825,7 +884,8 @@ if (typeof module !== "undefined") module.exports = { VERSION, hottestChip, cloc
   powerActionRequest, holdRequest, holdReleaseRequest, holdLine, holdWhyState, seriesRows, errorTip, resetsTip, clockTip, clockPanel, axisTicks, parseStamp, errorFacts, markerWords,
   markerGlyph, markerRow, settingWords, dropClose, keepTop, markerKind, markerTitle, chartKey, powerLine, logLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf, alarmBucket, resetsSuffix, profileFor, modelNote,
   powerTile, envRowsFrom, lastHour, recentHashrate, interventions, interventionCounts,
-  parseMinerInfoBoards, boardTotals, boardRow, hottestIndex, fmtNum, fansTileText, hotsubText, fanTargetText };
+  parseMinerInfoBoards, boardTotals, boardRow, hottestIndex, fmtNum, fansTileText, hotsubText, fanTargetText,
+  UPTIME_CAUSES, dayStamp, wattsText, restartDetail, uptimeFacts, dodgeRows };
 
 // ---- presentation (skipped under Node, where the data layer above is unit-tested) ----
 if (typeof document !== "undefined") {
@@ -1175,6 +1235,7 @@ async function refreshFan() {
 // ---- fans + temperature from the service's log.csv ----
 let envRows = null;
 let series24 = null, series72 = null;   // /api/series for the 24-hour charts and the three-day errors chart (served only)
+let uptimeData = null;                  // /api/uptime for the uptime section (served only, 0.11.0)
 const SERVED_SPAN = 1440, ERR_SPAN = 4320;
 function servedOpts(box, spanMin, bucketMin) { return { gapMs: bucketMin * 60000 * 1.5, bucketMin: bucketMin, ticks: axisTicks(spanMin, Date.now(), box.clientWidth >= 700), band: alarmBucket }; }
 // The key under a chart: the marker glyphs, the resets bar and the alarm band, from chartKey.
@@ -1200,7 +1261,11 @@ async function refreshEnv() {
       const [a, b] = await Promise.all([fetch("api/series?hours=24&bucket=5", { cache: "no-store" }), fetch("api/series?hours=72&bucket=30", { cache: "no-store" })]);
       series24 = a.ok ? await a.json() : null; series72 = b.ok ? await b.json() : null;
     } catch (e) { series24 = series72 = null; }
-    renderEnv(); renderWatts(); renderErrors(); renderInterventions(); if (lastHistory) renderChart(lastHistory);
+    try {                                     // 0.11.0; an older service answers 404 and the section stays hidden
+      const up = await fetch("api/uptime", { cache: "no-store" });
+      uptimeData = up.ok ? await up.json() : null;
+    } catch (e) { uptimeData = null; }
+    renderEnv(); renderWatts(); renderErrors(); renderInterventions(); renderUptime(); if (lastHistory) renderChart(lastHistory);
   } catch (e) { $("envchart").innerHTML = "<p class=\"note\">No logger samples yet (" + e.message + ").</p>"; }
 }
 // The errors chart: bad share of all chips and of the worst chip, the clock as a step, board resets as bars, over three days.
@@ -1417,8 +1482,80 @@ function renderWatts() {
     "power at the wall", long ? servedOpts(box, spanMin, series24.bucket_minutes) : null);
   if (long) renderKey("wattkey", { band: true }); else $("wattkey").hidden = true;
 }
+// The uptime section (0.11.0): facts over the counting window, the runs and restarts over the whole window (its
+// oldest day shaded as context), the key, and one table row per restart. Hidden when the service does not serve it.
+function renderUptime() {
+  const sec = $("uptime"), u = uptimeData;
+  if (!service || !u) { sec.hidden = true; return; }
+  sec.hidden = false;
+  $("upsub").textContent = "restarts over " + u.count_days + " days, with the day before them for context, from the miner's uptime counter; each one's cause from the event log and the plug's watts";
+  const facts = $("upfacts"); facts.innerHTML = "";
+  uptimeFacts(u).forEach(([k, v, s, cls]) => { const d = document.createElement("div"); d.className = "fact" + (cls ? " " + cls : "");
+    d.innerHTML = "<div class=\"k\"></div><div class=\"v\"></div><div class=\"s\"></div>";
+    d.children[0].textContent = k; d.children[1].textContent = v; d.children[2].textContent = s; facts.appendChild(d); });
+  const box = $("upchart"), t0 = parseStamp(u.from), t1 = parseStamp(u.now), tc = parseStamp(u.count_from), span = t1 - t0;
+  const W = Math.max(box.clientWidth, 320), L = 4, R = 4, xOf = t => L + (W - L - R) * (Math.min(Math.max(t, t0), t1) - t0) / span;
+  const bandY = 26, bandH = 26, mY = bandY + bandH + 22, rowH = 17, narrow = W < 560;
+  const esc = t => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+  const marks = u.restarts.map(r => ({ r: r, x: xOf(parseStamp(r.t)) })).sort((a, b) => a.x - b.x);
+  const rows = dodgeRows(marks.map(m => m.x), 15); marks.forEach((m, i) => { m.row = rows[i]; });
+  const H = mY + (marks.length ? Math.max.apply(null, rows) + 1 : 0) * rowH + 4;
+  let s = "<svg viewBox=\"0 0 " + W + " " + H + "\" role=\"img\" aria-label=\"hashing runs and restarts over " + u.days + " days\">";
+  s += "<rect class=\"ctx\" x=\"" + L + "\" y=\"16\" width=\"" + (xOf(tc) - L) + "\" height=\"" + (H - 18) + "\"/>";
+  const day0 = new Date(t0); day0.setHours(0, 0, 0, 0);
+  for (let d = new Date(day0); d.getTime() < t1; d.setDate(d.getDate() + 1)) {
+    const a = Math.max(d.getTime(), t0), nx = new Date(d); nx.setDate(nx.getDate() + 1); const b = Math.min(nx.getTime(), t1);
+    if (d.getTime() > t0) s += "<line class=\"day\" x1=\"" + xOf(a) + "\" x2=\"" + xOf(a) + "\" y1=\"16\" y2=\"" + (H - 2) + "\"/>";
+    if (xOf(b) - xOf(a) > 24) s += "<text class=\"dayl\" x=\"" + ((xOf(a) + xOf(b)) / 2) + "\" y=\"12\" text-anchor=\"middle\">" + (narrow ? DAYS[d.getDay()][0] : DAYS[d.getDay()]) + " " + d.getDate() + "</text>";
+  }
+  s += "<rect class=\"track\" x=\"" + L + "\" y=\"" + bandY + "\" width=\"" + (W - L - R) + "\" height=\"" + bandH + "\" rx=\"3\"/>";
+  u.runs.forEach(run => {
+    const x0 = xOf(parseStamp(run.start)), x1 = Math.max(xOf(parseStamp(run.end)), x0 + 2), now = run.ongoing;
+    const tip = (now ? "running now · " : "") + dayStamp(run.start) + " to " + (now ? "now" : dayStamp(run.end)) + " · " + hoursText(run.hours) + " hashing";
+    s += "<rect class=\"run" + (now ? " now" : "") + "\" x=\"" + x0 + "\" y=\"" + bandY + "\" width=\"" + (x1 - x0) + "\" height=\"" + bandH + "\" rx=\"3\" data-tip=\"" + esc(tip) + "\"/>";
+    if (x1 - x0 > 48) s += "<text class=\"runl" + (now ? " now" : "") + "\" x=\"" + ((x0 + x1) / 2) + "\" y=\"" + (bandY + 17) + "\" text-anchor=\"middle\" pointer-events=\"none\">" + hoursText(run.hours) + (now && x1 - x0 > 120 ? ", running" : "") + "</text>";
+  });
+  marks.forEach(m => {
+    const y = mY + m.row * rowH, r = m.r, c = UPTIME_CAUSES[r.cause] || UPTIME_CAUSES.unmeasured;
+    s += "<line class=\"stem\" x1=\"" + m.x + "\" x2=\"" + m.x + "\" y1=\"" + (bandY + bandH) + "\" y2=\"" + (y - 7) + "\"/>" + uptimeGlyph(r.cause, m.x, y);
+    s += "<rect class=\"hit\" x=\"" + (m.x - 9) + "\" y=\"" + (y - 9) + "\" width=\"18\" height=\"18\" data-tip=\"" + esc(dayStamp(r.t) + " · " + c.name + " · up " + hoursText(r.up_before_h) + " before · " + restartDetail(r)) + "\"/>";
+  });
+  s += "</svg><div class=\"tip wrap\" id=\"uptip\"></div>";
+  box.innerHTML = s;
+  const tipEl = $("uptip");
+  box.onmousemove = e => {
+    const t = e.target.closest ? e.target.closest("[data-tip]") : null;
+    if (!t) { tipEl.style.display = "none"; return; }
+    tipEl.textContent = t.getAttribute("data-tip"); tipEl.style.display = "block";
+    const r = box.getBoundingClientRect(); placeTip(tipEl, e.clientX - r.left, e.clientY - r.top + 14, r.width);
+  };
+  box.onmouseleave = () => { tipEl.style.display = "none"; };
+  $("upkey").innerHTML = ["own", "hung", "power", "you", "unseen", "unmeasured"].map(c =>
+    "<span><svg viewBox=\"-8 -8 16 16\" width=\"14\" height=\"14\" aria-hidden=\"true\">" + uptimeGlyph(c, 0, 0) + "</svg>" + UPTIME_CAUSES[c].name + "</span>").join("")
+    + "<span><svg viewBox=\"0 0 16 16\" width=\"14\" height=\"14\" aria-hidden=\"true\"><rect class=\"run\" x=\"0\" y=\"3\" width=\"16\" height=\"10\" rx=\"2\"/></svg>a hashing run</span>"
+    + "<span>filled marks are the miner's doing; the shaded first day is context, not counted</span>";
+  const body = $("uptab").querySelector("tbody"); body.innerHTML = "";
+  if (!u.restarts.length) { const tr = body.insertRow(); const td = tr.insertCell(); td.colSpan = 5; td.textContent = "no restarts in " + u.days + " days"; }
+  u.restarts.forEach(r => {
+    const tr = body.insertRow(); if (!r.counted) tr.className = "ctxrow";
+    const ev = [...new Set(r.events || [])].slice(0, 3).map(e => e.length > 72 ? e.slice(0, 69) + "..." : e);   // a ladder repeats its line
+    [dayStamp(r.t), hoursText(r.up_before_h), r.clock ? String(Math.round(r.clock)) : "—", (UPTIME_CAUSES[r.cause] || UPTIME_CAUSES.unmeasured).name,
+     restartDetail(r) + (ev.length ? " Log: " + ev.join("; ") : "")].forEach((v, i) => {
+      const td = tr.insertCell(); td.textContent = v; if (i === 3) td.className = "cat " + r.cause; });
+  });
+}
+// Filled marks are the miner's doing, hollow ones are not; "?" is gbox not watching (as on the approved mockup),
+// the dashed circle a restart with no wall reading.
+function uptimeGlyph(cause, x, y) {
+  if (cause === "own") return "<circle class=\"m-own\" cx=\"" + x + "\" cy=\"" + y + "\" r=\"6\"/>";
+  if (cause === "hung") return "<path class=\"m-hung\" d=\"M" + x + " " + (y - 7) + "L" + (x + 7) + " " + y + "L" + x + " " + (y + 7) + "L" + (x - 7) + " " + y + "Z\"/>";
+  if (cause === "power") return "<path class=\"m-out\" d=\"M" + x + " " + (y - 6) + "L" + (x + 6) + " " + (y + 5) + "L" + (x - 6) + " " + (y + 5) + "Z\"/>";
+  if (cause === "you") return "<rect class=\"m-out\" x=\"" + (x - 5) + "\" y=\"" + (y - 5) + "\" width=\"10\" height=\"10\" rx=\"1\"/>";
+  if (cause === "unseen") return "<text class=\"m-q\" x=\"" + x + "\" y=\"" + (y + 5) + "\" text-anchor=\"middle\">?</text>";
+  return "<circle class=\"m-out\" cx=\"" + x + "\" cy=\"" + y + "\" r=\"5.5\" stroke-dasharray=\"2 2\"/>";
+}
 let resizeTimer = null;
-window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (lastHistory) { renderChart(lastHistory); renderEnv(); renderWatts(); renderErrors(); } }, 150); });
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (lastHistory) { renderChart(lastHistory); renderEnv(); renderWatts(); renderErrors(); renderUptime(); } }, 150); });
 // This page sends the miner one request at a time (token-check race, see docs/firmware-api.md): the poll cycle and
 // the buttons share one `busy` flag. A poll that finds the page busy is skipped; a button waits for the poll to end.
 let busy = false;

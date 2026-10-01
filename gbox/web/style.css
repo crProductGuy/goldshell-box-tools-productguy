@@ -2,12 +2,12 @@
   --bg:#f4f4f2; --surface:#fcfcfb; --ink:#141413; --ink2:#333331; --muted:#55554f; --line:#d9d9d4;
   --series:#2a78d6; --series2:#eb6834; --good:#006300; --warn:#8a5a00; --serious:#a34a1f; --critical:#d03b3b;
   --amber:#e0940a; --hot:#d03b3b;
-  --goodbg:#e4f5e4; --warnbg:#fff3d6; --critbg:#fbe1e1; }
+  --goodbg:#e4f5e4; --warnbg:#fff3d6; --critbg:#fbe1e1; --runbg:#cfe0f5; }
 @media (prefers-color-scheme: dark) { :root {
   --bg:#111110; --surface:#1a1a19; --ink:#f4f4f2; --ink2:#d8d8d4; --muted:#b0b0ab; --line:#3d3d38;
   --series:#3987e5; --series2:#d95926; --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --critical:#ff6b6b;
   --amber:#c4860a; --hot:#d94444;
-  --goodbg:#0f2a0f; --warnbg:#3a2c05; --critbg:#3d1414; } }
+  --goodbg:#0f2a0f; --warnbg:#3a2c05; --critbg:#3d1414; --runbg:#1d3553; } }
 * { box-sizing:border-box; min-width:0 }
 body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
 header { display:flex; flex-wrap:wrap; align-items:center; gap:12px 20px; padding:14px 20px; background:var(--surface); border-bottom:1px solid var(--line); }
@@ -97,3 +97,13 @@ svg .marklbl { fill:var(--warn); font-size:11px; font-weight:800 } svg .mark:hov
 #ivtab td, #ivtab th { text-align:left; white-space:normal } #ivtab td.when { white-space:nowrap; color:var(--ink2) } #ivtab td.who { font-weight:600 }
 #ivtab tr.cycle td.who { color:var(--critical) } #ivtab tr.restart td.who, #ivtab tr.failed td.who, #ivtab tr.declined td.who { color:var(--serious) }
 svg .raxis { stroke:var(--muted) } svg text.rlbl { fill:var(--ink2) }
+/* uptime section (0.11.0): runs as bars, restarts as marks below them, filled = the miner's doing */
+svg .ctx { fill:var(--line); opacity:.3 } svg .day { stroke:var(--line); stroke-width:1 } svg .dayl { font-weight:600 }
+svg .track { fill:var(--line); opacity:.45 } svg .run { fill:var(--runbg) } svg .run.now { stroke:var(--series); stroke-width:2.5 }
+svg .runl { fill:var(--ink); font-weight:600 } svg .runl.now { fill:var(--ink) } svg .stem { stroke:var(--muted); stroke-width:1 }
+svg .m-own { fill:var(--critical); stroke:var(--surface); stroke-width:2 } svg .m-hung { fill:var(--serious); stroke:var(--surface); stroke-width:2 }
+svg .m-out { fill:var(--surface); stroke:var(--ink2); stroke-width:1.75 } svg .m-q { fill:var(--ink2); font-weight:700; font-size:13px } svg .hit { fill:transparent }
+.tip.wrap { white-space:normal; max-width:320px } .legend.key svg { vertical-align:middle; margin-right:5px }
+#uptab td, #uptab th { text-align:left; vertical-align:top } #uptab td:nth-child(-n+3) { white-space:nowrap }
+#uptab td.cat { font-weight:600; white-space:nowrap } #uptab td.cat.own { color:var(--critical) } #uptab td.cat.hung { color:var(--serious) }
+#uptab tr.ctxrow td { color:var(--muted) } #uptab tr.ctxrow td.cat { color:var(--muted) }
