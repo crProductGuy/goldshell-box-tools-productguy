@@ -121,11 +121,15 @@ def _cause(down, evts, unwatched=False):
     first_power = min((t for t, x in evts if _POWER_ACTION.match(x)), default=None)
     watts = [r["watts"] for r in down if r.get("watts") is not None and (first_power is None or r["t"] < first_power)]
     lo, hi = (min(watts), max(watts)) if watts else (None, None)
-    if any(_YOU.match(x) for x in texts):
+    # yours only when your line came before the watchdog's first action: a scheduled night off that lands
+    # in the middle of a hang the watchdog was already working must not hide the hang (review, 2026-10-01)
+    first_you = min((t for t, x in evts if _YOU.match(x)), default=None)
+    first_dog = min((t for t, x in evts if _GBOX.match(x) and not _YOU.match(x)), default=None)
+    if first_you is not None and (first_dog is None or first_you <= first_dog):
         return "you", lo, hi
     if any(_UNREACHABLE.match(x) for x in texts):
         return "power", lo, hi
-    if any(_GBOX.match(x) for x in texts):
+    if first_dog is not None:
         return ("power" if lo is not None and lo < POWER_LOST_WATTS else "hung"), lo, hi
     if unwatched or any(_SERVICE.match(x) for x in texts):
         return "unseen", lo, hi
@@ -168,9 +172,12 @@ def report(rows, events=(), now=None):
             prev_start = last["t"] - datetime.timedelta(seconds=last["elapsed"])
             fell = r["elapsed"] + restart_slack < last["elapsed"]
             # across failed polls or a sampling gap, and starting after the last good sample: a restart in the
-            # gap. A stamp jumping an hour ahead (spring-forward) with the uptime one poll on starts long before.
+            # gap. Not when nothing failed and the uptime moved on by no more than a sampling gap while the
+            # stamps jumped: that is the PC's clock (spring-forward), whatever the run's age (review, 2026-10-01).
+            step = r["elapsed"] - last["elapsed"]
+            clock_jump = not down and 0 <= step <= markers.UNSAMPLED_SECONDS
             moved = ((start - prev_start).total_seconds() > restart_slack and (bool(down) or r["t"] - last["t"] > unsampled)
-                     and (start - last["t"]).total_seconds() > -restart_slack)
+                     and (start - last["t"]).total_seconds() > -restart_slack and not clock_jump)
             if fell or moved:
                 inside = [(t, x) for t, x in evts if last["t"] - slack <= t <= r["t"] + slack]
                 cause, lo, hi = _cause(down, inside, not down and r["t"] - last["t"] > unsampled)
@@ -239,8 +246,9 @@ def hashing_time(rows, since, now):
     for a, b in zip(seq, seq[1:]):
         dt = (b["t"] - a["t"]).total_seconds()
         ea, eb = a.get("elapsed"), b.get("elapsed")
-        if a["ok"] and b["ok"] and ea is not None and eb is not None and 0 <= eb - ea <= markers.UNSAMPLED_SECONDS:
-            dt = eb - ea
+        if (a["ok"] and b["ok"] and ea is not None and eb is not None and 0 <= eb - ea <= markers.UNSAMPLED_SECONDS
+                and abs(dt - (eb - ea)) > markers.RESTART_SLACK_SECONDS):
+            dt = eb - ea                # the stamps jumped, the uptime did not: a frozen uptime is not this
         if dt < 0:
             continue
         if dt <= markers.UNSAMPLED_SECONDS:

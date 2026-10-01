@@ -158,6 +158,18 @@ class CauseTest(unittest.TestCase):
         self.assertEqual(r["restarts"][0]["cause"], "you")
         self.assertEqual(r["counts"]["miner"], 0)
 
+    def test_a_schedule_landing_in_a_hang_the_watchdog_was_working_stays_hung(self):
+        log = recent().good(20).failed(watts=25.0, n=4).event("watchdog: restart #1 sent (miner unreachable for 2 min)")
+        log.failed(watts=25.0, n=4).event("power: switched off by the schedule (25 W before)").failed(watts=0.0, n=10)
+        log.event("power: switched on by the schedule").boot().good(5)
+        self.assertEqual(self.one(log)["cause"], "hung")
+
+    def test_your_switch_before_the_watchdog_acted_stays_yours(self):
+        log = recent().good(20).event("power: switched off by you (page; 158 W before)").failed(watts=0.0, n=6)
+        log.event("watchdog: restart attempt failed: PUT mcb/restart: timed out").failed(watts=0.0, n=2)
+        log.event("power: switched on by you (page)").boot().good(5)
+        self.assertEqual(self.one(log)["cause"], "you")
+
     def test_a_cycle_from_the_page_is_yours(self):
         """The page's Cycle writes its line after the off period, so its 0 W rows came first: it read 'power'."""
         log = recent().good(20).failed(watts=0.0, n=3).event("power: cycled by you (page): off 60 s, on (158 W before)")
@@ -242,6 +254,17 @@ class DetectionTest(unittest.TestCase):
         r = self.dst_log(before + after).report(now=after[-1])
         self.assertEqual(r["restarts"], [])
         self.assertEqual((r["hashing"]["down_s"], r["hashing"]["unsampled_s"]), (0, 0))
+
+    def test_spring_forward_in_a_young_run_is_not_a_restart_either(self):
+        """Up 10 min at the jump: the implied start lands after the last sample, so only the uptime step tells."""
+        day = datetime.datetime(2027, 3, 14)
+        before = [day + datetime.timedelta(hours=1, minutes=50, seconds=s) for s in range(0, 600, STEP)]
+        after = [day + datetime.timedelta(hours=3, seconds=s) for s in range(0, 600, STEP)]
+        log = Log(before[0], elapsed=0)
+        for t in before + after:
+            log.t = t
+            log.good(1)
+        self.assertEqual(log.report(now=after[-1])["restarts"], [])
 
     def test_a_clock_stepped_back_is_not_a_restart(self):
         t0 = NOW - datetime.timedelta(hours=5)
@@ -366,6 +389,15 @@ class HashingTimeTest(unittest.TestCase):
         # up: the two good intervals; down: the step back counts 0, then 30 s, then the last row up to `latest`
         tail = (latest - log.rows[-1]["t"]).total_seconds()
         self.assertEqual((h["up_s"], h["down_s"]), (2 * STEP, STEP + tail))
+
+    def test_a_frozen_uptime_on_a_dead_board_is_down_time(self):
+        """HTTP answering, the uptime stuck, no hashrate: an hour down, not the uptime's zero step."""
+        log = recent().good(2)
+        for _ in range(120):
+            log.rows.append({"t": log.t, "ok": True, "elapsed": log.elapsed, "mhs_20s": 0.0, "clock": 525.0, "watts": 20.0})
+            log.t += datetime.timedelta(seconds=STEP)
+        h = uptime.hashing_time(log.rows, log.rows[0]["t"], log.rows[-1]["t"])
+        self.assertEqual(h["down_s"], 119 * STEP)
 
     def test_the_time_since_the_last_sample_counts_up_to_now(self):
         log = recent().good(3)
