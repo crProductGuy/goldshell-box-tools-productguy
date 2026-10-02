@@ -3244,3 +3244,7 @@ log was unchanged by both rounds. The agent then stopped fixing, by the session 
 time calls for a fresh look rather than a fourth round. What is left is written down: a fall-back hour can still
 draw an event line from the wrong pass, and a restart hidden behind a backward clock step inside a gbox-off gap
 is not seen. Both are rare and named in STATUS.
+
+That evening (10-01, about 21:00) Mark read the summary and said "merge, push, tag." The branch was merged, pushed and tagged
+v0.11.0. The service restart was not part of that word, so the live service stayed on 0.10.5 until the next
+session; the new section stays hidden until then, because the old service has no `/api/uptime`.
