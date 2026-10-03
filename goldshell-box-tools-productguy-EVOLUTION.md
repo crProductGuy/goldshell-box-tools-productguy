@@ -3248,3 +3248,16 @@ is not seen. Both are rare and named in STATUS.
 That evening (10-01, about 21:00) Mark read the summary and said "merge, push, tag." The branch was merged, pushed and tagged
 v0.11.0. The service restart was not part of that word, so the live service stayed on 0.10.5 until the next
 session; the new section stays hidden until then, because the old service has no `/api/uptime`.
+
+## 2026-10-02 evening, session AU (3fe2ac0c): 0.11.0 goes live
+
+Mark opened with "pick up gbox", and then, on the three next steps from the checkpoint, "go ahead, all three".
+Nothing had happened between sessions: no power cycle in `events.log` since 09-26, and the miner was still on the
+run that started 09-27 09:10, 132 hours at 525 with no hardware errors. The live service was stopped through the
+pid-file stop script (a dry run first, then the stop, exit 0) and restarted from the Startup launcher at 21:44.
+`/api/health` reported 0.11.0 with samples advancing and no errors, and `/api/uptime` answered 200. A browser-checker
+agent loaded the dashboard: the header shows 0.11.0 with no version mismatch, and the "Uptime over 8 days" section
+sits below the hashrate chart (current run 132.6 h, the longest in the window; 8 restarts in 7 days, 5 the miner's
+own and 3 power; 99.6 % hashing). The fans chart still draws. The agent could not see console errors from the page
+load, only messages logged after it attached, so that one point is unchecked. The merged worktree and branch were
+removed.
