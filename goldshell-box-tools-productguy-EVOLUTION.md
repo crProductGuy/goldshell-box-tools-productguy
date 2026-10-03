@@ -3261,3 +3261,11 @@ sits below the hashrate chart (current run 132.6 h, the longest in the window; 8
 own and 3 power; 99.6 % hashing). The fans chart still draws. The agent could not see console errors from the page
 load, only messages logged after it attached, so that one point is unchecked. The merged worktree and branch were
 removed.
+
+Later that evening Mark said a friend's clock, voltage and fan-curve tuner, which reuses some of this project's
+code, is now installed on another machine and points at the same SC-BOX. He will run it by hand the next day while
+watching. The agent's main point was that gbox's logging polls the miner too, so it has to be stopped entirely for a
+tuning session, not just have its watchdog switched off. Otherwise two programs would talk to the firmware at once,
+which this project's one-request rule exists to prevent. The watchdog would also read the tuner's own restarts as
+faults. Also suggested: record a baseline before tuning, find out whether the tuner's settings survive a power cycle,
+and give any new setting a fresh 72-hour run under gbox.
