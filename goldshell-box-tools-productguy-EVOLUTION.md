@@ -3269,3 +3269,38 @@ tuning session, not just have its watchdog switched off. Otherwise two programs 
 which this project's one-request rule exists to prevent. The watchdog would also read the tuner's own restarts as
 faults. Also suggested: record a baseline before tuning, find out whether the tuner's settings survive a power cycle,
 and give any new setting a fresh 72-hour run under gbox.
+
+## 2026-10-03 evening, session AV (27f96163): does the voltage setting do anything?
+
+Mark opened with "pick up the gbox project". The friend's tuner had not run, the service had not been stopped, and
+the miner was 156 hours into its run at 525 MHz with no hardware errors. His question was whether this gbox can
+execute `gbox plan 550 --volts 0.42`. It can: the `--volts` option has been in the CLI all along. Reading the code
+turned up three things worth saying before he used it. The clock is range-checked but the voltage is not, so any
+number typed is sent as written. No test exercises the voltage path. And on the SC-BOX the `volts` value gbox logs
+is the setpoint echoed back, not a measurement, so the only independent evidence of an effect is the plug's watts.
+The agent offered to add a guard first. Mark declined: "with no guardrails", and he changed one thing at a time by
+keeping the clock at 525. He named three checks: `tvout:0.420000` in the miner's own log, a 0.42 echo on port 4028,
+and a watts rise on the plug.
+
+The service never stores the miner's log text, only a classified label, so the first check needed a raw read. The
+agent wrote a small read-only script outside the repo that sends one log request and prints only the two
+settings-applied lines. While testing it the agent found that the config holds a stored password, which corrected
+its own earlier statement that no credential was on disk; it said so, and ran the read only at Mark's word.
+
+Mark ran the change to 0.42 at 21:28. The miner's log showed the setting applied, port 4028 echoed 0.42 from the
+next sample, and `minerlog.csv` recorded `settings_applied`. The plug rose 4 W, and the agent first reported all
+three checks as met. That was wrong, and the next reads showed why: applying a plan restarts the fan controller,
+the fans ran at 4,300 rpm for 11 minutes, and the rise was the fans. Once they settled, 27 minutes at 0.42 averaged
+157.63 W against 157.71 W in the two hours before, with the board at the same temperature and the hashrate inside
+its noise. No restart, no hardware errors. A one-step voltage change that reached the chips should be worth several
+watts (the agent's estimate, not a measurement), and the plug resolves a tenth of one.
+
+Mark then asked for 0.43, which the agent sent at 22:09 and confirmed the same way. Ten minutes in, the same shape:
+a fan spike, and watts already back under 157 W with the fans still above normal. He asked for checks at 15 and 30
+minutes with a return to 0.41 on trouble, and the agent wrote down what trouble means before he went to bed: a
+hardware error, a restart, a bad sample, the board at 70 C, the hottest chip at 85 C, falling hashrate or climbing
+rejects. A watts rise alone is the thing being looked for, not trouble. Otherwise 0.43 stays overnight, with only
+the watchdog watching, which does not touch voltage.
+
+Open: whether the setpoint moves the board's supply at all on this unit. Nothing was changed in the code. The
+unguarded `--volts` and its missing tests stay as they are, by Mark's choice for tonight.
