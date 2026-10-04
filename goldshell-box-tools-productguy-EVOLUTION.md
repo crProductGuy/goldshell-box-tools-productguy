@@ -3304,3 +3304,8 @@ the watchdog watching, which does not touch voltage.
 
 Open: whether the setpoint moves the board's supply at all on this unit. Nothing was changed in the code. The
 unguarded `--volts` and its missing tests stay as they are, by Mark's choice for tonight.
+
+Addendum, 22:40. Both night checks passed with no trigger, so 0.43 stays on overnight as Mark asked. Fifteen settled
+minutes at 0.43 averaged 157.65 W, against 157.63 W at 0.42 and 157.71 W at 0.41, with the board at the same
+temperature each time: three setpoints, one wall draw. The firmware logs and echoes each new value, and nothing the
+plug can measure follows it.
