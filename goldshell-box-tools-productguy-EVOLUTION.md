@@ -3333,3 +3333,21 @@ script, dry run first. An hour later the miner's own log showed what the test ha
 wall clock across the gap). The test had already left the unit at 550 and 0.44, which is what Mark asked to be
 restored, so the agent sent nothing and avoided one more fan spike. The service was restarted from the Startup
 launcher and verified sampling. The unit soaks overnight at 550 MHz with the 0.44 setpoint, watchdog on.
+
+Addendum, 2026-10-04 late evening. Mark asked to "pull the logs and fit them into the data we have". The agent
+read that as the miner's own log for the 73 minutes the service was off, and said so, since the other machine's
+script output is out of its reach. The miner's log covered the whole gap. The service's classifier found the four
+settings writes and no fault of any kind, shares arrived at the usual rate, and the five-second temperature lines
+gave a per-phase picture the service's data lacked. They also showed the hottest chip's single-reading peak
+climbing through the evening at 550 MHz, 82 then 84 then 85 C, while its five-minute level held near 77. Nothing
+was written into `log.csv`: back-filling a file the live service appends to was judged not worth the risk, so the
+gap record lives in the status file.
+
+The 85 was one of the lines the agent had named, and no instruction covered it, so it asked. Mark authorized a step
+back to 525 MHz on heat, and asked whether that could be done "without burning tokens". It could: a small script
+outside the repo, run as its own hidden process, reads only the service's log once a minute and sends the one
+clock command if the hottest chip's five-minute level reaches 85 C or the board reads 70 C twice running. It acts
+once, never touches voltage, ignores anything before its own start, and stops by itself after fourteen hours. It
+was tested in dry-run mode on seven made-up logs and the real one before launch. The agent turned "the board
+reaches 70" into two consecutive readings and told Mark it had. The real send from inside the script was not
+exercised.
