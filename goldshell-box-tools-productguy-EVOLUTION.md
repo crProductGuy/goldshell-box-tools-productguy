@@ -3351,3 +3351,20 @@ once, never touches voltage, ignores anything before its own start, and stops by
 was tested in dry-run mode on seven made-up logs and the real one before launch. The agent turned "the board
 reaches 70" into two consecutive readings and told Mark it had. The real send from inside the script was not
 exercised.
+
+Addendum, 2026-10-05 morning, same session. The first night at 550 MHz with the 0.44 setpoint was clean: twelve
+hours, no hardware errors, no restart, no rejected share, 165 W, and the heat guard never acted. Mark asked for the
+comparison the agent had offered, against the same clock in September. Over ten days at 550 MHz and 0.41 the log
+holds 227 hardware errors and 43 restarts of every cause, at 178 W on average; over the ten days at 525 MHz that
+followed, one error and ten restarts at 158 W; over the new fourteen hours, none of either, at the old run's
+hashrate and 13 W less. The agent's reading was deliberately narrow. The old run had clean stretches as long as 33
+hours, so fourteen prove nothing yet. The high-power state the old run spent most of its time in vanished at the
+move to 525, a week before any voltage change, for a reason nobody has found, so the setpoint cannot be credited
+for the lower draw. Only 72 hours at 550 and 0.41 again would separate the voltage from everything else that has
+changed. The pass also caught the agent out: it had said that morning that brief chip readings of 85 C were new at
+550, and the full log showed them on 9 percent of readings at 525 as well. It corrected that in the same report.
+
+Mark asked for the heat guard to stay for the rest of the soak. The agent replaced it with a 72-hour one rather
+than run two, so the step-down can only be sent once. Its first try at stopping the old one checked the command
+line by text and was refused by the owner's hook against stopping a process chosen by a pattern; it stopped it by
+the pid it had launched instead, after matching the start time.
