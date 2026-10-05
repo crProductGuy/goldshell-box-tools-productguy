@@ -3309,3 +3309,27 @@ Addendum, 22:40. Both night checks passed with no trigger, so 0.43 stays on over
 minutes at 0.43 averaged 157.65 W, against 157.63 W at 0.42 and 157.71 W at 0.41, with the board at the same
 temperature each time: three setpoints, one wall draw. The firmware logs and echoes each new value, and nothing the
 plug can measure follows it.
+
+Addendum, 2026-10-04 evening, same session. The night at 0.43 was clean: 18 hours, no hardware errors, no restart,
+157.4 W. Mark asked for an internet search on a safe voltage for this model. It found none: no vendor figure, no
+chip data, and forum reports for a sister model that ranged from "nothing changed" to a factory reset, with no
+damage reported and no limit named. One read of the unit's own preset list showed the firmware ships a single
+voltage, 0.41 at the full 725 MHz clock, so there is no vendor range to lean on. The agent recommended going back
+to 0.41, since the higher setpoints had bought nothing measurable.
+
+Mark chose the opposite direction: 0.44, then the clock from 525 to 550 once the fans had settled. The agent sent
+both. At 0.44 the wall draw was again unchanged, the fourth setpoint with the same reading. The 525 run ended clean
+after 179 hours. At 550 the unit drew 165.3 W against 157.4 W and hashed about 4 percent faster, with the same
+energy per hash. It also ran warmer: the board averaged 66 C and touched 69, the hottest chip touched 82, and the
+fans stayed near their slow speed although the board sat above the fan target. The agent reported the thin margins
+and asked what to do if a line were crossed, rather than deciding alone; that question is still open. One logging
+gap turned up: the service wrote no fans-high line for the spike that followed the clock change, three minutes
+after the previous spike had ended.
+
+Mark then had the service stopped so a friend's test script on another machine could run clock and voltage
+settings against the same miner, the arrangement planned two days earlier. The stop went through the pid-file
+script, dry run first. An hour later the miner's own log showed what the test had done: four writes, all at the
+0.44 setpoint, the clock to 525 once and back to 550, and no restart of the miner (its uptime counter matched the
+wall clock across the gap). The test had already left the unit at 550 and 0.44, which is what Mark asked to be
+restored, so the agent sent nothing and avoided one more fan spike. The service was restarted from the Startup
+launcher and verified sampling. The unit soaks overnight at 550 MHz with the 0.44 setpoint, watchdog on.
