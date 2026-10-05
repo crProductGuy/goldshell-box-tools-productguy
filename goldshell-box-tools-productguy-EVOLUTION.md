@@ -3368,3 +3368,12 @@ Mark asked for the heat guard to stay for the rest of the soak. The agent replac
 than run two, so the step-down can only be sent once. Its first try at stopping the old one checked the command
 line by text and was refused by the owner's hook against stopping a process chosen by a pattern; it stopped it by
 the pid it had launched instead, after matching the start time.
+
+Addendum, 2026-10-05 evening, same session. At 22 hours the soak at 550 MHz was still clean on hardware, but the
+rejected-share count had risen by five in one day after a night with none, a rate about three times that of the
+earlier periods. The agent reported it as a number drifting the wrong way, said five events could not be called a
+trend, and offered one read of the miner's log to settle the cause instead of guessing. Mark took the offer. Every
+reject line in the log carried the same reason, a stale share for the previous block, and each sat in the same
+second as the miner being handed new work. That is pool timing and block-arrival luck, not the chips, which fits
+the hardware-error and bad-nonce counters staying at zero. A side finding: the service's unnamed `other` rows in
+`minerlog.csv` are these same lines, so a label for stale shares would name them. Not built; nobody asked.
