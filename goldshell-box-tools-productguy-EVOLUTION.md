@@ -3377,3 +3377,21 @@ reject line in the log carried the same reason, a stale share for the previous b
 second as the miner being handed new work. That is pool timing and block-arrival luck, not the chips, which fits
 the hardware-error and bad-nonce counters staying at zero. A side finding: the service's unnamed `other` rows in
 `minerlog.csv` are these same lines, so a label for stale shares would name them. Not built; nobody asked.
+
+Addendum, 2026-10-05 18:15, same session. Mark asked for the stale-share finding to become a feature: "build in
+stale shares indication, in a way a human would find easy to notice and comprehend", designed by a separate session
+on the strongest model, with a prototype page, for him to evaluate and decide in the next session. The agent wrote
+a brief from the delegation template and dispatched it: the outcome wanted, the files to read in order, the facts
+already established (the reject reason, the measured rates, the five timestamps, and that an agent had itself
+misread the cluster as a warning sign before checking), nine required sections including a list of decisions that
+are Mark's to make, and four scenarios the prototype had to show. The session was fenced off from the repository,
+the miner and every running process, and given a directory outside the repo to write in.
+
+It returned in eight minutes with a design document, a standalone prototype with five scenarios, an evidence file
+and a private page for the prototype. In outline: two new classifier labels, one for the known stale reason and
+one explicit bucket for any other reason or none; the Shares tile says in words what the rejects were; only a
+non-stale reject gets colour, an event line and a chart marker; a normal day adds no colour and no marker; shape
+and words carry the state because the page's own green and amber are hard to tell apart for some readers. Six
+decisions are put to Mark. The dispatching session checked only that the files exist, the prototype holds no
+external reference or address, and the repository is untouched; it did not review the design, on purpose, since
+the review is Mark's and a fresh session's. Nothing is built.
