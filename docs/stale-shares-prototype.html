@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Stale Shares Prototype</title>
+<style>
+/* Layout: the gbox dashboard's own tile row and section cards, cut down to the three places the proposal touches.
+   Tokens copied from gbox/web/style.css so the prototype reads as the same product. */
+:root { color-scheme: light;
+  --bg:#f4f4f2; --surface:#fcfcfb; --ink:#141413; --ink2:#333331; --muted:#55554f; --line:#d9d9d4;
+  --series:#2a78d6; --series2:#eb6834; --good:#006300; --warn:#8a5a00; --serious:#a34a1f; --critical:#d03b3b;
+  --goodbg:#e4f5e4; --warnbg:#fff3d6; --critbg:#fbe1e1; --runbg:#cfe0f5; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { color-scheme: dark;
+  --bg:#111110; --surface:#1a1a19; --ink:#f4f4f2; --ink2:#d8d8d4; --muted:#b0b0ab; --line:#3d3d38;
+  --series:#3987e5; --series2:#d95926; --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --critical:#ff6b6b;
+  --goodbg:#0f2a0f; --warnbg:#3a2c05; --critbg:#3d1414; --runbg:#1d3553; } }
+:root[data-theme="dark"] { color-scheme: dark;
+  --bg:#111110; --surface:#1a1a19; --ink:#f4f4f2; --ink2:#d8d8d4; --muted:#b0b0ab; --line:#3d3d38;
+  --series:#3987e5; --series2:#d95926; --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --critical:#ff6b6b;
+  --goodbg:#0f2a0f; --warnbg:#3a2c05; --critbg:#3d1414; --runbg:#1d3553; }
+* { box-sizing:border-box; min-width:0 }
+body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+header { display:flex; flex-wrap:wrap; align-items:center; gap:12px 20px; padding:14px 20px; background:var(--surface); border-bottom:1px solid var(--line); }
+header h1 { font-size:18px; margin:0; font-weight:600 }
+header .meta { color:var(--ink2); font-size:13px }
+.badge { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; font-weight:600; font-size:13px; }
+.badge.ok { background:var(--goodbg); color:var(--good) }
+.badge.proto { background:var(--warnbg); color:var(--warn) }
+main { padding-block:16px; padding-inline:16px; max-width:1200px; margin:0 auto; display:grid; gap:16px }
+@media (min-width:600px) { main { padding-inline:20px } }
+.tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(135px,1fr)); gap:10px }
+.tile { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:10px 12px }
+.tile .k { color:var(--ink2); font-size:12px } .tile .v { font-size:22px; font-weight:600; font-variant-numeric:tabular-nums; margin-top:2px }
+.tile .s { color:var(--muted); font-size:12px; margin-top:2px; font-variant-numeric:tabular-nums }
+.tile .s b { color:var(--ink); font-weight:600 }
+.tile.serious .v { color:var(--serious) } .tile.serious .s b.alert { color:var(--serious) }
+section { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:12px 14px }
+section h2 { font-size:14px; margin:0 0 8px; font-weight:600; text-wrap:balance } section h2 span { color:var(--muted); font-weight:400; margin-left:8px }
+.facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin:0 0 10px }
+.fact { border:1px solid var(--line); border-radius:8px; padding:8px 12px; background:var(--bg) }
+.fact .k { color:var(--ink2); font-size:12px } .fact .v { font-size:18px; font-weight:600; font-variant-numeric:tabular-nums; margin-top:2px } .fact .s { color:var(--muted); font-size:12px; margin-top:2px }
+.fact.serious .v { color:var(--serious) }
+.chart { position:relative; width:100% } .chart svg { display:block; width:100%; height:auto }
+svg text { fill:var(--ink2); font-size:12px } svg .grid { stroke:var(--line); stroke-width:1 }
+svg .line { fill:none; stroke:var(--series); stroke-width:2; stroke-linejoin:round } svg .area { fill:var(--series); opacity:.08 }
+svg .axis { fill:var(--ink); font-size:12px; font-weight:700 }
+svg .mark { stroke:var(--warn); stroke-width:1; stroke-dasharray:2 3 } svg .marklbl { fill:var(--warn); font-size:11px; font-weight:800 }
+svg .stale { stroke:var(--muted); stroke-width:1.5; fill:var(--surface) }
+svg .notstale { fill:var(--critical); stroke:var(--surface); stroke-width:2 }
+svg .notstalelbl { fill:var(--critical); font-size:11px; font-weight:700 }
+svg .unseen { fill:var(--ink2); font-weight:700; font-size:13px }
+svg .hit { fill:transparent }
+svg .baseline { stroke:var(--line); stroke-width:1 }
+.legend { display:flex; flex-wrap:wrap; gap:10px 16px; font-size:12px; color:var(--ink2); margin:4px 0 6px }
+.legend b { font-weight:600; color:var(--ink); margin-right:4px } .legend svg { vertical-align:middle; margin-right:5px }
+.note { color:var(--muted); font-size:13px }
+.tip { position:absolute; pointer-events:none; background:var(--ink); color:var(--bg); padding:4px 8px; border-radius:6px; font-size:12px; white-space:nowrap; display:none; font-variant-numeric:tabular-nums }
+/* the scenario switcher: prototype chrome, not part of the proposed page */
+.switch { display:flex; flex-wrap:wrap; gap:8px; align-items:center }
+.switch button { font:inherit; font-size:13px; padding:6px 12px; border:1px solid var(--line); border-radius:999px; background:var(--bg); color:var(--ink); cursor:pointer }
+.switch button[aria-pressed="true"] { background:var(--ink); color:var(--bg); border-color:var(--ink) }
+.switch button:focus-visible { outline:2px solid var(--series); outline-offset:2px }
+.caption { margin-top:8px; padding:8px 10px; border-left:2px solid var(--series); color:var(--ink2); font-size:13px }
+.caption b { color:var(--ink) }
+dl { display:grid; grid-template-columns:auto 1fr; gap:6px 16px; margin:0; font-size:13px } dt { font-weight:600; color:var(--ink) } dd { margin:0; color:var(--ink2) }
+.notice { font-size:12px; color:var(--muted) }
+@media (prefers-reduced-motion: no-preference) { .tile, .fact { transition: color .15s } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Goldshell Box</h1>
+  <span class="badge ok">hashing</span>
+  <span class="meta">550 MHz · 165 W · board 64 °C</span>
+  <span style="flex:1"></span>
+  <span class="badge proto">prototype · sample data</span>
+</header>
+<main>
+  <section>
+    <h2>Scenario<span>pick one; everything below redraws from embedded sample data</span></h2>
+    <div class="switch" id="switch" role="group" aria-label="scenario"></div>
+    <div class="caption" id="caption"></div>
+  </section>
+
+  <div class="tiles">
+    <div class="tile"><div class="k">Hashrate now</div><div class="v">707 GH/s</div><div class="s">20 s reading</div></div>
+    <div class="tile"><div class="k">HW error rate</div><div class="v">0.0 %</div><div class="s">since boot Sun 09:10 · last hour 0.0 %</div></div>
+    <div class="tile"><div class="k">Board resets</div><div class="v">0</div><div class="s">since boot Sun 09:10 · 0 in the last hour</div></div>
+    <div class="tile" id="t_sh" title="Accepted shares since the miner booted. A stale share is a correct answer the pool refused because it arrived after the pool had moved to the next block: pool timing, not the miner. A rejected share that was not stale is rare and worth a look at the miner's log."><div class="k">Shares</div><div class="v" id="accepted">—</div><div class="s" id="rejected">rejected —</div></div>
+    <div class="tile"><div class="k">Clock</div><div class="v">550 MHz</div><div class="s">plan 550 MHz 0.44 V 90 90</div></div>
+  </div>
+
+  <section>
+    <h2>Fans and temperature<span>last 24 hours, cut down to the marker row: this is where an X would land</span></h2>
+    <div class="chart" id="envchart"></div>
+    <div class="legend" id="envkey"></div>
+    <p class="note">Only a rejected share that was <b>not</b> stale gets a marker here, the way <b>F</b> marks fans running high. Stale shares never do: they are pool timing, and this row is for things worth a look.</p>
+  </section>
+
+  <section>
+    <h2>Errors over three days<span>bad share, board resets and rejected shares, from the service log and the miner's own log</span></h2>
+    <div class="facts" id="errfacts"></div>
+    <div class="chart" id="rejchart"></div>
+    <div class="legend" id="rejkey"></div>
+    <p class="note">The strip sits under the existing three-day errors chart on the same time scale (the chart itself is left out of this prototype). One mark per rejected share at the time gbox read the miner's log, so a time is good to five minutes. Hover a mark for the detail. Two in the same read draw as one mark with the count.</p>
+  </section>
+
+  <section>
+    <h2>Terms<span>the two entries this feature adds</span></h2>
+    <dl>
+      <dt>stale share</dt><dd>a correct answer the pool refused because it arrived after the pool had moved to the next block. Pool timing, not the miner. A small share of them is normal; this miner's own rate over the last week is printed beside the count.</dd>
+      <dt>rejected share, not stale</dt><dd>a share the pool refused for any other reason, or one whose reason the miner's log did not say. Rare, and worth a look at the miner's log when it happens; it is marked <b>X</b> on the charts.</dd>
+    </dl>
+  </section>
+  <p class="notice">Sample data only. Times modelled on this unit's real reject times of 2026-10-05; counts rounded. No miner, pool or network identifiers appear in this file.</p>
+</main>
+<script>
+"use strict";
+// Each scenario: 24-hour totals for the tile, a 3-day reject list for the strip, and the 7-day baseline rate the
+// wording compares against. kind: "stale" | "other" | "unseen". t is hours before "now" (3 days = 72).
+// Scenario (a) copies the real 2026-10-05 times: 10:12 (x2), 13:27, 14:34, 15:31 wall, read by the service
+// within the next five minutes; "now" is 18:05 the same day.
+const NOW_H = 18 + 5 / 60;
+const at = (dayBack, hh, mm) => dayBack * 24 + (NOW_H - (hh + mm / 60));
+const SCENARIOS = [
+  { id: "a", name: "(a) normal day, a few stale",
+    caption: "<b>Conclude: nothing to do.</b> Five rejects, all stale, 0.16 % of the day's accepted shares; the tile stays uncoloured and the markers row is empty. This is the day that was briefly read as \"drifting the wrong way\".",
+    accepted24: 3130, sinceBoot: 25760, rejSinceBoot: 23, baseline7: 0.09,
+    rejects: [ { t: at(0, 10, 15), kind: "stale", n: 2 }, { t: at(0, 13, 30), kind: "stale", n: 1 }, { t: at(0, 14, 35), kind: "stale", n: 1 }, { t: at(0, 15, 35), kind: "stale", n: 1 },
+               { t: at(1, 16, 1), kind: "stale", n: 1 }, { t: at(1, 9, 16), kind: "stale", n: 1 }, { t: at(1, 1, 16), kind: "stale", n: 1 }, { t: at(2, 22, 10), kind: "stale", n: 1 }, { t: at(2, 13, 2), kind: "stale", n: 2 } ] },
+  { id: "b", name: "(b) quiet day, none",
+    caption: "<b>Conclude: nothing to do.</b> No rejects in 24 hours; the tile says so in one word and shows nothing else. Zero is as normal as five at this rate.",
+    accepted24: 3310, sinceBoot: 28950, rejSinceBoot: 18, baseline7: 0.07,
+    rejects: [ { t: at(1, 14, 40), kind: "stale", n: 1 }, { t: at(2, 3, 5), kind: "stale", n: 1 } ] },
+  { id: "c", name: "(c) one reject that was NOT stale",
+    caption: "<b>Conclude: look at the miner's log.</b> One reject at 11:03 had a reason other than stale (or none). The tile turns the serious colour and says so in words, the fact names the time, an X lands on the markers row and in the event log. Two stale rejects the same day stay quiet.",
+    accepted24: 3290, sinceBoot: 26100, rejSinceBoot: 24, baseline7: 0.08,
+    rejects: [ { t: at(0, 2, 40), kind: "stale", n: 1 }, { t: at(0, 9, 15), kind: "stale", n: 1 }, { t: at(0, 11, 5), kind: "other", n: 1 },
+               { t: at(1, 17, 50), kind: "stale", n: 1 }, { t: at(2, 6, 20), kind: "stale", n: 1 } ] },
+  { id: "d", name: "(d) unusually many stale",
+    caption: "<b>Conclude: the pool had a bad night, not the miner.</b> 41 stale rejects, 1.2 % of accepted, most between 03:00 and 06:00. All stale, so no colour and no marker; the wording says the rate is above this miner's usual and prints the usual next to it.",
+    accepted24: 3240, sinceBoot: 27400, rejSinceBoot: 61, baseline7: 0.09,
+    rejects: (() => { const r = []; for (let i = 0; i < 29; i++) r.push({ t: at(0, 3 + Math.floor(i / 10), (i * 6) % 60), kind: "stale", n: 1 + (i % 4 === 0 ? 1 : 0) });
+      [[0, 9, 40], [0, 13, 12], [0, 16, 50], [1, 22, 30], [1, 11, 0], [2, 19, 25]].forEach(x => r.push({ t: at(x[0], x[1], x[2]), kind: "stale", n: 1 })); return r; })() },
+  { id: "e", name: "(e) some not seen in the log",
+    caption: "<b>Conclude: nothing to do, and gbox is being honest.</b> The counter rose by 25 but the miner's log, read every five minutes and truncated by the miner on its own, accounted for 23. The two unaccounted ones are said in words and drawn as ?, never coloured.",
+    accepted24: 3200, sinceBoot: 25200, rejSinceBoot: 25, baseline7: 0.09,
+    rejects: [ { t: at(0, 1, 10), kind: "stale", n: 1 }, { t: at(0, 4, 25), kind: "unseen", n: 2 }, { t: at(0, 7, 50), kind: "stale", n: 1 }, { t: at(0, 12, 5), kind: "stale", n: 1 },
+               { t: at(1, 15, 30), kind: "stale", n: 1 }, { t: at(2, 2, 15), kind: "stale", n: 1 } ] },
+];
+const KIND = { stale: "stale share", other: "rejected, NOT stale", unseen: "rejected, reason not seen in the miner's log" };
+const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+const fmt = (n, d) => Number(n).toLocaleString(undefined, { minimumFractionDigits: d || 0, maximumFractionDigits: d || 0 });
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+// "now" is Mon 2026-10-05 18:05 local for every scenario
+const NOW = new Date(2026, 9, 5, 18, 5).getTime();
+const stampOf = h => new Date(NOW - h * 3600000);
+const clockLabel = h => { const d = stampOf(h); return DAYS[d.getDay()] + " " + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); };
+
+// The wording rule for the Shares tile and the Errors fact. Pure function, so a unit test can hold each state.
+function rejectWords(sc, hours) {
+  const inWin = sc.rejects.filter(r => r.t <= hours);
+  const sum = k => inWin.filter(r => r.kind === k).reduce((a, r) => a + r.n, 0);
+  const stale = sum("stale"), other = sum("other"), unseen = sum("unseen"), total = stale + other + unseen;
+  const accepted = hours === 24 ? sc.accepted24 : Math.round(sc.accepted24 * hours / 24);
+  const pct = accepted ? 100 * total / accepted : 0;
+  const high = stale > 0 && other === 0 && pct >= 1 && total >= 20;        // guesses: 1 % and at least 20
+  const others = inWin.filter(r => r.kind === "other");
+  const parts = [];
+  if (total === 0) return { total, stale, other, unseen, pct, cls: "", text: "none", high: false };
+  if (other > 0) parts.push("<b class=\"alert\">" + other + " NOT STALE at " + clockLabel(others[others.length - 1].t).slice(4) + "</b>");
+  if (other > 0 || unseen > 0) parts.push(stale + " stale"); else parts.push("all stale");
+  if (unseen > 0) parts.push(unseen + " not seen in the miner's log");
+  parts.push(fmt(pct, 2) + " % of accepted" + (high ? ", above the usual " + fmt(sc.baseline7, 2) + " %" : ""));
+  return { total, stale, other, unseen, pct, cls: other > 0 ? "serious" : "", text: parts.join(" · "), high };
+}
+
+function renderTile(sc) {
+  const w = rejectWords(sc, 24);
+  document.getElementById("accepted").textContent = fmt(sc.sinceBoot);
+  document.getElementById("rejected").innerHTML = "rejected " + fmt(sc.rejSinceBoot) + (w.total === 0 ? " · none in 24 h" : " · last 24 h: " + w.text);
+  document.getElementById("t_sh").className = "tile" + (w.cls ? " " + w.cls : "");
+}
+
+function renderFacts(sc) {
+  const w = rejectWords(sc, 72), box = document.getElementById("errfacts"); box.innerHTML = "";
+  const facts = [
+    ["Worst half hour, bad share", "0.0 %", "no bad nonces in 3 days", ""],
+    ["Board resets, 3 days", "0", "none", ""],
+    ["Rejected shares, 3 days", String(w.total), w.total === 0 ? "none" : w.text.replace(/<[^>]+>/g, ""), w.cls],
+  ];
+  facts.forEach(([k, v, s, cls]) => { const d = document.createElement("div"); d.className = "fact" + (cls ? " " + cls : "");
+    d.innerHTML = "<div class=\"k\"></div><div class=\"v\"></div><div class=\"s\"></div>";
+    d.children[0].textContent = k; d.children[1].textContent = v; d.children[2].textContent = s; box.appendChild(d); });
+}
+
+// The reject strip: a time axis over `hours`, one mark per reject. Shape carries the kind; colour only underlines it.
+function drawStrip(boxId, sc, hours, opts) {
+  const box = document.getElementById(boxId), W = Math.max(box.clientWidth, 320), L = 8, R = 8, T = 22, H = 58;
+  const xOf = h => L + (W - L - R) * (1 - h / hours);
+  let s = "<svg viewBox=\"0 0 " + W + " " + H + "\" role=\"img\" aria-label=\"rejected shares over " + hours + " hours\">";
+  for (let h = 0; h <= hours; h += opts.tickEvery) {
+    const x = xOf(h), d = stampOf(h);
+    s += "<line class=\"grid\" x1=\"" + x.toFixed(1) + "\" x2=\"" + x.toFixed(1) + "\" y1=\"" + T + "\" y2=\"" + (H - 16) + "\"/>";
+    if (h > 0 && h < hours) s += "<text x=\"" + x.toFixed(1) + "\" y=\"" + (H - 3) + "\" text-anchor=\"middle\">" + (opts.tickEvery >= 24 ? DAYS[d.getDay()] + " " + d.getDate() : String(d.getHours()).padStart(2, "0") + ":00") + "</text>";
+  }
+  s += "<line class=\"baseline\" x1=\"" + L + "\" x2=\"" + (W - R) + "\" y1=\"" + (H - 16) + "\" y2=\"" + (H - 16) + "\"/>";
+  const y = T + 12;
+  sc.rejects.filter(r => r.t <= hours).sort((a, b) => b.t - a.t).forEach(r => {
+    const x = xOf(r.t), tip = clockLabel(r.t) + " · " + KIND[r.kind] + (r.n > 1 ? " · x" + r.n : "");
+    if (r.kind === "stale") s += "<line class=\"stale\" x1=\"" + x.toFixed(1) + "\" x2=\"" + x.toFixed(1) + "\" y1=\"" + (y - 7) + "\" y2=\"" + (y + 7) + "\"/>";
+    else if (r.kind === "other") s += "<path class=\"notstale\" d=\"M" + x + " " + (y - 8) + "L" + (x + 8) + " " + (y + 7) + "L" + (x - 8) + " " + (y + 7) + "Z\"/>"
+      + "<text class=\"notstalelbl\" x=\"" + (x + 11).toFixed(1) + "\" y=\"" + (y + 4) + "\">not stale</text>";
+    else s += "<text class=\"unseen\" x=\"" + x.toFixed(1) + "\" y=\"" + (y + 5) + "\" text-anchor=\"middle\">?</text>";
+    if (r.n > 1 && r.kind !== "other") s += "<text x=\"" + (x + 5).toFixed(1) + "\" y=\"" + (y - 9) + "\" style=\"font-size:10px\">x" + r.n + "</text>";
+    s += "<rect class=\"hit\" x=\"" + (x - 9) + "\" y=\"" + (y - 12) + "\" width=\"18\" height=\"24\" data-tip=\"" + esc(tip) + "\"/>";
+  });
+  s += "</svg><div class=\"tip\"></div>";
+  box.innerHTML = s;
+  const tipEl = box.querySelector(".tip");
+  box.onmousemove = e => { const t = e.target.getAttribute && e.target.getAttribute("data-tip"); if (!t) { tipEl.style.display = "none"; return; }
+    tipEl.textContent = t; tipEl.style.display = "block"; const r = box.getBoundingClientRect(); tipEl.style.left = Math.min(e.clientX - r.left + 12, r.width - tipEl.offsetWidth - 4) + "px"; tipEl.style.top = (e.clientY - r.top - 30) + "px"; };
+  box.onmouseleave = () => { tipEl.style.display = "none"; };
+}
+
+// The 24-hour fan chart, reduced to a flat trace and its markers row. Only "other" rejects get an X there.
+function drawEnv(sc) {
+  const box = document.getElementById("envchart"), W = Math.max(box.clientWidth, 320), L = 36, R = 8, T = 18, B = 18, H = 110;
+  const xOf = h => L + (W - L - R) * (1 - h / 24);
+  let s = "<svg viewBox=\"0 0 " + W + " " + H + "\" role=\"img\" aria-label=\"fan speed over 24 hours with event markers\">";
+  for (let h = 0; h <= 24; h += 6) { const x = xOf(h); s += "<line class=\"grid\" x1=\"" + x.toFixed(1) + "\" x2=\"" + x.toFixed(1) + "\" y1=\"" + T + "\" y2=\"" + (H - B) + "\"/>";
+    if (h > 0 && h < 24) s += "<text x=\"" + x.toFixed(1) + "\" y=\"" + (H - 4) + "\" text-anchor=\"middle\">" + String(stampOf(h).getHours()).padStart(2, "0") + ":00</text>"; }
+  s += "<text class=\"axis\" x=\"2\" y=\"" + (T + 10) + "\">RPM</text>";
+  const yOf = v => H - B - (H - B - T) * (v - 1000) / 600;
+  const pts = []; for (let i = 0; i <= 96; i++) { const h = 24 - i / 4; pts.push(xOf(h).toFixed(1) + "," + yOf(1260 + Math.sin(i / 7) * 12 + (i % 11 === 0 ? 30 : 0)).toFixed(1)); }
+  s += "<polyline class=\"line\" points=\"" + pts.join(" ") + "\"/>";
+  // a service start marker (S) sits in every scenario so the row reads as the real one; X only in scenario c
+  const marks = [{ t: 19.75, g: "S", kind: "service start" }].concat(sc.rejects.filter(r => r.kind === "other" && r.t <= 24).map(r => ({ t: r.t, g: "X", kind: "a rejected share that was not stale" })));
+  marks.forEach(m => { const x = xOf(m.t);
+    s += "<line class=\"mark\" x1=\"" + x.toFixed(1) + "\" x2=\"" + x.toFixed(1) + "\" y1=\"" + T + "\" y2=\"" + (H - B) + "\"><title>" + esc(clockLabel(m.t) + " · " + m.kind) + "</title></line>";
+    s += "<text class=\"marklbl\" x=\"" + (x + 3).toFixed(1) + "\" y=\"" + (T + 4) + "\">" + m.g + "</text>"; });
+  s += "</svg>"; box.innerHTML = s;
+  document.getElementById("envkey").innerHTML = ["S", "service start", "F", "fans running high, or a fan stopped", "X", "a rejected share that was not stale"].reduce((a, v, i, arr) => i % 2 ? a : a + "<span><b>" + v + "</b>" + arr[i + 1] + "</span>", "");
+}
+
+function renderKey() {
+  const sw = (inner) => "<svg width=\"18\" height=\"18\" viewBox=\"0 0 18 18\" aria-hidden=\"true\">" + inner + "</svg>";
+  document.getElementById("rejkey").innerHTML =
+    "<span>" + sw("<line class=\"stale\" x1=\"9\" x2=\"9\" y1=\"2\" y2=\"16\"/>") + "stale share: a correct answer that arrived after the pool moved to the next block; pool timing, not the miner</span>" +
+    "<span>" + sw("<path class=\"notstale\" d=\"M9 1L17 16L1 16Z\"/>") + "<b>not stale</b>: refused for another reason, or no reason; look at the miner's log</span>" +
+    "<span>" + sw("<text class=\"unseen\" x=\"9\" y=\"14\" text-anchor=\"middle\">?</text>") + "counted by the miner but not seen in its log (read every 5 min; the miner truncates it)</span>";
+}
+
+let current = "a";
+function show(id) {
+  current = id;
+  const sc = SCENARIOS.find(s => s.id === id);
+  document.querySelectorAll("#switch button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.id === id)));
+  document.getElementById("caption").innerHTML = sc.caption;
+  renderTile(sc); renderFacts(sc); drawEnv(sc); drawStrip("rejchart", sc, 72, { tickEvery: 24 }); renderKey();
+  try { localStorage.setItem("gbox_stale_proto_scenario", id); } catch (e) { /* storage may be unavailable; the page works without it */ }
+}
+(function init() {
+  const sw = document.getElementById("switch");
+  SCENARIOS.forEach(sc => { const b = document.createElement("button"); b.type = "button"; b.dataset.id = sc.id; b.textContent = sc.name; b.setAttribute("aria-pressed", "false"); b.onclick = () => show(sc.id); sw.appendChild(b); });
+  let start = "a"; try { const v = localStorage.getItem("gbox_stale_proto_scenario"); if (v && SCENARIOS.some(s => s.id === v)) start = v; } catch (e) { /* ignore */ }
+  show(start);
+  let timer = null; window.addEventListener("resize", () => { clearTimeout(timer); timer = setTimeout(() => show(current), 150); });
+})();
+</script>
+</body>
+</html>
