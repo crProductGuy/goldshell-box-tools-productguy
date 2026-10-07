@@ -3440,3 +3440,32 @@ Left open, for Mark to decide: a time limit on the "working watts" hold (the age
 hours of silence while the plug answers and the computer's LAN is up, in the manner of the existing pool-down
 rule, with a louder record than one event line; the cost is one wasted cycle if a miner has only changed
 address). No code was changed in this session. The stale-share design review is still waiting.
+
+Addendum, 2026-10-06 late evening, same session. Mark called the nineteen hours "a failure of planning and
+anticipation" and set the rule himself: no more than 30 minutes unresponsive while the computer can reach the
+plug, one hour as the ceiling, an escalation ladder in time with no big gaps, and a diagram. His reasoning for
+trusting the plug: the plug, the miners, the router, the computer and the switches between them share one UPS.
+He asked for the design from a separate session on the strongest model, in plan mode. The agent wrote the brief
+and put four objections into it for the design session to test, not to accept: a reachable plug does not fully
+prove the miner's wire; a flat 30-minute rule would cycle a healthy miner all through an internet outage; a
+daily cap and "ironclad" contradict each other on a bad day; and software on one computer cannot watch that
+computer, nor did anyone get told for nineteen hours. The session was fenced off from the repository, the miner,
+the plug and the service.
+
+It returned a design, a diagram and an evidence file, kept outside the repository. Its findings, not yet
+reviewed by anyone: today only a silent miner drawing little power is ever cycled; silent at full power,
+answering but not mining, a plug that misses a poll, and a reached cap all mean never or up to a day; a single
+missed plug reading resets the whole ladder; a login error counts as unreachable; the polling thread can die
+while the health check says all is well. Its recommendation is one clock that only a hashing sample, a hold by
+hand or a cycle can reset, with the meter allowed to delay a cycle to minute 30 and no further. Eleven decisions
+are Mark's. The dispatching session checked that the files exist and hold no address or secret, and left the
+judging to Mark and a fresh reviewer. Nothing is built.
+
+Two smaller things from the same evening. Forty-two minutes after the boot the miner's mining process restarted
+by itself, with single lost polls to both miner and plug around it. The agent reported it as unexplained and as
+counting against the clock setting until explained. Mark explained it: he had been moving the two network
+switches onto the UPS. One read of the miner's log agreed: an orderly shutdown with the process's own exit
+summary, no error before it, at the second the link dropped. The 22 unnamed rows the service logged were that
+summary, and naming them went into the deferred list in `docs/plan.md` at medium priority. Mark also asked
+that a power cycle run by hand show on the charts. It is already recorded in the event log, but the page draws
+it with the button glyph instead of the plug-cycle letter; the agent proposed fixing that with the ladder work.
