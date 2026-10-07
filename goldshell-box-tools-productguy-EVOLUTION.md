@@ -3395,3 +3395,48 @@ and words carry the state because the page's own green and amber are hard to tel
 decisions are put to Mark. The dispatching session checked only that the files exist, the prototype holds no
 external reference or address, and the repository is untouched; it did not review the design, on purpose, since
 the review is Mark's and a fresh session's. Nothing is built.
+
+## 2026-10-06 evening, session AW (e214b60b): the controller freezes at full power, and the watchdog waits
+
+The goal in Mark's words: "pick up gbox". The planned work was his review of the stale-share design. The agent
+read the checkpoint, then the live state, and found the miner had been invisible to the service since 01:31 that
+morning, nineteen hours earlier, while the smart plug went on reading the full 165 W. It reported that before
+anything else and the design review did not start.
+
+Mark's first question was the right one: "Why no power cycle to get it back?" The agent read the watchdog rule
+instead of answering from memory. Since 0.10.0, an unreachable miner whose plug reads working power is treated as
+"the path is down, not the miner": nothing is sent, nothing is counted, one event line is written when the hold
+begins, and the hold has no time limit. The rule was written for the case where the computer or the LAN is cut
+off from a healthy miner. It does not cover this case, and the agent said so plainly: the plug answered and the
+computer's own LAN link was up, so the path was fine.
+
+Findings, in the order they were made. The miner did not answer a ping and had no ARP entry at its address, so it
+was not only the mining API port. The agent offered three causes it could not tell apart from the computer: a
+changed address, a hung controller, a cable or switch port. With Mark's go-ahead it ran the read-only LAN sweep,
+which found the second miner and no first one at any address, ruling out the changed address. Mark then checked
+by hand: the router still listed the lease, a second computer could not reach it either, the port lights
+blinked, replugging the cable changed nothing, and the box blew warm air at normal draw on a separate meter. The
+agent's reading: the port lights come from the Ethernet chip and say nothing about the operating system; a stale
+lease in the router is not a live client; a live system would have announced itself after the replug. So the
+controller's operating system was hung while the board kept drawing full power, a state not seen before on this
+unit (earlier hung controllers drew about 34 W).
+
+Mark asked for a power cycle and a fifteen-minute watch. The agent ran the by-hand cycle command and it refused:
+it takes the typed confirmation only from a real terminal and has no bypass. The agent did not fake a terminal or
+drive the plug around the guard; it asked Mark to type the command, which he did. The plug was off for two
+minutes, the miner gave its first hashing sample one minute after power returned, and the hold released after
+two hashing samples as designed. Fifteen minutes on: every poll answered, seven hardware errors all inside the
+first ninety seconds and none after, no restart, fans settling, the same clock and voltage as before.
+
+At Mark's word the agent then read the miner's own log once (pool lines withheld, nothing saved). The log stops
+in mid-routine at the second the service lost the miner: temperature lines every five seconds, shares accepted
+ten seconds earlier, normal chip temperatures, no error line of any kind, and the next line is the evening's
+boot. A network fault would have left a miner that kept logging and complained about its pool, so this was the
+whole controller stopping at once. The agent said what it could not say: why. Nothing points at heat or at the
+550 MHz and 0.44 V setting, and one event cannot clear the setting either. The soak had been clean for 29 hours
+before the freeze and its count starts again from the boot.
+
+Left open, for Mark to decide: a time limit on the "working watts" hold (the agent proposed one cycle after some
+hours of silence while the plug answers and the computer's LAN is up, in the manner of the existing pool-down
+rule, with a louder record than one event line; the cost is one wasted cycle if a miner has only changed
+address). No code was changed in this session. The stale-share design review is still waiting.
