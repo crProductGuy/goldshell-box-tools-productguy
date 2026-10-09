@@ -3572,3 +3572,25 @@ agent wrote them as a neutral test report (how the readings were taken, the four
 settled readings per step, the unit's state during the test, and what is not established), kept them outside
 the public repository, scanned them for addresses, names and secrets, and told Mark the page had not been
 viewed by the agent. Mark opened both and approved them. Sending them is his.
+
+Third addendum, 2026-10-09 early afternoon, same session. Mark ended the soak by hand: he wanted the metering
+plug on the second miner, so that its watts would be visible for another clock and voltage test the other
+developer had asked for. His instruction was to shut down the service and the heat guard and then cut the power
+gracefully. The agent stopped the service with the sanctioned stop script (a dry run first) and the guard by the
+pid it had launched. It could not switch the plug off: that command asks for a typed word and refuses without a
+terminal, there is no bypass, and the agent did not look for one. It told Mark the command to type. It also said
+what "graceful" amounts to here: nothing in the toolkit stops the mining process before the power goes, so the
+only real preparation is that the service is already down and will not react to the cut.
+
+The agent raised one trap unasked. The configuration still names that plug as the first miner's, and the
+watchdog is armed. With the plug on the second miner and the first one off or elsewhere, a running service would
+log the wrong miner's watts and could cut power to the wrong miner; and the service starts by itself at the next
+sign-in. The service stays stopped until the plug is back or the configuration is changed at Mark's word.
+
+Mark moved the plug and put the first miner back on wall power "to keep it warm", and thought it had ridden
+through the swap on its power supply's hold-up time. The agent read both miners once each. Both showed a mining
+process only a few minutes old, so by that measure neither rode through; the agent added that the reading
+cannot tell a full power loss from a controller that stayed up while the mining process restarted. The first
+miner now runs with nothing watching it, at a setting that froze its controller four times in four days. The
+agent said so and offered to run the service with the plug taken out of the configuration. Mark chose to leave
+it as it is.
