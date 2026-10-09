@@ -3516,3 +3516,45 @@ settled the first: the guard is stopped in the morning, at his word. The second 
 
 For the watchdog ladder design, still undecided: a trickle of shares can hold off the share-stall rule for
 fifteen minutes on a board that is nearly dead. No code was changed in this session.
+
+Addendum, 2026-10-08 late evening and 2026-10-09, same session.
+
+Mark noticed that the plug watts had jumped since the restart: "It seems back in the higher watts mode at any
+given clock rate." The log agreed: about 175 W flat against 166 W in the soak that had just ended, at the same
+clock, voltage, fan speed and hashrate. Cause unknown, and the data could not say which of the evening's two
+restarts selected the state. The board ran a little warmer in it, which left less room under the heat guard.
+
+Mark then changed the guard: "increase the heat guard by a couple of degrees. I'd rather keep running as-is and
+see the long term trend. The only thing I'm really worried about is peak chip temp sustaining above 85 for more
+than 5 min." The agent turned that into two rules. The hottest chip's five-minute level must read 85 C or more
+on two reads in a row before the guard acts (one read had been enough). For the board sensor the agent did not
+take "a couple of degrees" literally: that morning the board had held 72 C or more on three rows in a row while
+the hottest-chip level stayed at 83 to 84, so a 72 C rule would have stepped the clock down on exactly the kind
+of morning Mark wanted to ride through. It set 75 C, said so plainly as its own choice with the numbers, and
+recorded it as unconfirmed until Mark answered. He confirmed 75. The guard is a small script outside the
+repository; the new rule was tried on made-up rows and on the live log before the relaunch.
+
+The night was not clean. The controller hung twice, a little before midnight and again about an hour and a half
+later. Each time the watchdog tried two soft restarts, both timed out, and it cycled the plug about ten and a
+half minutes after the miner went silent. Both boots came up properly, and the standing power-cycle check found
+nothing wrong in the twenty minutes after either. At Mark's word the agent read the miner's log once for both
+hangs. Each shows only routine lines up to the stop, shares accepted seconds earlier, normal chip temperatures,
+then nothing until the next start: the whole controller stopping at once, as on 10-06, with one difference. This
+time the hash board dropped its load within seconds, where on 10-06 it kept drawing full power for nineteen
+hours. Heat is ruled out as the trigger for these two. That is four controller-level stops in four days at this
+setting, none with an error line. The agent repeated its recommendation of 525 MHz and noted that the last three
+events all followed the move into the higher-watts state, as a correlation and nothing more. Mark kept 550.
+
+In the morning Mark ran the other developer's test. The agent stopped the heat guard first, at his word, so that
+it could not write a clock change into the middle of the test, and relaunched it afterwards for the time left.
+What the service's own log shows of the test: four settings writes (two at 525 MHz, one at 575, then back to
+550), no restart, the temperature target unchanged. After every write the fans ran high for eleven minutes, the
+spike any settings write causes, and then settled at the same speed as before, at every clock. So no lasting
+effect on the fans was visible. The agent said what it could not see: a separate fan-control value would not
+appear in the columns the service logs. The higher-watts state held at every clock, about ten watts above the
+earlier readings at 525 and at 550, and a voltage step again changed nothing in the watts. The 550 count was
+restarted from the last write, since the miner had spent two hours at other clocks without restarting.
+
+Left open: the cause of the freezes and of the two power states; whether the service should pause while another
+tool talks to the miner; the watchdog ladder decisions and the stale-share review, both still waiting. No code
+was changed.
