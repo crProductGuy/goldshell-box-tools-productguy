@@ -3558,3 +3558,17 @@ restarted from the last write, since the miner had spent two hours at other cloc
 Left open: the cause of the freezes and of the two power states; whether the service should pause while another
 tool talks to the miner; the watchdog ladder decisions and the stale-share review, both still waiting. No code
 was changed.
+
+Second addendum, 2026-10-09 afternoon, same session. Mark answered the open points in one line: count the soak
+from the last settings write, read the miner's settings lines, run the heat guard past its old end, and leave
+the ladder and stale-share decisions for later. The one read of the settings lines settled the fan question
+from the miner's side: all four test writes carried only a voltage and a clock, and the remaining fields and the
+fan target on the line read the same value on every write and on the four process starts before the test. No
+fan value changed. What those fields mean is not established. The agent relaunched the guard to end eight hours
+past the 72-hour mark, an end time it chose and said so.
+
+Mark asked for the results as a Markdown file and an HTML page he could share with the other developer. The
+agent wrote them as a neutral test report (how the readings were taken, the four writes, the fan spikes, the
+settled readings per step, the unit's state during the test, and what is not established), kept them outside
+the public repository, scanned them for addresses, names and secrets, and told Mark the page had not been
+viewed by the agent. Mark opened both and approved them. Sending them is his.
