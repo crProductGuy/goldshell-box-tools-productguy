@@ -3469,3 +3469,50 @@ summary, no error before it, at the second the link dropped. The 22 unnamed rows
 summary, and naming them went into the deferred list in `docs/plan.md` at medium priority. Mark also asked
 that a power cycle run by hand show on the charts. It is already recorded in the event log, but the page draws
 it with the button glyph instead of the plug-cycle letter; the agent proposed fixing that with the ladder work.
+
+## 2026-10-08 evening, session AX (ab8496bc): the controller restarts itself, and the soak at 550 ends short
+
+Mark's prompt was two words, "load gbox". The agent read the status file, then the live logs, and found two
+events from the same evening that no one had seen yet. It reported them before anything else.
+
+Background the log did not yet hold: on 10-07, just after midnight, the accepted-share counter stopped for five
+minutes while the hashrate, the watts and the temperatures stayed normal. The watchdog's share-stall rule sent
+the first restart it has ever sent, and the miner came back. An earlier session recorded that in the status file
+only (its session ID was not written down). The soak count at 550 MHz and 0.44 V started again from there.
+
+What the agent found on 10-08. At 20:53 the service lost the miner. The plug kept answering and read 12 to 16
+watts for three and a half minutes, then the miner came back by itself. The service had not cut the power, and
+the watchdog's one soft restart in that window timed out. The boot that followed was a bad one: the board
+initialised, took two shares, then failed its chip checks, and for fifteen minutes one chip of sixteen produced
+work at full watts. A few shares still trickled in, so the five-minute share-stall rule did not fire until 21:12.
+Its restart cured it. The soak had run 44 hours 46 minutes without a single bad row before this: past the
+33-hour mark the old setting never beat, short of the 72 hours that count.
+
+The agent asked whether Mark had touched anything, and recommended reading the miner's own log at once, since it
+truncates itself within hours. Mark's answer: nothing touched at that time; earlier he had read data from
+another test by the other developer, at least twenty minutes before. At his word the agent read the log once
+(pool lines withheld, nothing saved). It showed normal work and accepted shares up to the second of the stop, no
+error line, and none of the shutdown lines an orderly exit leaves. The agent's reading, given with its evidence
+and marked unverified as to cause: the mining process died and the controller restarted itself. Three facts
+support it. The first failed poll was a refused connection, which means the controller's network was still up
+with the mining port closed; a power loss gives a timeout. The plug read 12 to 16 watts, where the earlier
+power-supply dropout read about 4. The miner's own reboot counter read 3 afterwards. On Mark's earlier read, the
+agent said nothing ties it to the event (no settings line, no event line, five minutes of normal work before the
+stop) and said how far back it had and had not looked. The agent's output limit cut off the last part of the
+window; it did not send a second request and said so.
+
+Separately, that morning the board had run hot for 51 minutes (74 C at the peak, fans up), starting 37 minutes
+after the heat guard's timer ran out. The guard would have stepped the clock down.
+
+The agent recommended going back to 525 MHz, the setting with a clean 88 hours behind it: three silent events
+in three days at 550 (a freeze at full power, a share stall, a self-restart), none with an error line, none
+direct evidence against the setting, but a pattern. Mark decided otherwise: keep 550, and restart the heat guard
+for 80 hours. The agent did that and verified the guard was running. A fresh count runs from 21:13.
+
+Mark also said he would run a fan-control setting and read tests from the other developer the next morning. The
+agent raised two conflicts: the heat guard would write a clock change in the middle of the test if the board
+warmed, and the service polls the miner every 30 seconds while the firmware wants one request at a time. Mark
+settled the first: the guard is stopped in the morning, at his word. The second is open.
+
+For the watchdog ladder design, still undecided: a trickle of shares can hold off the share-stall rule for
+fifteen minutes on a board that is nearly dead. No code was changed in this session.
