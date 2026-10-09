@@ -3594,3 +3594,37 @@ cannot tell a full power loss from a controller that stayed up while the mining 
 miner now runs with nothing watching it, at a setting that froze its controller four times in four days. The
 agent said so and offered to run the service with the plug taken out of the configuration. Mark chose to leave
 it as it is.
+
+Fourth addendum, 2026-10-09 afternoon and evening, same session.
+
+With the plug on the second miner, Mark asked for its watts by hand a few times and then for a log: a reading
+every two minutes for three and a quarter hours. The agent wrote a small logger outside the repository that asks
+the plug only, never a miner, and switches nothing, and left it running detached. Mark asked for readings as the
+test went on, and the agent reported each step in the watts as it appeared. When he asked what the miner's
+settings were, the agent read that miner once, and at his word read its settings lines once more: four lines,
+each matching a step in the plug log to the minute. It kept count of the requests it sent to a miner that
+someone else was testing, and said the count.
+
+What the log showed on the second miner: each 25 MHz clock step moved the wall draw by 4 to 4.6 watts; the step
+from 0.44 to 0.43 volts at the same clock moved it by nothing measurable, the same result as on the first miner
+that morning; and after every write the draw sat two to three watts under its final level for about a quarter
+of an hour. The agent guessed the dip was the fans and labelled it a guess, since nothing had logged fan speeds.
+The fan fields in the settings lines never changed on this unit either. At Mark's word the agent closed the log
+and packaged it for the other developer: the readings, and a summary as a Markdown file and an HTML page, kept
+out of the public repository and scanned for addresses, names and secrets.
+
+Mark then put things back: the second miner on plain mains, the plug on the first miner, which booted. The agent
+checked the plug's watts and the first miner's status against that account before starting anything, started
+the service from its start-up script, confirmed the health check and advancing samples, and relaunched the heat
+guard. With the plug back where the configuration says it is, the trap raised earlier was closed.
+
+Mark had looked at the hours the first miner ran unwatched and thought it might not have been hashing. The agent
+read the miner's own log for that stretch. It had mined without a break for three and a half hours at the usual
+share rate and normal temperatures, with no error line. The hole was in the service's record: the service was
+stopped, so it drew no rows, and its uptime section shows that stretch as a restart with the cause "unseen". The
+agent said it did not know which page Mark had been looking at, and that the pool's share history would confirm
+the reading.
+
+Last, at Mark's word, the agent checked which power state the boot had landed in once the fans had settled:
+the higher one again, 176.7 watts at 550 MHz and 0.44 volts with the fans at their usual speed, against 165.8 in
+the last long clean run. Three cold boots in a row have now come up in the higher state. Cause still unknown.
