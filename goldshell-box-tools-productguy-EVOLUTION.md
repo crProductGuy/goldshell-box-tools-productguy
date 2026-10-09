@@ -3627,4 +3627,5 @@ the reading.
 
 Last, at Mark's word, the agent checked which power state the boot had landed in once the fans had settled:
 the higher one again, 176.7 watts at 550 MHz and 0.44 volts with the fans at their usual speed, against 165.8 in
-the last long clean run. Three cold boots in a row have now come up in the higher state. Cause still unknown.
+the last long clean run. All three cold boots measured since the state appeared have come up in it (a fourth, the
+afternoon's start on wall power, had no meter on it). Cause still unknown.
