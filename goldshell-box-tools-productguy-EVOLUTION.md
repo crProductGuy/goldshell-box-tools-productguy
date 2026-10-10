@@ -3799,3 +3799,10 @@ through the restart of the service.
 Told to Mark: this is a larger allowance, not a reset. The night's entries start leaving the window in the
 evening, after which the higher caps simply stay higher until someone puts them back. Whether 30 and 10 should be
 the standing values is his call, and it belongs with the watchdog ladder decisions.
+
+### Addendum 12, 2026-10-10, session AX (ab8496bc): the higher caps become the standing ones
+
+Asked whether the raised watchdog caps should stay or be put back once the night's entries left the 24-hour
+window, Mark decided: "caps stay at the higher levels." Thirty soft restarts and ten power cycles in any rolling
+day are now the standing values on his machine. Nothing further was changed; the configuration already held them.
+The shipped defaults are untouched.
