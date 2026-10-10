@@ -3680,3 +3680,30 @@ because the controller is hung, none of its controls respond, including Hold. Ho
 the miner, so it is wanted most at exactly that moment. The agent logged it in the plan's deferred table as
 reported, not reproduced, with a first step (reproduce against the fake miner with logins timing out) and a
 proposal to fix it with the watchdog ladder release.
+
+### Addendum 7, 2026-10-10 11:55, session AX (ab8496bc): the power state flips at a hashboard reset, then the miner goes dark
+
+Mark asked for the power state of the morning's boot and, watching the dashboard himself, saw it in the low
+state. The agent's read agreed at first and then found more.
+
+- For its first 14 minutes the boot drew about 154.8 watts at 525 MHz, which is the low state (157.5 with settled
+  fans in the clean days at this clock, against 169 to 170 in the high state).
+- Then the hashboard faulted: failed chip addressing, failed temperature-sensor reads and one failed init in the
+  miner's log labels, five board resets in two minutes, the wall draw down to 19 watts. The mining process did
+  not restart and every poll answered, so the watchdog had nothing to see.
+- The board came back in the high state, 169.9 watts with the fans at their usual speed.
+
+Finding: the two power states can change places inside one boot, at a hashboard re-initialisation. The agent
+offered the inference that the state is set when the hashboard initialises and not at power-on, and labelled it
+as one observation. Until now the state had only been compared across cold boots.
+
+Nine minutes later the miner stopped answering. Three hours on, Mark asked whether it answered on any port and
+what had happened. It did not: no ping, no address-table entry, and ten ports each timing out, none refused. This
+stop differs from the others. The wall draw fell over ninety minutes to a flat 12 watts, where earlier stops sat
+at 33 to 47. The watchdog, still at its daily caps, logged once that it would not restart and did nothing more.
+
+The agent's reading: eight stops since the evening before, at both clocks, none of them hot, with the runs
+between them shrinking from hours to minutes, and now a hashboard fault as well. That points at hardware
+(controller, hashboard or the supply feeding them) and not at a setting, and the agent could not tell which from
+the outside. It told Mark another power cycle would be a test and not a fix, and suggested a longer off time or a
+different power supply as the cheaper experiments. It did nothing to the miner or the plug.
