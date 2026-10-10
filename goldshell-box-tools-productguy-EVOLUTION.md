@@ -3707,3 +3707,40 @@ between them shrinking from hours to minutes, and now a hashboard fault as well.
 (controller, hashboard or the supply feeding them) and not at a setting, and the agent could not tell which from
 the outside. It told Mark another power cycle would be a test and not a fix, and suggested a longer off time or a
 different power supply as the cheaper experiments. It did nothing to the miner or the plug.
+
+### Addendum 8, 2026-10-10 12:35, session AX (ab8496bc): the two miners swap power supplies
+
+With the first miner dark, Mark laid out two ways to put it on his stronger supply (12.2 volts against the
+brick's 11.8): share that supply with the second miner, or swap the two supplies and move the metering plug with
+the first miner. He asked the agent to think it over and check the records, recalling that the higher voltage had
+made this miner draw more and run hotter, and that the board resets more often in its higher power state.
+
+What the records held, and what the agent made of them:
+
+- The first miner had already spent time on that same supply in September, at 575 MHz. Within ten minutes it had
+  its first board resets in days and its draw stepped up, and one night on it had seven controller hangs, six of
+  them within half an hour of a boot. Mark had swapped back. The entry of the time concluded that the board's
+  power-up was what was marginal, not one supply.
+- On the power state and the stops: mostly as Mark remembered, with two exceptions the agent named. The stop that
+  ended the long clean run happened in the low state, and the high state had also run twelve hours clean.
+- No record was found of 525 MHz on the strong supply; the agent said its search was not exhaustive.
+
+Recommendation, accepted: the swap, as a diagnostic and not a fix. It separates the two suspects in one move (if
+the second miner starts hanging on the brick, the brick; if the first keeps hanging on the strong supply, the
+miner itself). Sharing one supply was advised against: it removes the only recovery tool and ties a healthy miner
+to a faulting one. The agent asked first for the cheaper check, a meter on the brick.
+
+Mark's readings: the brick gave 11.89 volts nearly unloaded and 11.84 with the second miner hashing on it; the
+strong supply 12.18 at its terminals and 12.11 at the first miner. The agent's reading: the brick regulates
+normally, so a sagging supply is not what stopped the first miner, with the caveat that a meter cannot see brief
+dropouts and a clean day for the second miner on the brick is the remaining test.
+
+After the swap both miners hashed. At Mark's word the agent set the first miner's voltage setting from 0.44 back
+to 0.41 at 525 MHz; the wall draw did not move, as on every earlier voltage change. Eleven minutes into the boot
+the hashboard faulted again, as it had that morning on the brick at fourteen minutes: the draw fell to 53 watts,
+the board reset eighteen times, and it came back drawing about 181 watts with the fans not yet settled. The mining
+process did not restart. So the fault that follows a boot by ten to fifteen minutes has now been seen on both
+supplies in one day, and in September's record as well.
+
+Left open: the heat guard still acts only at 550 MHz and so does nothing at 525; the watchdog's daily caps stay
+full until the evening; the second miner runs unwatched on the brick.
