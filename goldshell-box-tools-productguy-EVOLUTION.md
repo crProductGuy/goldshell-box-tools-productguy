@@ -3744,3 +3744,25 @@ supplies in one day, and in September's record as well.
 
 Left open: the heat guard still acts only at 550 MHz and so does nothing at 525; the watchdog's daily caps stay
 full until the evening; the second miner runs unwatched on the brick.
+
+### Addendum 9, 2026-10-10 12:52, session AX (ab8496bc): a quarter hashrate after the fault, cured by a soft restart
+
+The state check that followed the last push found that the first miner had not recovered from its hashboard fault
+on the strong supply. It drew a full 181 watts but hashed at 150 to 260 GH/s against a normal 690 or so, with
+shares down to about one a minute. The mining process had not restarted, every poll answered, and shares still
+trickled in, so nothing in the watchdog's rules would have fired even without its caps. The miner's log labels
+for the fault were far heavier than the morning's: 61 chip self-test errors, 33 failed sensor reads, 15 failed
+inits.
+
+The agent reported it as the same picture as the broken boot two days earlier, which a restart had ended, and
+asked before sending one. At the owner's word it sent a soft restart. The miner was away for 28 seconds and came back at
+full hashrate with its settings kept.
+
+Seventeen minutes on, at the last read: clean, no hardware errors, no board resets, 48 shares accepted, and a
+settled draw of about 183 watts with the fans at their usual speed. That is the highest steady figure recorded at
+525 MHz: 157.5 in the low state on the brick, 169 to 170 in the high state on the brick, 183 here. The earlier
+boot on this supply, before its fault, had been heading for a lower figure (165 watts with the fans still falling),
+so the two power states appear on the strong supply as well, some thirteen watts higher each.
+
+Small gap noted for later: the event log recorded the agent's restart as the miner restarting "on its own",
+because a restart sent from the command line is not attributed.
