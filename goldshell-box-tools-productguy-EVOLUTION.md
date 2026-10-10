@@ -3630,7 +3630,7 @@ the higher one again, 176.7 watts at 550 MHz and 0.44 volts with the fans at the
 the last long clean run. All three cold boots measured since the state appeared have come up in it (a fourth, the
 afternoon's start on wall power, had no meter on it). Cause still unknown.
 
-### Addendum 5, 2026-10-10 08:15, session AX (ab8496bc): the second miner back on its preset, and a night of ten controller stops
+### Addendum 5, 2026-10-10 08:15, session AX (ab8496bc): the second miner back on its preset, and a night of seven controller stops
 
 In the evening Mark asked for the clock and voltage on the second miner, now back on plain mains. One status read
 and one settings read showed it on its stock preset, 850 MHz with 0.44 volts listed for that preset, and no longer
@@ -3642,14 +3642,16 @@ figure and not a logged one. The agent said so.
 In the morning Mark asked only to save and push. The state check that precedes every save found the first miner
 down, so the agent read the night before writing anything.
 
-- The controller stopped answering ten times between 20:43 and 06:49. Each time the wall draw fell from about 177
+- The controller stopped answering seven times between 20:43 and 06:49. The first time it came back by itself
+  within a minute; the other six needed the watchdog. Each time the wall draw fell from about 177
   watts to 33 to 47, the same signature as the two stops the night before. Board 61 to 66 C and hottest-chip level
   73 to 75 C before each stop, so not heat.
 - After the first three stops Mark lowered the clock from the dashboard to 525 MHz at 21:32. The miner then ran
   5 h 37 min clean, stopped again at 02:59, ran 2 h 52 min from 03:42, and stopped at 06:34. The lower clock did
   not end the stops.
-- The watchdog power-cycled it eight times. Six cycles brought it back hashing within a minute or two. Three of the
-  restarts lasted under ten minutes before the next stop.
+- The watchdog power-cycled it eight times. Five cycles brought it back hashing within a minute or two. Four of the
+  runs that followed lasted under ten minutes before the next stop. The cycle at 03:10 brought nothing back and
+  the next one, at 03:23, did.
 - The last two cycles, at 07:00 and 07:13, brought nothing back: the controller drew 33 watts and never answered.
   The boot check read that correctly as "powered, not hashing" and handed over to soft restarts, which all timed
   out.
@@ -3657,8 +3659,8 @@ down, so the agent read the night before writing anything.
   It is now doing nothing by design. The first cycle leaves the window at 21:02 tonight.
 - The heat guard never acted. It acts only at 550 MHz and the clock has been 525 since 21:32.
 
-Finding: a power cycle no longer reliably recovers this unit. Until this morning every stop had ended at the next
-cycle. The agent did not cycle the plug itself (that command needs Mark's own terminal) and changed no setting. It
+Finding: a power cycle no longer reliably recovers this unit. Three of the night's eight did not, and before
+this night every stop had ended at the first cycle. The agent did not cycle the plug itself (that command needs Mark's own terminal) and changed no setting. It
 reported the miner down and left the next step to Mark: a hand power cycle with a longer off time, or leaving it
 off and looking at the controller and its supply.
 
