@@ -3666,3 +3666,17 @@ off and looking at the controller and its supply.
 
 Nothing in the code changed. The caps worked as designed, and they are also why the miner will sit idle for
 thirteen hours unless someone steps in; that belongs with the watchdog ladder decisions still waiting.
+
+### Addendum 6, 2026-10-10 08:17, session AX (ab8496bc): back after a hand power-off, and a dashboard bug
+
+Mark cut the first miner's power by hand for about two minutes and asked for a quick check before leaving. It
+answered about a minute after power returned and hashed normally at 525 MHz: seven samples, all good, no hardware
+errors, shares accepted. The agent noted two limits on that reading. The fans were still at boot speed, so which
+power state the boot landed in could not be read yet. And the watchdog's two daily caps stay full until about
+21:00, so a controller stop before then gets no automatic restart or power cycle.
+
+Mark also reported a bug from the morning: while the dashboard waits for a miner login that cannot succeed,
+because the controller is hung, none of its controls respond, including Hold. Hold acts on the service and not on
+the miner, so it is wanted most at exactly that moment. The agent logged it in the plan's deferred table as
+reported, not reproduced, with a first step (reproduce against the fake miner with logins timing out) and a
+proposal to fix it with the watchdog ladder release.
