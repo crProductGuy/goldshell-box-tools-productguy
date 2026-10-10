@@ -3766,3 +3766,16 @@ so the two power states appear on the strong supply as well, some thirteen watts
 
 Small gap noted for later: the event log recorded the agent's restart as the miner restarting "on its own",
 because a restart sent from the command line is not attributed.
+
+### Addendum 10, 2026-10-10 13:00, session AX (ab8496bc): first reads of both miners on their swapped supplies
+
+Mark asked how the second miner was doing on the brick. One status read, 35 minutes after the swap: one unbroken
+mining process, its usual hashrate at the preset clock, no rejects, no board resets, three hardware errors. Chip
+and board ran about three degrees warmer than the evening before on the strong supply, with the board sitting at
+its fan target. It has no meter on it now, so no watts.
+
+The first miner, on the strong supply, was 25 minutes past its soft restart at the same point: no hardware
+errors, no board resets, hottest-chip level 73 C, a steady 183 to 184 watts.
+
+Neither reading settles anything yet. The test the swap was made for is a day: the second miner clean on the
+brick clears the brick, and the first miner's behaviour on the strong supply says whether the fault is its own.
