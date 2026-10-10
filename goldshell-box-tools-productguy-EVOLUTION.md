@@ -3779,3 +3779,23 @@ errors, no board resets, hottest-chip level 73 C, a steady 183 to 184 watts.
 
 Neither reading settles anything yet. The test the swap was made for is a day: the second miner clean on the
 brick clears the brick, and the first miner's behaviour on the strong supply says whether the fault is its own.
+
+### Addendum 11, 2026-10-10 13:45, session AX (ab8496bc): the watchdog re-armed by raising its daily caps
+
+Both miners had run clean for over an hour on their swapped supplies when the owner asked for the watchdog to be
+restarted "or otherwise re-armed" so that it could act if needed, deployed.
+
+A restart alone would not have done it, and the agent checked before trying: since an incident in September the
+service rebuilds both rolling counts from its own event log at every start, exactly so that a restart cannot hand
+the watchdog a fresh day. The counts stood at 20 restarts and 8 power cycles against caps of 20 and 8.
+
+Alternatives considered: editing the night's lines out of the event log (declined, it is the record), or raising
+the caps in the configuration. The agent raised them, restarts 20 to 30 and power cycles 8 to 10, the latter being
+the most the configuration accepts. It backed the file up first, validated it, stopped the service with the
+sanctioned script and started it from its usual launcher. Verified afterwards: the service picked up 20 and 8 from
+the log, so it now has ten restarts and two power cycles in hand, the plug still armed and the miner still hashing
+through the restart of the service.
+
+Told to the owner: this is a larger allowance, not a reset. The night's entries start leaving the window in the
+evening, after which the higher caps simply stay higher until someone puts them back. Whether 30 and 10 should be
+the standing values is his call, and it belongs with the watchdog ladder decisions.
