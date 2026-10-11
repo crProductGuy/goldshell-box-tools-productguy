@@ -3806,3 +3806,32 @@ Asked whether the raised watchdog caps should stay or be put back once the night
 window, Mark decided: "caps stay at the higher levels." Thirty soft restarts and ten power cycles in any rolling
 day are now the standing values on his machine. Nothing further was changed; the configuration already held them.
 The shipped defaults are untouched.
+
+## 2026-10-10, session AY (fbfe116e): an evening read of both miners on the swapped supplies
+
+**Goal, in Mark's words:** "check how both boxes are doing." Then: "Save everything for the night."
+
+A read-only session. Nothing was sent to either miner, the plug or the service, and no code changed.
+
+**What was read.** About nine hours after the power supply swap, both miners were hashing. The SC-BOX on the
+larger supply had run 9 h 15 min since its midday soft restart without a process restart: every row at 525 MHz
+and 0.41 V, no hardware errors, 1,220 shares accepted and none rejected, board at most 67 C, the wall draw steady
+near 184 W (the higher of its two watts states). Its own log showed one hashboard re-initialisation in the
+afternoon that recovered by itself and cost nothing. The HS-BOX on the 360 W brick showed under three hours of
+uptime, which the agent flagged as the one thing that needed explaining.
+
+**The agent's reading, and Mark's correction.** The service log had lost sight of the SC-BOX's plug for about
+three minutes in the early evening, and the HS-BOX's restart fell in the same minutes. The agent offered a power
+event as the likely cause and labelled it an inference. Mark supplied the fact: he had been changing power
+connections on both miners in those minutes. So the restart was his work, not the miner's and not the brick's.
+The SC-BOX kept its uptime through it.
+
+**Decision (Mark).** The agent asked whether the HS-BOX's clean day on the brick should start again from the
+restart. Mark: "the earlier stretch counts." The brick's test therefore runs from the swap at midday, with the
+evening restart set aside as owner-caused.
+
+**Standing check.** No watchdog power cycle since the morning's, so there was no new aftermath to read. The
+rolling counts had begun to age out as expected: 16 restarts and 6 cycles against the standing caps of 30 and 10.
+
+**Left open, unchanged:** the heat guard watches only 550 MHz and so does nothing at 525; the HS-BOX has no
+watchdog; the watchdog ladder decisions, the stale-share review and the dashboard login-wait defect still wait.
