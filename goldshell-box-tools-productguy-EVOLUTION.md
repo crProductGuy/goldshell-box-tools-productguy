@@ -3835,3 +3835,28 @@ rolling counts had begun to age out as expected: 16 restarts and 6 cycles agains
 
 **Left open, unchanged:** the heat guard watches only 550 MHz and so does nothing at 525; the HS-BOX has no
 watchdog; the watchdog ladder decisions, the stale-share review and the dashboard login-wait defect still wait.
+
+### Addendum 13, 2026-10-11 14:30, session AX (ab8496bc): a day on the swapped supplies
+
+Mark asked the next afternoon how things stood. The agent read both miners and the night.
+
+- The second miner had run on the brick for a day: its usual hashrate, two rejects in over two thousand shares,
+  no board resets. It had one process restart the evening before, in the same three minutes in which the metering
+  plug was unreachable from the PC. The agent offered a network interruption as the likely cause and said it had
+  not confirmed it.
+- The first miner ran 13 hours 24 minutes clean on the strong supply, in its higher power state, and then stopped
+  six times in twelve hours. The watchdog, with its raised caps, power-cycled it five times and soft-restarted it
+  once, and each of those worked.
+- Two of the six stops were of a different kind: the controller stopped answering while the wall draw stayed at
+  full power. The watchdog reads that as a working miner it cannot reach, and by design sends nothing and counts
+  nothing until it can. One lasted 27 minutes. The other lasted 477 minutes, and ended only when the draw fell
+  and the ordinary ladder took over. Whether the board was hashing through those hours is not known from here.
+- The boot fault repeated: a start in the lower state, a hashboard fault about eight minutes in with 74 board
+  resets, and a return in the higher state.
+
+The agent's conclusions, as given to Mark. The swap answered its question: the brick ran a healthy miner for a
+day, and the first miner showed both of its faults on both supplies, so the fault is the miner's own. And the
+eight-hour outage was not a cap problem but the gap already written up after the freeze five days earlier: a
+frozen controller at full power has no time limit. Mark's rule for that (at most thirty minutes unresponsive
+while the plug is reachable) is in the ladder design, which still waits on his decisions. The agent named
+building that limit as the cheapest improvement available and changed nothing.
