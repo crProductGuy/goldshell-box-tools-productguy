@@ -3914,3 +3914,22 @@ restart while the box does answer. Deliberate power-offs (6) are left out.
 
 Left open: the full test suite was started and had not reported when this was written (the config and
 watchdog test modules pass); the dashboard login-wait bug; the full-power-freeze time limit.
+
+### Addendum 15, 2026-10-12 10:20, session AX (ab8496bc): the night after the ceiling change
+
+The owner, in the morning: "read both miners", then "save everything and push". Read-only; nothing was changed.
+
+- The first miner ran 4 h 44 min after the hand cycle, then hung at about 03:48 with the plug reading a hung
+  box. Two soft restarts timed out, the watchdog cycled power at 03:58, and the box answered a minute later:
+  eleven minutes down.
+- The boot fault came again, five minutes in: 134 board resets across four minutes, the draw falling to a few
+  tens of watts for about two minutes, and the miner's own log showing 62 chip self-test errors and two
+  temperature-sensor failures. It returned at the same wall power as before, and then ran unbroken for more
+  than six hours to the morning read at 500 MHz.
+- The raised ceiling was not what saved the night. Earlier cycles had aged out of the 24-hour window by 03:58,
+  so that cycle was the ninth in its window and the old cap of ten would also have allowed it. The agent said
+  so to the owner.
+- The second miner, on the brick, passed 39 hours on one mining process with no board resets.
+
+Still open, unchanged: whether the 20 / 40 caps stand, the full-power-freeze time limit, the dashboard
+login-wait bug, and the controller-board question.
