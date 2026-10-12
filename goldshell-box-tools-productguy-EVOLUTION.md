@@ -3933,3 +3933,18 @@ Mark, in the morning: "read both miners", then "save everything and push". Read-
 
 Still open, unchanged: whether the 20 / 40 caps stand, the full-power-freeze time limit, the dashboard
 login-wait bug, and the controller-board question.
+
+### Addendum 16, 2026-10-12 19:00, session AX (ab8496bc): the caps stand, and a quiet day
+
+Mark, mid-morning: "caps stay at 20 / 40". The agent had proposed the raised caps for one night only and had
+asked; the decision is his, and the values (20 power cycles and 40 restarts in 24 hours) are now the standing
+ones. Nothing on the machine needed changing.
+
+Evening read, at his word ("read both miners"), read-only. The first miner had hashed just under fifteen
+hours without a stop at 500 MHz since the 04:00 boot: one missed read in more than a thousand samples, no
+board resets after the boot fault, and the same wall power throughout. The watchdog had sent nothing since the
+03:58 cycle. The second miner, on the brick, passed 48 hours on one mining process with no board resets.
+
+One long stretch does not settle anything: the first miner ran thirteen hours clean two days earlier and then
+stopped six times in twelve hours. Open and unchanged: the controller-board question, the full-power-freeze
+time limit, the dashboard login-wait bug.
