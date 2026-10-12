@@ -3860,3 +3860,57 @@ eight-hour outage was not a cap problem but the gap already written up after the
 frozen controller at full power has no time limit. The owner's rule for that (at most thirty minutes unresponsive
 while the plug is reachable) is in the ladder design, which still waits on his decisions. The agent named
 building that limit as the cheapest improvement available and changed nothing.
+
+### Addendum 14, 2026-10-11 23:30, session AX (ab8496bc): the cap ceiling raised, and a count of fault types
+
+The owner, in the evening: "check the 2 boxes. GBOX website is hung and not accepting the password to log in to the
+box." Later: "fix it so there are power cycles left in the next few hours. I am getting despondent about this
+SC BOX. It lost the ability to run stably! I put it down to 500 MHz just in case it would help. Not so far."
+And last: "I have seen a controller board for the BOX series for sale for $157. I might just buy it because
+this is a nightmare. Please count the number and percentage of controller-caused issues vs. hashboard issues,
+for the whole data set."
+
+What the evening showed.
+
+- After the afternoon read the first miner hung five more times, each ended by a watchdog power cycle. The owner set
+  500 MHz from the dashboard at 18:16; two more hangs followed at that clock.
+- The tenth cycle in 24 hours was spent at 21:02. At 22:44 the box hung again and the watchdog logged that it
+  would cycle but was at its cap. The dashboard was stuck on a login the hung box could not answer, which is
+  the bug the owner logged the day before.
+- The agent told the owner to run the cycle with the prompt prefix of the agent harness. That was wrong: the command
+  takes its typed confirmation only from a real terminal, and refused. The owner ran it in his own terminal. The
+  agent declined to call the plug code directly to skip the confirmation without his explicit word.
+- The boot after that cycle faulted two and a half minutes in (29 board resets, one sample at 46 W) and came
+  back at the same wall power as before, not a higher state.
+
+Decision, the owner, after the agent set out three options: raise the ceiling. The cap was already at the highest
+value the config accepted, so more cycles meant changing the validation limit in code, and the harness
+permission check refused the first attempt as weakening a safety limit. The agent stopped and asked. With
+The owner's go-ahead the ceiling for power cycles per day went from 10 to 20 (one line and its test), the live
+config to 20 cycles and 40 restarts, and the service was restarted. The agent's stated view: ten cycles in a
+day already says cycling is not curing the box, so this buys uptime overnight and not stability.
+
+The fault count, over every stored log (2026-09-05 to 2026-10-11, about 102,700 samples, de-duplicated across
+five log files). Method: a controller-type episode is a run of two minutes or more in which the box does not
+answer; a hashboard-type episode is a burst of board resets, a collapse of hashrate, or a stalled-shares
+restart while the box does answer. Deliberate power-offs (6) are left out.
+
+| | Controller-type | Hashboard-type |
+|---|---|---|
+| Whole record | 61 (41.8 %) | 85 (58.2 %) |
+| September | 39 | 70 |
+| October | 22 | 15 |
+| Last 3 days | 20 | 11 |
+
+- Of the 61 controller-type episodes, 45 had the plug reading a hung box with the board off, 12 were frozen at
+  full power, and 4 predate the meter. 44 were ended by a power cycle.
+- The two types travel together: 32 of the 85 hashboard episodes came within twenty minutes of the box
+  returning from a controller episode, and 12 of the 61 controller episodes came within thirty minutes after a
+  hashboard episode.
+- The hashboard count is inflated by size and by September: the median reset burst is two resets, which the
+  box rides through, and September includes the clock trials that pushed the board on purpose.
+- These are symptoms, not causes. A box that stops answering is counted as controller-type whether the
+  controller failed by itself or was brought down by the board or its power.
+
+Left open: the full test suite was started and had not reported when this was written (the config and
+watchdog test modules pass); the dashboard login-wait bug; the full-power-freeze time limit.
