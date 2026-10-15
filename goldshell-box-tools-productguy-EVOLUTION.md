@@ -3948,3 +3948,42 @@ board resets after the boot fault, and the same wall power throughout. The watch
 One long stretch does not settle anything: the first miner ran thirteen hours clean two days earlier and then
 stopped six times in twelve hours. Open and unchanged: the controller-board question, the full-power-freeze
 time limit, the dashboard login-wait bug.
+
+## 2026-10-14, session AZ (ba309f20): the slide decks, and a diagram of the setup
+
+The project has been presented, and none of that work was logged. This entry records it. The first two parts
+are reconstructed from the two sessions' transcripts and the files' timestamps, not written at the time.
+
+**The demo deck (session 026605ce, built around 2026-09-30, reconstructed).** Mark gave the agent his notes
+for a demo to his Outskill AI class: "make it pretty enough to show hundreds of people." The agent built 24
+slides with pptxgenjs from a single script: dark background, amber accent, a `> kicker` label above each title.
+They tell the story of the failing miner and then how it was built with Claude Code. Mark then edited the deck
+by hand in PowerPoint, adding photos and more slides; it now has 36 slides.
+
+**The prompts slides (session 756fe544, 2026-10-07, reconstructed).** Mark: "recreate the first 10 or so
+prompts I gave you... I'm giving a presentation on the project," for an audience that may never think of
+hardware debugging. The agent rebuilt them from the 2026-09-05 transcript as three slides in the same style,
+one prompt and its finding per slide: "investigate, plan, touch nothing", the root cause eight minutes after
+the go-ahead, and one approved experiment on a token budget. Mark: "I will add the slides into those with
+PowerPoint. Don't try to insert them." He merged them into the demo deck as slides 6 to 8.
+
+**The setup diagram (this session).** Mark asked for one more slide: a diagram of the essential parts, the PC
+running gbox, the SC-BOX, the LAN and the Wi-Fi Kasa HS110 plug. Before drawing, the agent asked him to
+confirm three facts rather than take them from old notes: the PC and miner are wired to the LAN, the plug is
+on Wi-Fi on the same LAN and gbox reaches it locally, not through TP-Link's cloud, and the plug switches the
+miner's power supply. He confirmed all three and said to leave the UPS out. Because he had edited the deck
+since, he asked for a stand-alone slide to paste in rather than a change to the deck.
+
+The slide, "Four parts, one home LAN", shows the three devices, the LAN as a full-width box, Ethernet and Wi-Fi
+links, and the power path from the wall through the plug to the miner, all as native PowerPoint shapes he can
+edit. The first render, exported through PowerPoint, had a fifth box, the wall outlet, whose label overran
+and which contradicted "four parts"; the agent replaced it with a labelled arrow. The skill's file validator
+did not run on this PC (a Python package it needs is missing), so PowerPoint opening and rendering the file is
+the only check it had.
+
+Where the decks live: the repo is public, so the agent offered a gitignored `talks/` folder in the project or
+a commit to the repo. Mark chose the gitignored folder, so he can keep editing and nothing reaches GitHub
+unasked. He means to publish the deck to the Outskill class alumni; before that, a scan of the slide text,
+notes and metadata found no addresses or secrets, but did find two other people named, an editor name in the
+file metadata and edit history, and eight screenshots and photos only he can check. The slide style is also
+kept as a reusable template for future decks.
