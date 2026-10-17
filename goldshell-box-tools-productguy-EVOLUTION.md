@@ -3987,3 +3987,47 @@ unasked. He means to publish the deck to the Outskill class alumni; before that,
 notes and metadata found no addresses or secrets, but did find two other people named, an editor name in the
 file metadata and edit history, and eight screenshots and photos only he can check. The slide style is also
 kept as a reusable template for future decks.
+
+## 2026-10-16, sessions AZ (efdf17a8, 2026-10-13) and BA (787f1a7a): the grid outage, three days off by choice, and a boot by hand
+
+Two sessions in one entry. The first is reconstructed from the status checkpoint it left, not written at
+the time; the second is this one. A note on letters: two sessions were both labelled AZ, the outage session
+on 2026-10-13 and the slide-deck session on 2026-10-14 already in this log. The IDs tell them apart, which
+is what the IDs are for. This session is BA.
+
+**The outage (2026-10-13, reconstructed).** Mark, at 14:00 on a Tuesday: "pick up gbox, hold the service. I
+need to shut off the SC BOX and HS BOX. Grid power outage", then "both boxes are off, update STATUS.md and
+stop." Both miners had dropped off the LAN six minutes earlier. The agent placed an open-ended hold, but a
+power cycle was already in flight: the relay had opened at 14:02 and the cycle finished anyway at 14:04,
+turning the plug back on, because a cycle is one blocking off-wait-on sequence that a hold cannot interrupt
+once the relay has opened. Six direct attempts to switch the plug off all timed out; the plug itself had
+gone unreachable with the rest of that network segment. Mark switched the box off by hand. Design finding
+for the ladder list: **a hold should abort an in-flight cycle's "on" half**, or the hold command should at
+least warn that a cycle is in flight. Mark also swapped the supplies back the same afternoon: the first miner
+on the 360 W brick through the smart plug again, on the house UPS; the second miner on the strong supply on a
+regular circuit. The service stayed up and held through the outage; the PC was on the house battery.
+
+**Three days off, on purpose.** Mark, tonight: he "intentionally had the SC BOX off for a couple of days while
+working on a new node, and didn't think the power draw was worthwhile." So the 81 hours of timeouts in the
+log from 10-13 13:53 to tonight are not a fault and not a watchdog gap; the hold did exactly what it was for.
+The plug came back on the network 10-15 and went unreachable again for about twenty hours to 10-16 19:46;
+cause not verified, and most likely his own power work. The second miner was back up before this session
+started, unwatched as before.
+
+**The boot (this session).** Mark: "cycled the SC BOX, read the boot", then "cycled by hand, with the button
+on the HS110." The plug had read a steady 12 W for three days, which is the brick with a switched-off miner
+behind it, not a hung one. At 22:52:33 the box answered HTTP already hashing: 500 MHz, hashrate at rated,
+board 37 C, 149 W on the brick, no board resets. The hold released itself thirty seconds later on the second
+hashing sample, as designed. The boot fault of 10-12 (a burst of board resets a few minutes in) did not
+recur in the first few minutes; the hour watch Mark asked for continues after this entry, at his word:
+"release the hold. Watch the box for an hour (low token use). at 500 MHz it can't get into too much trouble."
+
+A small finding from the boot: a button press on the plug leaves no trace the service can see, so the
+restart line attributed the boot to the 10-13 cycle ("restarted after [power: cycled #1 in 24 h ...]") and
+reported 80 h 58 min unreachable. The counters are right (zero cycles in the window); only the attribution
+is stale. Worth a line in the restart message when the last known cycle is days old.
+
+**What was not done.** No code changed. The 10-13 design finding and the attribution note join the open
+ladder list with the full-power-freeze time limit, the dashboard login-wait bug and the controller-board
+question. The 149 W draw on the brick is the new baseline for this supply; the 157 W figure belonged to the
+strong supply and should not be compared against it.
