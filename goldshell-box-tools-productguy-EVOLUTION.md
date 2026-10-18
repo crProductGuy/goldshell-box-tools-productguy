@@ -4031,3 +4031,18 @@ is stale. Worth a line in the restart message when the last known cycle is days 
 ladder list with the full-power-freeze time limit, the dashboard login-wait bug and the controller-board
 question. The 149 W draw on the brick is the new baseline for this supply; the 157 W figure belonged to the
 strong supply and should not be compared against it.
+
+## 2026-10-17, from the linux-node-seed project (session 14ebca09): the miners move to a local DATUM gateway
+
+Not a gbox session; recorded here because it changes what the miners talk to. The owner built a new XBT node with a
+DATUM gateway (PATUM, pointing at Pyblock Wavicles) on a separate Linux laptop, and asked: "check the gbox
+watchdog before I switch the miners". A read-only review found that gbox never reads or writes pool settings,
+and that failover to a backup pool counts as healthy. The one coupling is indirect: the stall rule soft-restarts
+a miner whose accepted-share counter is frozen for 5 minutes, so a gateway handing out much harder work, or
+rejecting the worker login, would read as a stall and loop restarts.
+
+The plan that came out of it: switch the miner gbox does not watch first, measure the share rate at the gateway,
+and only then switch the watched one, keeping the old pool as pool 2. The unwatched box ran at 5 to 6 accepted
+shares a minute with no rejects, well inside the 5-minute window, so the second box followed. gbox logged only
+the miner's own restart from the pool change. No gbox code changed; the stall rule's dependence on the pool's
+share rate is now a known assumption to revisit if pools change again.
