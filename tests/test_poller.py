@@ -1877,7 +1877,7 @@ class UpstreamScenarioTest(unittest.TestCase):
 
 class PathScenarioTest(unittest.TestCase):
     """0.10.0 E, end to end: a miner that cannot be seen is sent nothing, and nothing is counted. Written first,
-    against 1808cdf. The miner is a closed port; the plug is a fake Kasa plug, stopped or reading working power."""
+    against 417a51e. The miner is a closed port; the plug is a fake Kasa plug, stopped or reading working power."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

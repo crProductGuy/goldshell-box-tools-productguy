@@ -804,7 +804,7 @@ sitting in the project folder; explained as a leftover copy of the code
 whose branch was already in `main`, and removed at his word. Then: "do
 the two wording fixes and the one-point chart."
 
-**Three small fixes, test-first, one worktree (`902e9cc`).** The
+**Three small fixes, test-first, one worktree (`0e208e5`).** The
 migration event line had claimed "copy kept as log.csv.bak" every time,
 while the code deliberately never overwrites an older backup; now
 `migrate_columns` returns whichever note is true ("copy kept" or "the
@@ -1026,7 +1026,7 @@ while describing the rule, now quotes each word so the checker reads a
 mention as a mention. This file: 0 fail, 35 warn.
 
 **Close of session K, 19:50.** the owner: "push the goldshell commits." Pushed:
-`origin/main` at `a883296` with the three tags. The rest of the evening
+`origin/main` at `8851d4e` with the three tags. The rest of the evening
 went to work outside this repo (the Mac-to-Windows SSH star and the
 style checker), recorded in the working root's notes rather than here.
 Left for the next session: watch the APW3++ reset count against the
@@ -2549,7 +2549,7 @@ could move the run start, was fixed (the pattern is now anchored). A medium one 
 cursor can match the wrong boot. The old comparison also lost lines in that case, and a fix needs a design.
 
 **Release, recorded after the fact.** This entry was committed before the push. At the owner's word, 0.9.1 was pushed to
-GitHub at 13:50 on 2026-09-21 (main `67f303e`, annotated tag `v0.9.1`), and the live service had already been
+GitHub at 13:50 on 2026-09-21 (main `bc8c699`, annotated tag `v0.9.1`), and the live service had already been
 restarted onto it at 13:38 with his prior authorization.
 
 ## 2026-09-21 evening, session AF: designing for outages, no code
@@ -2616,7 +2616,7 @@ form worked (only that form had been tried) and that `tempcontrol` drives the fa
 cannot show that). He then ran both: Bearer works, and 60 s with `tempcontrol` off did not stop the loop. His
 fan log also showed lone -150 board readings on a hashing board, which is why `absent_signature` stays off
 until a model's own log earns it. The model row now reads 4 boards, 4 fans, `/dbg/` open, verified. Commit
-`10f9d79` on branch `sclite-live`, 646 Python + 68 Node green; not merged, not pushed.
+`c0f22df` on branch `sclite-live`, 646 Python + 68 Node green; not merged, not pushed.
 
 **Credit and a longer test.** the owner: credit him as MaVeTh; he says most of his work is MIT, perhaps not this
 repo, and the owner chose to publish on that. MaVeTh then ran `tempcontrol` off for 10 minutes with a 75 C abort
@@ -2724,7 +2724,7 @@ missing hashboard. Nothing merged, pushed or deployed.
 
 ## 2026-09-22 evening, session AJ (d5579e54): the reviewer pass on 0.10.0 gate 1, and what it changed
 
-**The goal**, from the owner: "run the reviewer pass on 3a31147..5373f16", and "show me the findings first"
+**The goal**, from the owner: "run the reviewer pass on a61060b..bf065a6", and "show me the findings first"
 before any fix. The review ran in a separate reviewer agent with fresh context, read-only, forbidden to touch
 the miner or the live service.
 
@@ -2828,7 +2828,7 @@ direct `--bind` link. Both are written into the security notes.
 **Verified.** Every fix came with a test that failed first. On the final code: `test_server` five times in
 a row, 120 tests each, all green, some runs under the reviewer's parallel load (the load that had
 produced the resets); `test_cli`, the other module that imports the server, green. The other 16 modules
-and Node were green on `aec8c9e`, and nothing they import changed since. Nothing merged, pushed or
+and Node were green on `d0802c1`, and nothing they import changed since. Nothing merged, pushed or
 deployed.
 
 **Released, same session, 2026-09-23.** At the owner's word main was fast-forwarded, pushed and tagged
@@ -4046,3 +4046,24 @@ and only then switch the watched one, keeping the old pool as pool 2. The unwatc
 shares a minute with no rejects, well inside the 5-minute window, so the second box followed. gbox logged only
 the miner's own restart from the pool change. No gbox code changed; the stall rule's dependence on the pool's
 share rate is now a known assumption to revisit if pools change again.
+
+## 2026-10-18, from the linux-node-seed project (session 14ebca09): the history rewritten to drop a first name
+
+Not a gbox session. The owner keeps a firm line between this account and a real-name one, and decided that a
+first name in the logs counts as a crossover. Asked what back-editing the public history would take, the agent
+laid out two options: clean only the current files in one commit, or rewrite every commit, message and tag. It
+recommended the rewrite because the repository was young and unforked, so this was the cheapest it would ever be,
+and it was candid that a rewrite cannot reach copies already cloned or old commits GitHub still serves by hash.
+The owner chose the rewrite.
+
+The wording was settled first. "The owner" was already the house word, paired with "the agent", and fits nearly
+every place the name stood: who decided, approved or asked. "The author" was rejected because the agent wrote
+most of the code and text, so it would credit the wrong party. Pronouns were kept as they were.
+
+How it was done: every blob in history that named the owner was rewritten once, by rule (sentence start becomes
+"The owner", elsewhere "the owner", a dated attribution "(owner, date"), and the commits were rebuilt with
+those blobs swapped in and the same rule applied to messages. All 240 commits and 30 tags were rewritten with
+their dates kept. Checks before the force-push: no hit in any file of any commit, any message or any tag;
+every removed line contained the name; the only code changes were one docstring and one test comment; 908 tests
+green. Quoted commit ids in the current files were then mapped from old to new in a follow-up commit; ids quoted
+inside older versions were left as they were, by decision, to keep the rewrite verifiable.

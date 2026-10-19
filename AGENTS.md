@@ -202,7 +202,7 @@ stop that. Ask the owner before stopping the live service at all; if it is ever
 stopped, restart it from the Startup `gbox-serve.vbs` and confirm `/api/health`
 shows the version and an advancing `samples`.
 
-Merge with `--ff-only` **only when the branch was created after `633b948`**,
+Merge with `--ff-only` **only when the branch was created after `7f25bd0`**,
 which added `.gitattributes` and renormalized line endings. A branch that
 predates it holds CRLF blobs, so `--ff-only` fails and a plain merge shows the
 whole tree as changed (559/559 lines of `api.py` on `gate2-pga`). Rebase those

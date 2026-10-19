@@ -1,7 +1,7 @@
 # Stale-share indication for the gbox dashboard: design proposal
 
 Written 2026-10-05 by a design session (Claude Fable 5.1, session 27f96163 fork), read-only against the repo at
-`main 4d232db`. Nothing in the repository was changed. Prototype: `stale-shares-prototype.html` beside this file; evidence of
+`main 6d2def3`. Nothing in the repository was changed. Prototype: `stale-shares-prototype.html` beside this file; evidence of
 every check: `EVIDENCE.md`. Artifact link: see section 10.
 
 **Status: a proposal. Not reviewed, not decided, not built.** The owner has not yet evaluated it, and the six
