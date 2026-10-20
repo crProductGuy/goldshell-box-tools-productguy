@@ -4067,3 +4067,47 @@ their dates kept. Checks before the force-push: no hit in any file of any commit
 every removed line contained the name; the only code changes were one docstring and one test comment; 908 tests
 green. Quoted commit ids in the current files were then mapped from old to new in a follow-up commit; ids quoted
 inside older versions were left as they were, by decision, to keep the rewrite verifiable.
+
+## 2026-10-19, session BA (787f1a7a) continued: the third full-power freeze, a self-restart with a fan burst, and the ladder plan's case
+
+The owner, in the evening: "The SC BOX had a gap today. Look into it. How does the partly-reviewed improvement
+plan relate to this?" Later: "fyi a fan spin-up event just occured on the SC BOX. Look into it. Currently shows
+Error in red on the Gbox dashboard." Then "save everything for the night." Read-only; no code changed.
+
+**The gap.** The miner stopped answering HTTP at 23:56 on 10-18 while the plug kept reading 147 W, full board
+power. The watchdog logged "can't see the miner (the plug reads 147 W, a working miner)" and waited, as the code
+says it must: a reading at or above idle watts vetoes the ladder with no timer. What ended the wait was not the
+watchdog but the miner failing further: at 01:51 the draw collapsed to 16 W, the veto lapsed, the ladder started
+from zero, two soft restarts timed out, the plug cycled at 02:02 and the box hashed again at 02:03. Loss 2 h 7
+min, of which 115 min was the untimed wait. This is the third full-power freeze on record, after 19 h 38 min on
+10-06 and 477 min on 10-11, and the first at 500 MHz on the 360 W brick, so the freeze is tied neither to the
+550 MHz soak nor to the strong supply. That counts for the controller-board question. The two nights before were
+busy as well: six power cycles in 37 hours, each of the ordinary hung-at-16-W kind recovered in about eleven
+minutes, and no stall restart since the pool moved to the local gateway on 10-17, so that known risk has not
+shown itself.
+
+**How the plan relates.** The ladder design of 10-06 names this class in its time-to-cycle table: "controller
+hung, no HTTP, at or above 100 W: never". Its recommended option makes the meter defer the cycle to minute 30
+instead of holding it, which last night would have meant hashing again at about 00:29 instead of 02:03. The
+agent checked the three code citations that matter for this class against the live 0.11.0 code and they hold;
+the rest of the design is still unreviewed, the eleven decisions in its section 7 are unanswered, and the
+planned reviewer pass on its citations has not run. The agent's recommendation, not yet answered: decide
+questions 1 to 4 and 10 (the silent-class clock and the two prerequisite defects), let 5 to 9 wait, run the
+reviewer pass, then build 0.12.0 in a worktree. The stated cost: a wasted cycle when a path is truly down with a
+hashing miner behind it, which has not happened once on record against three freezes.
+
+**The fan burst.** At 22:23 the miner restarted on its own after 20 h 19 min of mining, its longest run since
+the outage. One sample was refused rather than timed out and the gap was 32 seconds, which reads as the mining
+process and web backend restarting while the controller stayed up; the miner's own log shows the process start.
+The fans ran at full speed for the first minutes, as every boot does, then ramped down; the draw sat a few
+watts high while they did. No board resets, no hardware errors after it. The sixth self-restart since 10-06, the
+second in three days; the cause is not visible from here.
+
+**The red "Error".** The dashboard's own refresh had failed with something other than a network error or a
+rejected session, which sets the badge to "error" and writes a red last-error line; both clear on the next good
+refresh. The owner had not captured the text. It is most likely the backend answering something unparseable
+during the 30 seconds it was down, and not the open login-wait defect, but without the text that is a reading,
+not a finding.
+
+**Left for the next session.** The owner's decisions on the ladder plan; the freeze and the self-restart are new
+evidence for it. Nothing else changed.
