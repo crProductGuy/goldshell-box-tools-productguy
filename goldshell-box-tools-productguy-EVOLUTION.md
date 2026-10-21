@@ -4111,3 +4111,30 @@ not a finding.
 
 **Left for the next session.** The owner's decisions on the ladder plan; the freeze and the self-restart are new
 evidence for it. Nothing else changed.
+
+## 2026-10-20, session BB (337f4b0e): eight hangs in an evening and an hour at a quarter of the hashrate
+
+**The goal.** The owner: "see what's going on with the SC BOX. It's having a bad time in the last 6 hours. Any
+new patterns?" Read-only; no code, config or service change.
+
+**What the logs showed.** After an 18 h 33 min clean run (in the higher 162 W mode since the 10-19 self-restart),
+the SC-BOX hung at 16:57 and then seven more times by 22:12, each the ordinary kind: no HTTP, plug at 12 to
+36 W, two failed soft restarts, a power cycle, hashing again in about 11 minutes. Runs between hangs lasted 3 min
+to 1 h 41 min; four hangs came 3 to 6 minutes after a boot, with the board at 44 to 48 C and the fans still fast,
+so heat does not explain them. No full-power freeze and no watchdog hold. After the first cycle the draw went
+back to about 147 W.
+
+**The new pattern.** From 20:47 to 21:48 the miner hashed about 155 GH/s instead of about 630. Chips 1 to 4
+counted nonces normally; chips 5 to 16 each logged about 3 in the hour. The draw stayed at 146 W and shares kept
+arriving, so gbox recorded the hour as healthy: the watchdog has no hashrate rule, only frozen-shares and
+no-answer rules. The miner's own log showed temperature-sensor failures at about 8 a minute for the whole hour
+(526 for the day, the most on record; the previous high, 224, was the bad day of 10-11). The miner ended it with
+its own restart at 21:49. The day's miner log also carries built-in self-test errors, addressing failures,
+chip write failures and init failures. The agent's reading, unverified: twelve chips going quiet together with
+sensor errors points at the hashboard or its cable rather than the controller, which weakens the case for the
+replacement controller board.
+
+**Options put to the owner** (recommendation first): leave it running and check the cycle cap in the morning (7
+of 20 used by 22:05, cap likely reached around 05:00 to 06:00 at the evening's rate); switch it off and reseat
+the hashboard cables as a cheap physical test; or record the findings. The owner chose to save everything for
+the night. New item for the ladder plan: a low-hashrate rule, since a quarter-rate box looks healthy today.
