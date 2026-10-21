@@ -4138,3 +4138,13 @@ replacement controller board.
 of 20 used by 22:05, cap likely reached around 05:00 to 06:00 at the evening's rate); switch it off and reseat
 the hashboard cables as a cheap physical test; or record the findings. The owner chose to save everything for
 the night. New item for the ladder plan: a low-hashrate rule, since a quarter-rate box looks healthy today.
+
+**Addendum, 22:45: the cycle cap raised to 30.** After reading the evening, the owner: "let's increase the
+cycles to 30 a day. Permanently. Give it a boost now." The validation ceiling in `gbox/config.py` went from 20
+to 30 (the test's out-of-range value from 21 to 31), the second raise after 10 to 20 on 10-11. The live config
+went to 30 cycles and 60 restarts, because validation requires at least two restarts per cycle. The agent's own
+edit of the live config was refused by the session's permission checker as weakening a safety limit; the owner
+made that edit by hand, after a backup. The service was restarted at 22:43 between hangs, with the miner
+hashing. Its health endpoint then showed 30 / 60 with the day's 8 cycles and 16 restarts carried over, and
+samples advancing. Cost of the higher cap: up to 30 power cuts a day on a box whose fault now reads as hardware.
+That buys uptime, not a diagnosis.

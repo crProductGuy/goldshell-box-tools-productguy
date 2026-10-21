@@ -124,7 +124,7 @@ class PowerConfigTest(unittest.TestCase):
             cfg.validate()
 
     def test_validate_rejects_cap_out_of_range(self):
-        for bad in (-1, 21):
+        for bad in (-1, 31):
             cfg = config.Config(host="m", power={"host": "p", "max_cycles_per_day": bad})
             with self.assertRaises(ValueError):
                 cfg.validate()

@@ -178,8 +178,8 @@ class Config:
                 raise ValueError("power.off_seconds must be 3 to 120")
             if int(p["after_minutes"]) < int(self.watchdog["unreachable_minutes"]):
                 raise ValueError("power.after_minutes must be at least watchdog.unreachable_minutes")
-            if not 0 <= int(p["max_cycles_per_day"]) <= 20:
-                raise ValueError("power.max_cycles_per_day must be 0 to 20")
+            if not 0 <= int(p["max_cycles_per_day"]) <= 30:
+                raise ValueError("power.max_cycles_per_day must be 0 to 30")
             # Both floors are flat, and both are measured from the moment power comes back (2026-09-19).
             if not 2 <= float(p["settle_minutes"]) <= 60:
                 raise ValueError("power.settle_minutes must be 2 to 60: below 2 the watchdog judges a miner that "
