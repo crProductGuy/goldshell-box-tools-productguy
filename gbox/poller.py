@@ -48,9 +48,12 @@ COLUMNS = ["time", "http", "elapsed", "mhs_av", "mhs_20s", "hwerr", "hwerr_pct",
            "chips",        # 0.6.0: every chip's cumulative good/bad as board.chip:g/b;... (docs/charts-proposal.md)
            "hot_peak", "hot_level", "chip_avg",   # 0.7.0: from the cgminer log, on the rows where it was read
            "watts_dc",     # 0.8.0: the firmware's own voltage x current (DC side); None when either is unknown
-           "volts"]        # 0.9.0: the board voltage as the firmware reports it (0.41 on an SC-BOX over 4028, mV on
+           "volts",        # 0.9.0: the board voltage as the firmware reports it (0.41 on an SC-BOX over 4028, mV on
                            # an SC5 Pro II; never converted, the SC-BOX's unit is undocumented). 2026-09-20: 80 min at
                            # 162 W instead of 184 W with every chip producing, and nothing kept could say why.
+           "line_volts"]   # 0.12.0: the AC line voltage the plug measures, read with its watts; empty without a meter.
+                           # 2026-10-21: 81 of 107 power cycles fell between 17:00 and 05:00, and nothing kept could
+                           # say whether the household supply differs then.
 FIRST_READ_MINUTES = 5        # the first log read after a service start looks back this far only, by the miner's clock
 # 0.10.0 review, M2: the watchdog's pool evidence on that first read looks back further. Measured 2026-09-22: the
 # pool lines come at +2 min and the log goes quiet at +8, so 5 min back from the last line misses them. Still
@@ -315,6 +318,7 @@ class Poller(threading.Thread):
         self.plug_info = None       # identify() once it answered: model, alias, meter
         self.plug_state = None      # True on, False off, None unknown or no plug
         self.plug_watts = None
+        self.plug_volts = None      # 0.12.0: line volts from the same meter reading
         self._plug_down = False
         self.miner_status = None    # /mcb/status (model, firmware, hardware), read once after the first good sample
         if board_source not in BOARD_SOURCES:
@@ -363,14 +367,15 @@ class Poller(threading.Thread):
                 f.write(",".join("" if row.get(c) is None else str(row.get(c)) for c in BOARDS_COLUMNS) + "\n")
 
     def read_plug(self):
-        """Relay and watts from the plug into plug_state and plug_watts; one event line per transition."""
+        """Relay, watts and line volts from the plug into plug_state, plug_watts and plug_volts; one event line per
+        transition."""
         if self.plug is None:
             return
         try:
             if self.plug_info is None:
                 self.plug_info = self.plug.identify()
             self.plug_state = self.plug.state()
-            self.plug_watts = self.plug.watts() if self.plug_info.get("meter") else None
+            self.plug_watts, self.plug_volts = self.plug.meter() if self.plug_info.get("meter") else (None, None)
             if self._plug_down:
                 self._plug_down = False
                 if self.events:
@@ -378,6 +383,7 @@ class Poller(threading.Thread):
         except Exception as e:
             self.plug_state = None
             self.plug_watts = None
+            self.plug_volts = None
             if not self._plug_down:
                 self._plug_down = True
                 if self.events:
@@ -500,6 +506,7 @@ class Poller(threading.Thread):
         row["time"] = now
         self.read_plug()
         row["watts"] = self.plug_watts
+        row["line_volts"] = self.plug_volts
         observe_plug = getattr(self.watchdog, "observe_plug", None)
         if observe_plug is not None and self.plug is not None:      # 0.10.0 E: this poll's reading, no new request
             observe_plug(self.plug_state is not None, self.plug_watts)

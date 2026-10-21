@@ -79,6 +79,17 @@ def _watts_from(realtime):
     return None
 
 
+def _volts_from(realtime):
+    """Line volts from an emeter get_realtime reply in either field shape, or None when unsupported (0.12.0)."""
+    if not realtime or realtime.get("err_code", 0) != 0:
+        return None
+    if "voltage_mv" in realtime:
+        return realtime["voltage_mv"] / 1000.0
+    if "voltage" in realtime:
+        return float(realtime["voltage"])
+    return None
+
+
 class Plug:
     """What every driver provides. Subclasses fill in the five calls."""
 
@@ -92,6 +103,10 @@ class Plug:
 
     def watts(self):
         raise NotImplementedError
+
+    def meter(self):
+        """(watts, line volts) from one reading. A driver that cannot read volts keeps this default."""
+        return self.watts(), None
 
     def off(self):
         raise NotImplementedError
@@ -160,7 +175,14 @@ class KasaLegacy(Plug):
         return bool(self._sysinfo().get("relay_state"))
 
     def watts(self):
-        return _watts_from(self._query({"emeter": {"get_realtime": {}}}).get("emeter", {}).get("get_realtime", {}))
+        return _watts_from(self._realtime())
+
+    def meter(self):
+        r = self._realtime()
+        return _watts_from(r), _volts_from(r)
+
+    def _realtime(self):
+        return self._query({"emeter": {"get_realtime": {}}}).get("emeter", {}).get("get_realtime", {})
 
     def _relay(self, on):
         r = self._query({"system": {"set_relay_state": {"state": 1 if on else 0}}})

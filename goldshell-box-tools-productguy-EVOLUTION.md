@@ -4148,3 +4148,27 @@ made that edit by hand, after a backup. The service was restarted at 22:43 betwe
 hashing. Its health endpoint then showed 30 / 60 with the day's 8 cycles and 16 restarts carried over, and
 samples advancing. Cost of the higher cap: up to 30 power cuts a day on a box whose fault now reads as hardware.
 That buys uptime, not a diagnosis.
+
+## 2026-10-21, session BB (337f4b0e) continued: the night read, and 0.12.0 logs the line voltage
+
+**The night.** The owner: "check overnight. I see Two W + P incidents, one around 23:05 and one around 00:40. Any
+new insights?" Both were the ordinary hang (no HTTP, 19 W and 12 W, two failed soft restarts, a power cycle, 11
+minutes each). After 00:39 the SC-BOX ran clean for more than eight hours: all sixteen chips even, no board
+resets, no temperature-sensor errors at all after 526 the day before. Across all 107 power cycles on record, 81
+fell between 17:00 and 05:00. The agent said that skew is weak evidence, because two bad days carry much of it,
+and that gbox records neither the room temperature nor the supply voltage.
+
+**The build.** The owner: "add the plug voltage logging." The HS110 already sent the line voltage in every
+meter reply and gbox dropped it. 0.12.0 appends `line_volts` to `log.csv`, read from the same reply as the watts
+through a new `Plug.meter()`, so there is no extra request; a driver that cannot read volts returns None. The
+watchdog does not use it. Checked against the real plug before shipping: 122.5 V at 147 W.
+
+**Verification, and a wrong call corrected.** The first test run was taken for a hang and stopped. It was only
+slow: one test waits out socket timeouts for 61 s on main too, and the PC was short of memory at the time. The
+first full run then had ten failures, all tests that pinned the column layout or the version: padding literals
+in old-header migration tests, a fixture that built rows without the new key, and the page's version mirror in
+`app.js`. None was in the new code. After fixes, 914 tests passed in a third full run. Shipped as v0.12.0 at the
+owner's word ("ship it when the tests pass"). The watchdog ladder plan, which was to be 0.12.0, moves to 0.13.0.
+
+**The owner asked** whether "hashboard cable" meant inside the SC-BOX. Yes: the agent's reading is a controller
+board and one hashboard joined by a short cable, but no one has opened this unit, so that layout is unverified.

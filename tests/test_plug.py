@@ -37,6 +37,33 @@ class KasaLegacyTest(unittest.TestCase):
         self.fake.meter = None
         self.assertIsNone(self.plug.watts())
 
+    def test_meter_old_field_shape_reads_watts_and_volts(self):
+        self.fake.meter, self.fake.watts, self.fake.volts = "old", 147.2, 121.4
+        w, v = self.plug.meter()
+        self.assertAlmostEqual(w, 147.2, places=3)
+        self.assertAlmostEqual(v, 121.4, places=3)
+
+    def test_meter_new_field_shape_converts_millivolts(self):
+        self.fake.meter, self.fake.watts, self.fake.volts = "new", 147.2, 118.7
+        w, v = self.plug.meter()
+        self.assertAlmostEqual(w, 147.2, places=2)
+        self.assertAlmostEqual(v, 118.7, places=3)
+
+    def test_meter_none_none_without_meter(self):
+        self.fake.meter = None
+        self.assertEqual(self.plug.meter(), (None, None))
+
+    def test_volts_parser_handles_missing_and_refused_replies(self):
+        self.assertIsNone(plugmod._volts_from({}))
+        self.assertIsNone(plugmod._volts_from({"err_code": -1, "voltage": 120.0}))
+        self.assertIsNone(plugmod._volts_from({"power": 5.0, "err_code": 0}))
+
+    def test_base_meter_falls_back_to_watts_with_no_volts(self):
+        class OnlyWatts(plugmod.Plug):
+            def watts(self):
+                return 12.5
+        self.assertEqual(OnlyWatts().meter(), (12.5, None))
+
     def test_state_follows_relay(self):
         self.fake.relay = 1
         self.assertTrue(self.plug.state())

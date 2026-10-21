@@ -78,7 +78,7 @@ class PollerTest(unittest.TestCase):
         with open(self.csv, encoding="utf-8") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
-        self.assertEqual(lines[1], "2026-09-05 21:05:52,ok,1,2,3,4,0.4,5,0,600.0,3000,3000,70,70,63,0,8:1/1,,,,,,,,,,,")
+        self.assertEqual(lines[1], "2026-09-05 21:05:52,ok,1,2,3,4,0.4,5,0,600.0,3000,3000,70,70,63,0,8:1/1,,,,,,,,,,,,")
         self.assertEqual(lines[2].count(","), len(poller.COLUMNS) - 1)
         self.assertTrue((self.csv.parent / "log.csv.bak").exists())
         rows = self.rows()
@@ -120,7 +120,7 @@ class PollerTest(unittest.TestCase):
             lines = f.read().splitlines()
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
         # watts, chips, the three 0.7.0 log columns, 0.8.0's watts_dc and 0.9.0's volts: seven empty fields padded
-        self.assertTrue(lines[1].endswith(",65,0,,,,,,,"))
+        self.assertTrue(lines[1].endswith(",65,0,,,,,,,,"))
 
     def test_migration_note_says_whether_the_backup_is_new(self):
         """The first migration writes log.csv.bak; a later one keeps the older backup and says so."""
@@ -174,7 +174,7 @@ class ChipsColumnPollerTest(unittest.TestCase):
         with open(self.csv, encoding="utf-8") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
-        self.assertTrue(lines[1].endswith(",174.476037,,,,,,"))   # chips, hot_peak, hot_level, chip_avg, watts_dc, volts padded
+        self.assertTrue(lines[1].endswith(",174.476037,,,,,,,"))  # chips, hot_peak, hot_level, chip_avg, watts_dc, volts, line_volts padded
         self.assertEqual(self.rows()[0]["chips"], "")
         self.assertTrue((self.csv.parent / "log.csv.bak").exists())
 
@@ -203,7 +203,8 @@ class HottestChipPollerTest(unittest.TestCase):
     def test_columns_end_with_the_three_chip_temperature_fields(self):
         # 0.8.0 appends watts_dc after chip_avg (append-only: a new column always lands at the true end,
         # so this 0.7.0 snapshot of "the last four" necessarily grows by one here), and 0.9.0 appends volts.
-        self.assertEqual(poller.COLUMNS[-6:], ["chips", "hot_peak", "hot_level", "chip_avg", "watts_dc", "volts"])
+        self.assertEqual(poller.COLUMNS[-7:], ["chips", "hot_peak", "hot_level", "chip_avg", "watts_dc", "volts",
+                                               "line_volts"])
 
     def test_first_cycle_reads_the_log_and_writes_peak_level_and_average(self):
         p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, clock=self.clock, syslog_interval=300)
@@ -311,7 +312,7 @@ class HottestChipPollerTest(unittest.TestCase):
         with open(self.csv, encoding="utf-8") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
-        self.assertTrue(lines[1].endswith(",0.1:5/0,,,,,"))       # hot_peak, hot_level, chip_avg, watts_dc, volts padded
+        self.assertTrue(lines[1].endswith(",0.1:5/0,,,,,,"))      # hot_peak, hot_level, chip_avg, watts_dc, volts, line_volts padded
         self.assertEqual(self.rows()[0]["hot_level"], "")
         self.assertTrue((self.csv.parent / "log.csv.bak").exists())
 
@@ -401,7 +402,9 @@ class PollerPlugTest(unittest.TestCase):
         p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30)
         p.poll_once()
         self.assertEqual(self.rows()[0]["watts"], "")
+        self.assertEqual(self.rows()[0]["line_volts"], "")
         self.assertIsNone(p.plug_watts)
+        self.assertIsNone(p.plug_volts)
 
     def test_watts_and_relay_read_from_the_plug(self):
         # board_source="minerinfo": this test is about the plug, not board_source; "auto" would probe port
@@ -410,7 +413,9 @@ class PollerPlugTest(unittest.TestCase):
                           events=self.events, board_source="minerinfo")
         p.poll_once()
         self.assertEqual(self.rows()[0]["watts"], "188.0")
+        self.assertEqual(self.rows()[0]["line_volts"], "120.0")
         self.assertEqual(p.plug_watts, 188.0)
+        self.assertEqual(p.plug_volts, 120.0)
         self.assertIs(p.plug_state, True)
         self.assertEqual(p.plug_info["model"], "HS110(US)")
         self.assertEqual(self.lines, [])
@@ -645,7 +650,7 @@ class WattsDcMigrationTest(unittest.TestCase):
         old_header = ("time,http,elapsed,mhs_av,mhs_20s,hwerr,hwerr_pct,accepted,rejected,clock,fan0,fan1,"
                      "tstemp0,tstemp1,tstemp2,rebootcnt,weak_chips,nonces_good,nonces_bad,temp_target,overheat,"
                      "watts,chips,hot_peak,hot_level,chip_avg")
-        self.assertEqual(old_header, ",".join(poller.COLUMNS[:-2]))
+        self.assertEqual(old_header, ",".join(poller.COLUMNS[:-3]))
         row1 = ("2026-09-05 21:05:52,ok,38859,714194.349,761630.09,2912,2.6095,17780,4713,600.0,3120,3060,73.0,"
                "73.0,64.63,355,3:6990/90;8:4481/2386;9:7032/51;10:7067/103;15:7030/120;16:7174/72,,,,,,,,,")
         with open(self.csv, "w", encoding="utf-8", newline="") as f:
@@ -655,9 +660,9 @@ class WattsDcMigrationTest(unittest.TestCase):
         with open(self.csv, encoding="utf-8") as f:
             lines = f.read().splitlines()
         self.assertEqual(lines[0], ",".join(poller.COLUMNS))
-        self.assertEqual(lines[0].split(",")[-2:], ["watts_dc", "volts"])
+        self.assertEqual(lines[0].split(",")[-3:], ["watts_dc", "volts", "line_volts"])
         self.assertEqual(lines[1].count(","), len(poller.COLUMNS) - 1)
-        self.assertTrue(lines[1].endswith(",,"))                 # watts_dc and volts padded blank
+        self.assertTrue(lines[1].endswith(",,,"))                # watts_dc, volts and line_volts padded blank
         self.assertTrue((self.csv.parent / "log.csv.bak").exists())
 
 
@@ -695,14 +700,27 @@ class VoltsColumnTest(unittest.TestCase):
         self.assertEqual(row["volts"], row["_boards"][0]["voltage_mv"])
 
     def test_migrates_a_0_8_log(self):
-        old = poller.COLUMNS[:-1]
+        old = poller.COLUMNS[:-2]
         self.assertEqual(old[-1], "watts_dc")
         with open(self.csv, "w", encoding="utf-8", newline="") as f:
             f.write(",".join(old) + "\n" + ",".join(["2026-09-20 17:12:42", "ok"] + ["1"] * (len(old) - 2)) + "\n")
         self.assertTrue(poller.migrate_columns(self.csv))
         with open(self.csv, encoding="utf-8") as f:
             lines = f.read().splitlines()
-        self.assertEqual(lines[0].split(",")[-1], "volts")
+        self.assertEqual(lines[0].split(",")[-2], "volts")
+        self.assertTrue(lines[1].endswith(",1,,"))
+        self.assertEqual(lines[1].count(","), len(poller.COLUMNS) - 1)
+
+    def test_migrates_a_0_11_log_with_line_volts_blank(self):
+        """0.12.0: a log from 0.9.0 to 0.11.0 gains `line_volts` as an empty last field on every old row."""
+        old = poller.COLUMNS[:-1]
+        self.assertEqual(old[-1], "volts")
+        with open(self.csv, "w", encoding="utf-8", newline="") as f:
+            f.write(",".join(old) + "\n" + ",".join(["2026-10-20 22:43:56", "ok"] + ["1"] * (len(old) - 2)) + "\n")
+        self.assertTrue(poller.migrate_columns(self.csv))
+        with open(self.csv, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(lines[0], ",".join(poller.COLUMNS))
         self.assertTrue(lines[1].endswith(",1,"))
         self.assertEqual(lines[1].count(","), len(poller.COLUMNS) - 1)
 
@@ -1169,7 +1187,7 @@ class RotationIsInvisibleToReadersTest(unittest.TestCase):
                    "clock": 550.0, "fan0": 1200, "fan1": 1210, "tstemp0": 55, "tstemp1": 50, "tstemp2": 45,
                    "rebootcnt": 3, "weak_chips": "", "nonces_good": acc * 9, "nonces_bad": hw,
                    "temp_target": 70, "overheat": 0, "watts": 184.0, "chips": "", "hot_peak": "",
-                   "hot_level": "", "chip_avg": "", "watts_dc": "", "volts": ""}
+                   "hot_level": "", "chip_avg": "", "watts_dc": "", "volts": "", "line_volts": ""}
             rows.append(",".join(str(row[c]) for c in poller.COLUMNS))
             t += datetime.timedelta(minutes=self.SPACING_MINUTES)
         with open(self.csv, "w", encoding="utf-8", newline="") as f:

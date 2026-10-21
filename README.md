@@ -116,8 +116,9 @@ same way, `events.log` at 5 MB with its last 4000 lines carried, and
 watch the disk yourself. Delete or move a `.1` file whenever you like.
 
 Two things are kept because an incident cannot be explained without them
-(0.9.0). `log.csv` ends in `volts`, the board voltage exactly as the
-firmware reports it. And `minerlog.csv` holds what the miner's own log said:
+(0.9.0). `log.csv` carries `volts`, the board voltage exactly as the
+firmware reports it, and since 0.12.0 ends in `line_volts`, the AC line
+voltage the smart plug measures (empty without a plug that meters). And `minerlog.csv` holds what the miner's own log said:
 the miner truncates that log within hours, so each time the service reads it
 for the hottest chip it also writes one row per kind of non-routine line
 (`init_failed`, `chip_write_failed`, `process_started` and a dozen more),

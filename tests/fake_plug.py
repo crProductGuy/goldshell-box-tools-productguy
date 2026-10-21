@@ -40,11 +40,12 @@ def xor_decrypt(data):
 class FakePlug:
     def __init__(self, host="127.0.0.1", port=0, model="HS110(US)", alias="fake plug",
                  device_id="8006FAKE0000000000000000000000000000FAKE", meter="old", watts=188.0,
-                 relay=1, hw="1.0", fw="1.2.6 Build 200727 Rel.121701", udp_port=None):
+                 relay=1, volts=120.0, hw="1.0", fw="1.2.6 Build 200727 Rel.121701", udp_port=None):
         self.host, self.port = host, port
         self.model, self.alias, self.device_id = model, alias, device_id
         self.meter = meter                  # None, "old" (W, V, A, kWh) or "new" (mW, mV, mA, Wh)
         self.watts = watts
+        self.volts = volts
         self.relay = relay
         self.hw, self.fw = hw, fw
         self.on_since = time.time()
@@ -73,8 +74,9 @@ class FakePlug:
         if self.meter is None:
             return {"err_code": -1, "err_msg": "module not support"}
         if self.meter == "old":
-            return {"current": self.watts / 120.0, "voltage": 120.0, "power": self.watts, "total": 22.0, "err_code": 0}
-        return {"current_ma": int(self.watts / 120.0 * 1000), "voltage_mv": 120000,
+            return {"current": self.watts / self.volts, "voltage": self.volts, "power": self.watts, "total": 22.0,
+                    "err_code": 0}
+        return {"current_ma": int(self.watts / self.volts * 1000), "voltage_mv": int(self.volts * 1000),
                 "power_mw": int(self.watts * 1000), "total_wh": 22000, "err_code": 0}
 
     def handle(self, cmd):
