@@ -181,6 +181,7 @@ clock it was on. Then set `"cycle": true` in the `power` block of
   "max_cycles_per_day": 3,
   "idle_watts": 100,
   "unpowered_watts": 10,
+  "unpowered_cycle_minutes": 10,
   "boot_watts": 20,
   "boot_check_minutes": 2
 }
@@ -190,12 +191,27 @@ Since 0.10.0 the rung reads the meter just before it acts, and the meter can
 only stop a cycle. At or over `idle_watts` the miner is working and the path
 to it is down; under `unpowered_watts` with the relay on, nothing behind the
 plug is drawing power (a cord out downstream, the miner's own switch off).
-Neither is cycled, and each says so once per episode in the event log.
+Neither is cycled, and each says so once per episode in the event log (since
+0.12.1 the no-load case gets one cycle later; see below).
 Between the two is the hung controller (about 34 W), cycled as before. A plug
 without a meter behaves as before. `unpowered_watts` must be 0 (off) up to
 `boot_watts`, so "no load" always sits inside the boot check's "never powered
 up" and the two readings cannot disagree. The boot check's own repeat cycle
-is unchanged.
+is unchanged for every other cycle.
+
+Since 0.12.1 "no load" is not cycled *at first*. On 2026-10-26 the SC-BOX
+dropped from 147 W to 1 W with no hang before it: red light, no answer on
+the network, and 66 minutes down until a cycle by hand brought it straight
+back. That is a power supply that tripped, and it reads exactly like a cord
+pulled out downstream. So once the outage is `unpowered_cycle_minutes` old
+(default 10; 0 keeps the old "never"), the rung cycles once, and not again
+until the miner has answered: the boot check does not add its repeat, and the
+ladder says "not cycling again: check the miner's power by hand" from then
+on. The mark is cleared only by a sample the miner answers, never by the
+ladder's own episode reset, so a one-poll plug or LAN miss mid-outage cannot
+buy a second cut. A miner that really is unplugged costs one harmless cut.
+The mark is not kept across a service restart, so a restart in the middle of
+such an outage allows one more, within the daily cap.
 
 `gbox serve --no-power` ignores the block for one run. Removing the block
 removes the feature; nothing else changes.

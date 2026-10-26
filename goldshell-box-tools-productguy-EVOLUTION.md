@@ -4172,3 +4172,34 @@ owner's word ("ship it when the tests pass"). The watchdog ladder plan, which wa
 
 **The owner asked** whether "hashboard cable" meant inside the SC-BOX. Yes: the agent's reading is a controller
 board and one hashboard joined by a short cable, but no one has opened this unit, so that layout is unverified.
+
+## 2026-10-26, session BB (337f4b0e) continued: the supply that tripped, and 0.12.1 cycles a box drawing nothing
+
+**The outage.** The owner: "SC box is producing NO samples, for an hour. Check it out, get it going again." At
+10:15:30 the draw fell from 147 W to 1 W with no hang before it. The new `line_volts` column answered its first
+question: the line held at 123 V, so the house supply did not cause it. The owner saw a red light, and the
+controller did not answer ping or ARP. The ladder sent soft restarts every six minutes. 0.10.0's rule read 1 W
+with the relay on as a cord pulled out downstream and never cycled, so the box sat down 66 minutes. A cycle by
+hand brought it straight back, with all sixteen chips hashing within two minutes. The agent's reading, which it
+cannot verify from software: the miner's supply tripped and needed its input removed.
+
+**Two launch mistakes, and a rule.** `gbox power cycle` needs a typed word on a real terminal, so the agent
+opened a window for the owner. The first window opened while the owner was typing to the agent and took the
+keystrokes. The relaunch broke because `Start-Process` dropped inner quotes. The third worked. Then the window
+stayed silent for two minutes, which looked like a hang. The owner: "ensure you write an instruction to correct
+the failure ... You made that mistake twice." AGENTS.md now has a section on it: ask first and open only after
+"ready", run the bare command, warn about the wait, watch `events.log`, with a verified Windows form and
+unverified macOS and Linux forms. The command itself now prints when power will be back before it goes quiet.
+
+**0.12.1.** The owner: "build the 1 W power-cycle fix", then "ship it when the tests and review pass".
+`power.unpowered_cycle_minutes` (default 10, 0 for the old never): once an outage with no load behind the plug
+is that old, the rung cycles once, and the boot check adds no repeat. The alternative was to keep never cycling
+and only alert, which the agent rejected because nobody may be watching. One cut costs a really unplugged box
+nothing; more would fight an owner who unplugged it on purpose.
+
+**What review changed.** A fresh-eyes reviewer reproduced a second cut in one outage. The once-only mark was
+keyed on the episode, and a one-poll LAN or plug miss resets the episode. The mark is now cleared only by a
+sample the miner answers, and a regression test replays the flap and fails on the old code. Accepted as they
+are: a service restart mid-outage allows one more cut, within the daily cap, and the docs now say so; and a
+meter glitch under 10 W can now cause one cut where it used to block one. That still needs the miner
+unreachable and two failed soft restarts.

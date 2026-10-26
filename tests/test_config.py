@@ -104,6 +104,23 @@ class PowerConfigTest(unittest.TestCase):
             with self.assertRaises(ValueError, msg=repr(bad)):
                 config.Config(host="m", power={"host": "p", "unpowered_watts": bad}).validate()
 
+    def test_unpowered_cycle_minutes_is_zero_or_1_to_240(self):
+        # 0.12.1: the one cycle for a box drawing no power (2026-10-26); 0 keeps the 0.10.0 "never"
+        cfg = config.Config(host="m", power={"host": "p"})
+        cfg.validate()
+        self.assertEqual(cfg.power["unpowered_cycle_minutes"], 10)
+        for good in (0, 1, 10, 10.0, 240):
+            config.Config(host="m", power={"host": "p", "unpowered_cycle_minutes": good}).validate()
+        for bad in (-1, 241, 1.5, "10", None, True, float("nan"), float("inf")):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                config.Config(host="m", power={"host": "p", "unpowered_cycle_minutes": bad}).validate()
+
+    def test_an_older_config_with_a_long_after_minutes_still_loads(self):
+        # a config.json from before 0.12.1 has no unpowered_cycle_minutes; the default 10 must not stop a
+        # service whose after_minutes is set above it from starting
+        config.Config(host="m", watchdog={"unreachable_minutes": 2},
+                      power={"host": "p", "after_minutes": 15}).validate()
+
     def test_an_older_config_with_a_low_boot_watts_still_loads(self):
         # review of 0.10.0 gate 1: a 0.9 config.json has no unpowered_watts; the default 10 must not stop a
         # service whose boot_watts is set below it from starting

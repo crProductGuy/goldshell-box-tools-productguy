@@ -44,7 +44,8 @@ DEFAULT_POWER = {
     "settle_minutes": 6,         # nothing judged this long after POWER RETURNS, and it ends early once the miner hashes twice (20 until 2026-09-17: across 25 measured boots the miner was hashing at 5-25 s, so 20 only hid a dead hashboard for 22 min)
     "max_cycles_per_day": 3,
     "idle_watts": 100,           # below this the miner is idle (hung draws about 34 W, hashing 180+)
-    "unpowered_watts": 10,       # 0.10.0: under this with the relay on, nothing is drawing power; never cycled. 0: off
+    "unpowered_watts": 10,       # 0.10.0: under this with the relay on, nothing is drawing power; not cycled. 0: off
+    "unpowered_cycle_minutes": 10,   # 0.12.1: ...until the outage is this old; then ONE cycle per outage, for a supply that tripped (2026-10-26: 147 W to 1 W, 66 min down until a hand cycle). 0: never
     "boot_watts": 20,           # 0.7.2: under this AND silent on the network, the controller never came up. Only ever refines the remedy; the fault itself is decided without a meter (2026-09-19)
     "boot_check_minutes": 2,     # first reading this long after power returns, verdict at twice it (2026-09-15 06:40: 12 W for 25 min after a cycle); one repeat cycle. 0: no check
 }
@@ -198,6 +199,13 @@ class Config:
             if isinstance(u, bool) or not isinstance(u, (int, float)) or not math.isfinite(u) \
                     or not 0 <= u <= int(p["boot_watts"]):
                 raise ValueError("power.unpowered_watts must be 0 (off) up to power.boot_watts")
+            m = p.get("unpowered_cycle_minutes")
+            # No floor at after_minutes: the power rung waits for after_minutes anyway, and a floor would stop an
+            # older config.json with a larger after_minutes from loading once this default appeared.
+            # A whole-number float (a hand-edited 10.0) is accepted, as int() accepts it in the sibling keys.
+            if isinstance(m, bool) or not isinstance(m, (int, float)) or not math.isfinite(m) or m != int(m) \
+                    or not 0 <= m <= 240:
+                raise ValueError("power.unpowered_cycle_minutes must be 0 (never) or 1 to 240, whole minutes")
             if int(self.watchdog["max_restarts_per_day"]) < 2 * int(p["max_cycles_per_day"]):
                 raise ValueError("watchdog.max_restarts_per_day must be at least twice power.max_cycles_per_day: "
                                  "a cycle needs two failed soft restarts, and every attempt uses a restart slot")

@@ -1176,10 +1176,78 @@ class MeterVetoTest(PowerCycleTest):
         self.assertEqual(len(said), 1)
         self.assertIn("not cycling", said[0])
 
-    def test_no_load_with_the_relay_on_is_not_cycled(self):
+    def test_no_load_with_the_relay_on_is_not_cycled_before_unpowered_cycle_minutes(self):
+        self.wd = self.make(unpowered_cycle_minutes=30)
         self.rung(0.0)
         self.assertEqual(self.plug.calls, [])
-        self.assertEqual(len([l for l in self.power_lines() if "nothing is drawing power" in l]), 1)
+        said = [l for l in self.power_lines() if "nothing is drawing power" in l]
+        self.assertEqual(len(said), 1)
+        self.assertIn("one cycle at 30 min", said[0])
+
+    def test_unpowered_cycle_minutes_zero_never_cycles_a_box_drawing_nothing(self):
+        """0 keeps 0.10.0's rule exactly: no load with the relay on is never cycled, however long it lasts."""
+        self.wd = self.make(unpowered_cycle_minutes=0)
+        self.rung(0.0)
+        self.feed(240, ok=False)                         # two more hours dark
+        self.assertEqual(self.plug.calls, [])
+        said = [l for l in self.power_lines() if "nothing is drawing power" in l]
+        self.assertEqual(len(said), 1)
+        self.assertIn("not cycling", said[0])
+
+    def test_a_tripped_supply_gets_one_cycle_per_outage(self):
+        """2026-10-26: 147 W to 1 W, no HTTP, and only a cycle brought it back. At the default 10 min the rung's
+        12-min turn cycles once; two more hours at 0 W bring no second cut, from the ladder or the boot check."""
+        self.rung(0.0)
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        cycled = [l for l in self.power_lines() if l.startswith("power: cycled")]
+        self.assertEqual(len(cycled), 1)
+        self.assertIn("0 W before", cycled[0])
+        self.assertIn("may have tripped", cycled[0])
+        self.feed(240, ok=False)                         # still nothing drawing power
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.assertEqual(self.wd.cycles_today(), 1)
+        self.assertTrue(any("not cycling again" in l for l in self.power_lines()))
+        self.assertTrue(any("the one cycle for a box drawing no power" in l for l in self.power_lines()))
+        self.assertFalse(any("already cycled again once" in l for l in self.power_lines()))
+
+    def test_a_one_poll_lan_flap_mid_outage_does_not_buy_a_second_cut(self):
+        """Review of 0.12.1, reproduced: one poll where the LAN check fails starts a dark hold, the next poll ends
+        it ("the ladder starts from zero") and resets the episode. The one-cut mark must survive that."""
+        state = {"lan": True}
+        self.wd = self.make()
+        self.wd.lan_check = lambda: state["lan"]
+        self.rung(0.0)
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        flapped = False
+        for _ in range(400):
+            self.clock.tick(self.INTERVAL)
+            self.wd._lan = (None, None)                  # no cached LAN verdict: every poll asks
+            self.wd.observe(False, None)
+            gap_over = self.wd.power_gap_until is None or self.clock() > self.wd.power_gap_until
+            if not flapped and self.wd.dark_since is None and gap_over and self.wd.diagnose() is not None:
+                state["lan"] = False                     # the one bad poll, as a restart verdict lands
+                flapped = True
+            self.wd.check()
+            state["lan"] = True
+        self.assertTrue(flapped)
+        self.assertTrue(any("can see again" in l for l in self.lines))   # the episode really was reset
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.assertEqual(self.wd.cycles_today(), 1)
+
+    def test_a_new_outage_gets_its_own_no_load_cycle(self):
+        self.rung(0.0)
+        self.assertEqual(self.plug.calls, ["off", "on"])
+        self.feed(30, accepted=lambda i: 1000 + i)       # it came back and hashed: the outage is over
+        self.freeze(12)
+        self.feed(1, ok=False)
+        self.assertEqual(self.plug.calls, ["off", "on", "off", "on"])
+        self.assertEqual(self.wd.cycles_today(), 2)
+
+    def test_a_dry_run_says_it_would_cycle_a_box_drawing_nothing(self):
+        self.wd = self.make(cycle=False)
+        self.rung(0.0)
+        self.assertEqual(self.plug.calls, [])
+        self.assertTrue(any("would cycle now" in l and "may have tripped" in l for l in self.power_lines()))
 
     def test_a_hung_controller_at_34_w_is_cycled_as_before(self):
         self.rung(34.0)

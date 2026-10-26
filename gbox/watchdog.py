@@ -95,6 +95,10 @@ class Watchdog:
         self.power = dict(power or {})
         self._sleep = sleep
         self.episode_start = None           # time of the first failed sample after the last good one
+        # 0.12.1: this outage has had its one no-load cycle. Cleared only by a sample the miner answers, never by
+        # an episode reset: `_end_dark` restarts the episode on a one-poll plug or LAN miss, and keying this on
+        # episode_start let a flap mid-outage buy a second cut (review of 0.12.1, reproduced).
+        self._unpowered_cycled = False
         self.episode_failed_restarts = 0    # soft restarts that raised in this episode (reset by a cycle too)
         self._cycle_times = deque()
         # timestamps already counted by seed_from_events, so a second call over the same or overlapping
@@ -159,6 +163,7 @@ class Watchdog:
         if ok:
             self.episode_start = None
             self.episode_failed_restarts = 0
+            self._unpowered_cycled = False
             self._power_logged = False
             if hashing is None or hashing:
                 self._boot_check = None     # only a hashing sample proves it booted; ok alone does not (2026-09-18)
@@ -619,8 +624,31 @@ class Watchdog:
             return
         unpowered = float(self.power.get("unpowered_watts", 0) or 0)
         if w is not None and w < unpowered:
-            self._power_once("power: the plug reads %.0f W with its relay on: nothing is drawing power behind it "
-                             "(%s); not cycling" % (w, reason))
+            # 0.12.1: no load is not always a cord out downstream. On 2026-10-26 the SC-BOX went from 147 W to 1 W
+            # with no hang first, red light, no ARP, and sat 66 min until a hand cycle brought it straight back: a
+            # supply that tripped and needed its input removed. So once the outage is unpowered_cycle_minutes old,
+            # one cycle per outage; a box that is really unplugged costs one harmless cut and is then left alone.
+            minutes = int(self.power.get("unpowered_cycle_minutes", 0) or 0)
+            if minutes <= 0:
+                self._power_once("power: the plug reads %.0f W with its relay on: nothing is drawing power behind it "
+                                 "(%s); not cycling" % (w, reason))
+                return
+            if self._unpowered_cycled:
+                self._power_once("power: the plug still reads %.0f W with its relay on after one cycle this outage "
+                                 "(%s); not cycling again: check the miner's power by hand" % (w, reason))
+                return
+            if now - self.episode_start < minutes * 60:
+                self._power_once("power: the plug reads %.0f W with its relay on: nothing is drawing power behind it "
+                                 "(%s); one cycle at %d min, in case its supply tripped" % (w, reason, minutes))
+                return
+            before = "%.0f W before" % w
+            if not self.power.get("cycle"):
+                self._power_once("power: would cycle now (%s; %s, a supply that may have tripped); dry run, set "
+                                 "\"cycle\": true in config.json to arm" % (reason, before))
+                return
+            self._unpowered_cycled = True
+            self._cycle("%s; nothing drawing power for %d min, a supply that may have tripped" % (reason, minutes),
+                        before, retry=True, unpowered=True)
             return
         before = ("%.0f W before" % w) if w is not None else "no meter"
         if not self.power.get("cycle"):
@@ -629,7 +657,7 @@ class Watchdog:
             return
         self._cycle(reason, before)
 
-    def _cycle(self, reason, before, retry=False):
+    def _cycle(self, reason, before, retry=False, unpowered=False):
         """Open the relay and close it, start the settle gap, and book the boot check.
 
         Both timers run from the moment power comes BACK, not from the relay opening (2026-09-19).
@@ -661,7 +689,7 @@ class Watchdog:
         minutes = int(self.power.get("boot_check_minutes", 0) or 0)
         if minutes > 0:
             self._boot_check = {"at": self._clock() + minutes * 60, "cycle": self.cycles_today(),
-                                "retry": retry, "confirmed": False, "http_ok": False}
+                                "retry": retry, "confirmed": False, "http_ok": False, "unpowered": unpowered}
 
     def _check_boot(self):
         """`boot_check_minutes` after power returns: did the box come back, and which remedy does it need?
@@ -719,8 +747,9 @@ class Watchdog:
         why = ("controller did not come up after cycle #%d: silent on the network for %d min"
                % (bc["cycle"], 2 * minutes))
         if bc["retry"]:
-            self._events.write("power: %s (%s); already cycled again once, leaving it to the ladder"
-                               % (why, reading))
+            self._events.write("power: %s (%s); %s, leaving it to the ladder"
+                               % (why, reading, "that was the one cycle for a box drawing no power"
+                                  if bc.get("unpowered") else "already cycled again once"))
             return
         cap = int(self.power["max_cycles_per_day"])
         if self.cycles_today() >= cap:

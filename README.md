@@ -211,8 +211,12 @@ nothing from its daily caps.
 - **The power cycle is the last rung, and it reads the meter first.** A plug
   reading at least `idle_watts` means a working miner behind a dead path; one
   reading under `unpowered_watts` (default 10) with its relay on means nothing
-  is drawing power behind it. Neither is cycled. A plug without a meter behaves
-  as before.
+  is drawing power behind it. Neither is cycled at first. Since 0.12.1 a box
+  drawing nothing gets one cycle once the outage is `unpowered_cycle_minutes`
+  old (default 10, 0 for never), because a power supply that tripped looks
+  exactly like that and a cycle resets it. After that one cut it is left
+  alone until the miner answers again (a service restart in between allows
+  one more, within the daily cap). A plug without a meter behaves as before.
 
 Give the miner, the plug and this computer DHCP reservations in your router. A
 device that comes back from an outage on a different address looks exactly like
