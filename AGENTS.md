@@ -202,6 +202,60 @@ stop that. Ask the owner before stopping the live service at all; if it is ever
 stopped, restart it from the Startup `gbox-serve.vbs` and confirm `/api/health`
 shows the version and an advancing `samples`.
 
+### Opening a window for the owner to confirm a power command
+
+Added 2026-10-26 after two failed launches in one incident. `gbox power cycle`,
+`gbox power off` and anything else that asks for a typed confirmation word
+need a real terminal: `sys.stdin.isatty()` is false in an agent's shell and
+under Claude Code's `!` prefix, so the command dies with "no terminal to
+confirm on; nothing sent". The agent opens a separate terminal window for the
+owner. Do it like this, every time, on every OS:
+
+1. **Ask before opening it, and open it only after the owner says ready.**
+   A new window takes keyboard focus. If it opens while the owner is typing to
+   the agent, their keystrokes land in the confirmation prompt, the word does
+   not match, and the command exits with "not confirmed; nothing sent". Never
+   open the window in the same turn as asking for the confirmation. Say what
+   will open and what to type, wait for "ready", then open it.
+2. **Run the command and nothing else, with no nested quoting.** No banner,
+   no `Write-Host` or `echo` with a quoted message: the launchers below pass
+   the command through one or two layers of parsing, and inner quotes are
+   where the 2026-10-26 launch broke.
+3. **Tell the owner that the window goes silent during the off period.**
+   `gbox power cycle` prints nothing between the typed word and "cycled: off
+   N s, then on" (up to 120 s). Without that warning it looks hung.
+4. **Watch the service's own log, not the window.** The agent cannot see
+   the window. Success shows in `~/.gbox/events.log` as "hold: started by you
+   ... (power cycle by hand)" within seconds of the word, then "power: cycled
+   by hand" when power returns. The plug's draw drops to 0 W during the off
+   period. No hold line within a minute of the owner confirming means the
+   command exited: ask what the window says. Do not relaunch blind.
+
+The launch command per OS, run from this repository's root:
+
+- **Windows (PowerShell 7), verified 2026-10-26.** One single-quoted string
+  for `-ArgumentList`, no inner double quotes:
+
+      Start-Process pwsh -WorkingDirectory <repo root> -ArgumentList '-NoExit -Command python -m gbox power cycle --off-seconds 120'
+
+  The failed form passed `-ArgumentList` an array with a double-quoted
+  `Write-Host "..."` inside; `Start-Process` joined the array and dropped the
+  quotes, and the new window's PowerShell reported a ParserError.
+- **macOS, unverified.** Terminal.app through AppleScript; the command is
+  one level of quoting inside `do script`, so keep it free of quotes:
+
+      osascript -e 'tell application "Terminal" to do script "cd <repo root> && python3 -m gbox power cycle --off-seconds 120"'
+
+- **Linux, unverified.** With a desktop session, `x-terminal-emulator -e sh -c
+  'cd <repo root> && python3 -m gbox power cycle --off-seconds 120; exec sh'`.
+  Over SSH, open the command in a tmux window the owner is attached to:
+  `tmux new-window -t <owner's session> 'cd <repo root> && python3 -m gbox
+  power cycle --off-seconds 120; read x'`.
+
+The first session to use an unverified form records the result in this
+paragraph. If no launcher works, give the owner the command to paste into a
+terminal they already have open. That always works; the `!` prefix does not.
+
 Merge with `--ff-only` **only when the branch was created after `7f25bd0`**,
 which added `.gitattributes` and renormalized line endings. A branch that
 predates it holds CRLF blobs, so `--ff-only` fails and a plain merge shows the
