@@ -233,6 +233,8 @@ class PowerCommandTest(unittest.TestCase):
         self.assertEqual(self.relay_commands(), [0, 1])
         self.assertEqual(self.fake.relay, 1)
         self.assertIn("cycled", text)
+        self.assertIn("power off for 3 s, back on at about ", text)   # said before the silent off period
+        self.assertLess(text.index("power off for 3 s"), text.index("cycled:"))
         self.assertIn("back hashing in about a minute", text)  # observed 60 to 66 s on the SC-BOX, not "2-3 minutes"
         self.assertNotIn("2-3 minutes", text)
         self.assertIn("nothing was logged", text)              # no service running

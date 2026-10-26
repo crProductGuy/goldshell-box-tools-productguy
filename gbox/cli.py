@@ -26,6 +26,7 @@ import getpass
 import os
 import sys
 import threading
+import time
 
 from . import __version__, api, config, discover as discovermod, netiface, pidfile, plug as plugmod, series, trials
 from .events import MAX_BYTES as EVENTS_MAX_BYTES, EventLog
@@ -462,6 +463,10 @@ def cmd_power_cycle(args, cfg, data_dir):
         "" if w is None or w < cfg.power["idle_watts"] else " (that looks like a miner hashing, not a hung one)"))
     _confirm_word("CYCLE")
     hold = _service_hold(cfg, cfg.power["settle_minutes"], "power cycle by hand")
+    # 2026-10-26: nothing printed during the off period, and a 120 s wait in a silent window read as a hang.
+    _out("power off for %d s, back on at about %s; nothing more prints until then." % (
+        off_seconds, time.strftime("%H:%M:%S", time.localtime(time.time() + off_seconds))))
+    sys.stdout.flush()
     p.cycle(off_seconds)
     line = "power: cycled by hand (gbox power cycle; %s before)" % _fmt_watts(w)
     _out("cycled: off %d s, then on. The SC-BOX is back hashing in about a minute (60 to 66 s measured); allow two or three on other units." % off_seconds)

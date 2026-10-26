@@ -221,9 +221,11 @@ owner. Do it like this, every time, on every OS:
    no `Write-Host` or `echo` with a quoted message: the launchers below pass
    the command through one or two layers of parsing, and inner quotes are
    where the 2026-10-26 launch broke.
-3. **Tell the owner that the window goes silent during the off period.**
-   `gbox power cycle` prints nothing between the typed word and "cycled: off
-   N s, then on" (up to 120 s). Without that warning it looks hung.
+3. **Tell the owner that the window waits during the off period.** Since
+   2026-10-26 `gbox power cycle` prints "power off for N s, back on at about
+   HH:MM:SS; nothing more prints until then" before it cuts power, then
+   nothing until "cycled: off N s, then on" (up to 120 s later). Before that
+   line existed, the silent wait looked like a hang. Say it anyway.
 4. **Watch the service's own log, not the window.** The agent cannot see
    the window. Success shows in `~/.gbox/events.log` as "hold: started by you
    ... (power cycle by hand)" within seconds of the word, then "power: cycled
