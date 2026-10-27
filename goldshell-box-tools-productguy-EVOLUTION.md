@@ -4203,3 +4203,48 @@ sample the miner answers, and a regression test replays the flap and fails on th
 are: a service restart mid-outage allows one more cut, within the daily cap, and the docs now say so; and a
 meter glitch under 10 W can now cause one cut where it used to block one. That still needs the miner
 unreachable and two failed soft restarts.
+
+## 2026-10-26, session BC (3f5d8cff): the ladder decisions, two adversarial reviews, and 0.13.0 part one
+
+**The goal.** The owner, picking up from BB: review the watchdog ladder plan and build the next release. The agent
+read the afternoon first (clean) and then re-checked the 10-06 design against 0.12.1: its two defects (D1, a plug blip
+restarts the ladder from zero; D2, an HTTP error counts as a silent miner) were still in the code, and three full-power
+freezes were now on record (10-06 19 h 38 min, 10-11 477 min, 10-18 115 min). The owner: "go with your
+recommendations on all of them", then asked for a second opinion first: "Ask Fable to review and analyze if there are
+any hidden traps in any of these choices, especially for multiple miners. I'm buying a 2nd HS BOX ... Both HS Boxes
+will share the single 1200W power supply at first."
+
+**The first review** (a separate model, read-only) found three real bugs in the accepted design, not in the code: the
+new 30-minute deadline would have cut a genuinely unplugged box every four hours for ever, overriding 0.12.1's
+one-cycle rule; a clock carried across a PC sleep could cut a healthy miner on its first missed poll after waking; and
+"deadline cycles do not count against the cap" could not be built on the existing counters without leaking back into
+the cap after a service restart. For the shared supply it found that nothing in gbox knows one relay can feed two
+miners: every cut would cold-start the healthy sibling, two watchdogs on one plug would ping-pong (a 120 s cut is
+exactly the unreachable window), and every watt threshold would read the sum. The owner's answers: one plug for both
+HS-BOXes, a Zigbee plug gbox cannot reach yet, monitor-only for now, fleet work deferred. Since gbox only speaks the
+Kasa protocol, the shared plug cannot be armed by accident; the rule "no service gets a plug that feeds two miners"
+went into the plan so the gate survives the driver work. Inrush was closed by the owner: the supply has a thermistor
+bypassed by a relay once charged, at about a quarter of its rating.
+
+**Pushback, both ways.** The reviewer wanted the gateway's behaviour on an internet loss measured before release; the
+agent disagreed, because the release does not change what happens when the pool is unreachable. The owner widened the
+question instead: the node, the gateway, Linux and the fragile USB-C dock under a laptop that gets moved can each fail.
+A second review mapped that chain. Every failure that closes the miners' connection is already safe (on 10-21 the
+miner failed over to its backup pool within a minute and gbox stayed quiet); the dangerous one, never yet seen, is a
+gateway that keeps the connection open with no work, which gbox would answer with useless soft restarts. Its key
+build point (the deadline must key on "answered nothing", never on frozen shares) was already how the code was being
+written, and a test now proves a full-rate stall never reaches a cycle. The owner priced failover as near free, which
+moved "tell me when a miner is on the backup pool" ahead of extra network paths. Tests on the gateway are set for the
+next day. On the dock, the owner leaned to a dedicated USB-A gigabit adapter; the agent agreed, with the laptop's Wi-Fi
+kept configured but off as a manual standby rather than a second live link.
+
+**Built (0.13.0 part one, on a branch, not yet released).** A silent controller is cycled at 30 minutes whatever the
+meter reads, again 30 minutes later, then every four hours, outside the daily cap; never a box drawing nothing, never a
+controller that answers with an error, never on a clock that ran across a gap. A flaky plug no longer resets the ladder
+(the test fails on the old code). A low-hashrate stretch gets a start and an end line and nothing else. A second
+service cannot start on a data directory a live one uses. Tests written and run for the watchdog, config, pid file and
+poller modules; the full suite, the docs, the version bump and a fresh review are the next session's.
+
+**Deferred, with reasons.** The dashboard's login wait, which locked the page during the morning's outage (seen again,
+first item of 0.14.0 with the banner and the backup-pool line); fleet management (until the coordinator); a gateway
+witness for gbox (after the gateway tests say whether the open-but-idle case is real).
