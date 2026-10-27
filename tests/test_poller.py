@@ -106,7 +106,7 @@ class PollerTest(unittest.TestCase):
         p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, watchdog=wd)
         p.poll_once()
         self.assertEqual(len(wd._rows), 1)
-        self.assertEqual(wd._rows[0][1:], (True, 17582, False))     # ok, accepted, and 0.9.0's absent flag
+        self.assertEqual(wd._rows[0][1:], (True, 17582, False, True))   # ok, accepted, 0.9.0's absent, 0.13.0's answered
 
     def test_21_column_header_from_0_2_0_is_migrated(self):
         old = poller.COLUMNS[:21]
@@ -331,7 +331,7 @@ class PollerHashingSignalTest(unittest.TestCase):
         def __init__(self):
             self.seen = []
 
-        def observe(self, ok, accepted, t=None, hashing=None, absent=None):
+        def observe(self, ok, accepted, t=None, hashing=None, absent=None, answered=None):
             self.seen.append((ok, hashing))
 
         def check(self):
@@ -349,6 +349,28 @@ class PollerHashingSignalTest(unittest.TestCase):
         spy = self.Spy()
         poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, watchdog=spy).poll_once()
         self.assertEqual(spy.seen, [(True, False)])
+
+    def test_an_http_error_is_an_answer_and_a_dead_port_is_not(self):
+        # 0.13.0 D2: only a controller that did not answer at all may ever be power-cycled.
+        got = []
+
+        class Spy:
+            def observe(self, ok, accepted, t=None, hashing=None, absent=None, answered=None):
+                got.append((ok, answered))
+
+            def check(self):
+                return None
+
+        class Answers500:
+            def __getattr__(self, name):
+                def fail(*a, **kw):
+                    raise api.HttpStatusError("GET /mcb/x: HTTP 500", 500)
+                return fail
+
+        poller.Poller(Answers500(), self.csv, 30, watchdog=Spy()).poll_once()
+        poller.Poller(api.Miner("127.0.0.1:1", password="password", timeout=1), self.csv, 30,
+                      watchdog=Spy()).poll_once()
+        self.assertEqual(got, [(False, True), (False, False)])
 
 
 class PollerScheduleTest(unittest.TestCase):
@@ -1978,7 +2000,7 @@ class BoardAbsentFlagTest(unittest.TestCase):
         outer = self
 
         class Spy:
-            def observe(self, ok, accepted, t=None, hashing=None, absent=None):
+            def observe(self, ok, accepted, t=None, hashing=None, absent=None, answered=None):
                 outer.seen.append(absent)
 
             def check(self):

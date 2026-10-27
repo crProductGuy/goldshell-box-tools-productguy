@@ -187,6 +187,7 @@ class ServiceState:
             "watts": p.plug_watts if p else None,
             "cycle": bool(cfg.get("cycle")) if cfg else False,
             "cycles_today": w.cycles_today() if w and hasattr(w, "cycles_today") else 0,
+            "deadline_cycles_today": w.deadline_cycles_today() if w and hasattr(w, "deadline_cycles_today") else 0,
             "last_reason": getattr(w, "last_power_reason", None) if w else None,
             "off_by_you": bool(self.power_control.off_by_you) if self.power_control else False,
             "busy": self.power_control.busy if self.power_control else None,

@@ -69,3 +69,26 @@ class PidFileTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ServeRefusesASharedDataDirTest(unittest.TestCase):
+    """0.13.0: a second `gbox serve` on a data directory a live service already uses refuses to start, instead
+    of overwriting its gbox.pid and writing into the same log.csv (review b-i 5, ahead of more miners)."""
+
+    def test_second_service_on_the_same_data_dir_exits(self):
+        import subprocess
+        import sys
+        other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        self.addCleanup(other.kill)
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "config.json"), "w") as f:
+                json.dump({"host": "127.0.0.1:1"}, f)
+            with open(pidfile.path(d), "w") as f:
+                json.dump({"pid": other.pid, "port": 8765, "version": "x", "started": "x"}, f)
+            env = dict(os.environ, GBOX_DATA=d)
+            r = subprocess.run([sys.executable, "-m", "gbox", "serve", "--port", "18999"], env=env,
+                               capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("already uses", r.stderr)
+            with open(pidfile.path(d)) as f:
+                self.assertEqual(json.load(f)["pid"], other.pid)      # the live record is untouched

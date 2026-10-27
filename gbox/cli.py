@@ -559,6 +559,12 @@ def cmd_serve(args, cfg, data_dir):
         config.save(cfg, data_dir)
         _out("stored password removed")
 
+    # 0.13.0: one service per data directory. A second one started with only --port would overwrite this one's
+    # gbox.pid and write into the same log.csv and events.log (review b-i 5, ahead of more than one miner).
+    other = pidfile.running(data_dir)
+    if other is not None and other.get("pid") != os.getpid():
+        _die("another gbox serve (pid %s, port %s) already uses %s; give each miner its own data directory "
+             "(--data or GBOX_DATA)" % (other.get("pid"), other.get("port"), data_dir))
     config.ensure_dir(data_dir)
     # log.max_mb 0 turns rotation off for all three files; otherwise log.csv and boards.csv are capped
     # there and events.log at its own 5 MB (gbox.events.MAX_BYTES).
@@ -593,7 +599,9 @@ def cmd_serve(args, cfg, data_dir):
         wd = Watchdog(miner.restart, events, cfg.poll_interval, stall_minutes=w["stall_minutes"],
                       unreachable_minutes=w["unreachable_minutes"], min_gap_minutes=w["min_gap_minutes"],
                       max_restarts_per_day=w["max_restarts_per_day"], plug=plug, power=cfg.power,
-                      absent_minutes=w["absent_minutes"], upstream_restart_hours=w["upstream_restart_hours"])
+                      absent_minutes=w["absent_minutes"], upstream_restart_hours=w["upstream_restart_hours"],
+                      dead_minutes=w["dead_minutes"], low_hashrate_fraction=w["low_hashrate_fraction"],
+                      low_hashrate_minutes=w["low_hashrate_minutes"])
         wd.lan_check = lambda: netiface.link_up_for(cfg.host)   # 0.10.0 E: asked at most once a minute
         wd.seed_from_events(events.tail(4000))     # the caps and a running hold survive this restart
     control = PowerControl(plug, cfg.power, wd, events) if plug is not None else None

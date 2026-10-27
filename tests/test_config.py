@@ -175,3 +175,37 @@ class CapsFitTogetherTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DeadlineConfigTest(unittest.TestCase):
+    """0.13.0: the deadline keys validate on their own, so a monitor-only service with no plug still loads."""
+
+    def test_a_config_with_no_plug_loads_with_the_defaults(self):
+        cfg = config.Config(host="m")
+        self.assertIs(cfg.validate(), cfg)
+        self.assertEqual(cfg.watchdog["dead_minutes"], 30)
+
+    def test_dead_minutes_outside_10_to_60_is_rejected_but_0_is_off(self):
+        for bad in (5, 61, 12.5, True, "30"):
+            cfg = config.Config(host="m")
+            cfg.watchdog["dead_minutes"] = bad
+            with self.assertRaises(ValueError):
+                cfg.validate()
+        cfg = config.Config(host="m")
+        cfg.watchdog["dead_minutes"] = 0
+        cfg.validate()
+
+    def test_dead_minutes_below_after_minutes_is_rejected(self):
+        cfg = config.Config(host="m", power={"host": "p", "device_id": "abc", "after_minutes": 15})
+        cfg.watchdog["dead_minutes"] = 10
+        with self.assertRaises(ValueError):
+            cfg.validate()
+
+    def test_retry_hours_and_low_hashrate_are_bounded(self):
+        cfg = config.Config(host="m", power={"host": "p", "device_id": "abc", "dead_retry_hours": 0})
+        with self.assertRaises(ValueError):
+            cfg.validate()
+        cfg = config.Config(host="m")
+        cfg.watchdog["low_hashrate_fraction"] = 1.0
+        with self.assertRaises(ValueError):
+            cfg.validate()

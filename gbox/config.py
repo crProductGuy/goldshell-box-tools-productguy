@@ -28,6 +28,9 @@ DEFAULT_WATCHDOG = {
     "min_gap_minutes": 5,        # settle time after a restart before judging again (10 until 2026-09-12; a soft restart takes 60-90 s)
     "max_restarts_per_day": 12,  # at least twice power.max_cycles_per_day plus a few: a cycle needs two failed attempts
     "upstream_restart_hours": 8, # 0.10.0: a miner waiting on its pool is not restarted; after this long, once. 0: never
+    "dead_minutes": 30,          # 0.13.0: silent this long with a plug that answers -> one power cycle, whatever the meter reads (three full-power freezes, 10-06 19 h 38 min, 10-11 477 min, 10-18 115 min). 0: off
+    "low_hashrate_fraction": 0.3,  # 0.13.0: answering but hashing under this share of rated -> one line when it starts, one when it ends; no action. 0: off
+    "low_hashrate_minutes": 10,  # ...after this long (2026-10-20: an hour at a quarter rate, 12 of 16 chips quiet, logged ok)
 }
 MAX_UPSTREAM_RESTART_HOURS = 168
 
@@ -47,6 +50,7 @@ DEFAULT_POWER = {
     "unpowered_watts": 10,       # 0.10.0: under this with the relay on, nothing is drawing power; not cycled. 0: off
     "unpowered_cycle_minutes": 10,   # 0.12.1: ...until the outage is this old; then ONE cycle per outage, for a supply that tripped (2026-10-26: 147 W to 1 W, 66 min down until a hand cycle). 0: never
     "boot_watts": 20,           # 0.7.2: under this AND silent on the network, the controller never came up. Only ever refines the remedy; the fault itself is decided without a meter (2026-09-19)
+    "dead_retry_hours": 4,       # 0.13.0: after the deadline cycle and one more 30 min later, one cycle per this many hours while it stays silent
     "boot_check_minutes": 2,     # first reading this long after power returns, verdict at twice it (2026-09-15 06:40: 12 W for 25 min after a cycle); one repeat cycle. 0: no check
 }
 PLUG_DRIVERS = ("kasa",)
@@ -159,6 +163,19 @@ class Config:
                 or not 0 <= upstream <= MAX_UPSTREAM_RESTART_HOURS or 0 < upstream < 1):
             raise ValueError("watchdog.upstream_restart_hours must be 0 (never) or 1 to %d"
                              % MAX_UPSTREAM_RESTART_HOURS)
+        # 0.13.0: validated on its own, outside the power block, so a monitor-only service (no plug) loads.
+        dead = self.watchdog.get("dead_minutes")
+        if isinstance(dead, bool) or not isinstance(dead, (int, float)) or not math.isfinite(dead) \
+                or dead != int(dead) or not (dead == 0 or 10 <= dead <= 60):
+            raise ValueError("watchdog.dead_minutes must be 0 (off) or 10 to 60, whole minutes")
+        frac = self.watchdog.get("low_hashrate_fraction")
+        if isinstance(frac, bool) or not isinstance(frac, (int, float)) or not math.isfinite(frac) \
+                or not 0 <= frac < 1:
+            raise ValueError("watchdog.low_hashrate_fraction must be 0 (off) or a fraction below 1")
+        low_min = self.watchdog.get("low_hashrate_minutes")
+        if isinstance(low_min, bool) or not isinstance(low_min, (int, float)) or not math.isfinite(low_min) \
+                or not 1 <= low_min <= 240:
+            raise ValueError("watchdog.low_hashrate_minutes must be 1 to 240")
         if self.board_source not in BOARD_SOURCES:
             raise ValueError("board_source must be one of: %s" % ", ".join(BOARD_SOURCES))
         serious, critical = int(self.temps["hot_serious"]), int(self.temps["hot_critical"])
@@ -206,6 +223,13 @@ class Config:
             if isinstance(m, bool) or not isinstance(m, (int, float)) or not math.isfinite(m) or m != int(m) \
                     or not 0 <= m <= 240:
                 raise ValueError("power.unpowered_cycle_minutes must be 0 (never) or 1 to 240, whole minutes")
+            # 0.13.0: no relation to unpowered_cycle_minutes is needed: the deadline never cycles a box under
+            # unpowered_watts, which is the 0.12.1 rule's alone, so the two cannot both cut one outage.
+            r = p.get("dead_retry_hours")
+            if isinstance(r, bool) or not isinstance(r, (int, float)) or not math.isfinite(r) or not 1 <= r <= 24:
+                raise ValueError("power.dead_retry_hours must be 1 to 24")
+            if int(self.watchdog["dead_minutes"]) and int(self.watchdog["dead_minutes"]) < int(p["after_minutes"]):
+                raise ValueError("watchdog.dead_minutes must be at least power.after_minutes")
             if int(self.watchdog["max_restarts_per_day"]) < 2 * int(p["max_cycles_per_day"]):
                 raise ValueError("watchdog.max_restarts_per_day must be at least twice power.max_cycles_per_day: "
                                  "a cycle needs two failed soft restarts, and every attempt uses a restart slot")

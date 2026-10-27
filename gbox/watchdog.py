@@ -47,6 +47,12 @@ from collections import deque
 # The watchdog's own lines in the event log, read back at start so the daily caps survive a service restart.
 # A failed attempt counts: check() takes the restart slot before the PUT goes out. A hand cycle (`dashboard:`) never did.
 SEED_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (watchdog: restart (?:#\d+ sent|attempt failed)|power: cycled #\d+ (?:today|in 24 h))")
+# 0.13.0: the deadline's own cycles. A line form SEED_RE cannot match, so they never count against
+# max_cycles_per_day after a restart (decision 3); seeded into their own deque, and into the settle gap.
+DEADLINE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) power: deadline cycle #\d+ in 24 h")
+# 0.13.0: two samples further apart than this mean the PC slept or the service paused. The silence clock does
+# not run across it: nobody watched, and a miner that recovered meanwhile must not be cut on waking (review A2).
+SILENCE_GAP_SECONDS = 300
 
 # A hold: the owner said the miner will be unreachable on purpose. Nothing is judged until it is back
 # (HOLD_OK_SAMPLES good samples in a row), the hold expires, or it is released. Its lines are read back
@@ -75,7 +81,8 @@ def _parse_stamp(text):
 class Watchdog:
     def __init__(self, restart, events, interval, stall_minutes=5, unreachable_minutes=2,
                  min_gap_minutes=10, max_restarts_per_day=6, clock=time.time,
-                 plug=None, power=None, sleep=time.sleep, absent_minutes=2, upstream_restart_hours=8):
+                 plug=None, power=None, sleep=time.sleep, absent_minutes=2, upstream_restart_hours=8,
+                 dead_minutes=0, low_hashrate_fraction=0, low_hashrate_minutes=10):
         self._restart = restart
         self._events = events
         self.interval = float(interval)
@@ -133,8 +140,22 @@ class Watchdog:
         self._lan = (None, None)            # (checked at, answer): asked at most once a LAN_CHECK_SECONDS
         self.dark_since = None              # the running "can't see" episode, or None
         self._dark_why = None
+        # 0.13.0 deadline (design Option A): one clock per silence, from the first sample the controller did not
+        # answer at all after the last one it did. Nothing about the path resets it (a plug blip, a LAN flap, the
+        # meter): only an answer, or a gap in the samples.
+        self.dead_minutes = float(dead_minutes or 0)
+        self.silent_since = None
+        self._deadline_times = deque()
+        self._seeded_deadlines = set()
+        self._deadline_logged = False       # one "power cycle at HH:MM" line per silence
+        self._deadline_refused = None       # the refusal last written, so a repeat is not written every poll
+        # 0.13.0 decision 13: a stretch of low hashrate is logged, start and end, and nothing else
+        self.low_fraction = float(low_hashrate_fraction or 0)
+        self.low_seconds = float(low_hashrate_minutes or 0) * 60
+        self._low_since = None
+        self._low_logged = False
 
-    def observe(self, ok, accepted, t=None, hashing=None, absent=None):
+    def observe(self, ok, accepted, t=None, hashing=None, absent=None, answered=None):
         """One sample. `hashing` says whether the miner reported a hashrate; a hold releases only on
         HOLD_OK_SAMPLES hashing samples in a row. On 2026-09-13 a controller came back from a power-on
         without its hashboard, answered HTTP with a zero hashrate, and two answers released the hold.
@@ -150,9 +171,22 @@ class Watchdog:
 
         `absent` (0.9.0) says the controller answered with no hashboard behind it: clock 0 and the board
         sensor at its no-sensor value. The caller decides that, from a model whose profile says the signature
-        is verified; None (older callers, other models) is never absent. See `diagnose`."""
+        is verified; None (older callers, other models) is never absent. See `diagnose`.
+
+        `answered` (0.13.0, D2) says the controller replied at all, even with an HTTP error or a refused login:
+        a failed sample that was answered is a live controller, never a silent one, and is not power-cycled.
+        None (older callers) means "same as ok"."""
         t = self._clock() if t is None else t
-        self._rows.append((t, bool(ok), accepted, bool(ok and absent)))
+        answered = bool(ok) if answered is None else bool(answered or ok)
+        if self._rows and t - self._rows[-1][0] > SILENCE_GAP_SECONDS:
+            self.silent_since = None        # nobody watched across the gap; start counting again (review A2)
+        if answered:
+            self.silent_since = None
+            self._deadline_logged = False
+            self._deadline_refused = None
+        elif self.silent_since is None:
+            self.silent_since = t
+        self._rows.append((t, bool(ok), accepted, bool(ok and absent), answered))
         if ok and accepted is not None:
             if self._last_accepted is not None and accepted > self._last_accepted:
                 self._counter_rose(t)
@@ -171,8 +205,11 @@ class Watchdog:
                 # It answered but the board is silent. The check runs on, remembering that the controller is at
                 # least on the network: that is what picks the remedy, with no meter needed (2026-09-19).
                 self._boot_check["http_ok"] = True
-        elif self.episode_start is None:
-            self.episode_start = t
+        else:
+            if answered and self._boot_check is not None:
+                self._boot_check["http_ok"] = True   # a 500 while booting is an answer too (review A7)
+            if self.episode_start is None:
+                self.episode_start = t
         if self.hold is not None:
             self.hold["ok_streak"] = self.hold["ok_streak"] + 1 if back else 0
             if self.hold["ok_streak"] >= HOLD_OK_SAMPLES:
@@ -181,6 +218,30 @@ class Watchdog:
             self._gap_streak = self._gap_streak + 1 if back else 0
             if self._gap_streak >= HOLD_OK_SAMPLES:
                 self._end_gap("the miner is hashing again")
+
+    def observe_rate(self, mhs, rated_mhs, t=None):
+        """0.13.0 decision 13: a hashing miner under `low_hashrate_fraction` of its rated rate for
+        `low_hashrate_minutes` gets one line, and one more when it recovers. Nothing is sent: on 2026-10-20 an hour
+        at a quarter rate (12 of 16 chips quiet) ended with the miner's own restart, and there is one such hour on
+        record, too few to act on. Only samples that hash at all are judged; a dead board is the other rules'."""
+        if not self.low_fraction or not rated_mhs or not mhs or mhs <= 0:
+            return
+        t = self._clock() if t is None else t
+        pct = round(self.low_fraction * 100)
+        if mhs < self.low_fraction * rated_mhs:
+            if self._low_since is None:
+                self._low_since = t
+            elif not self._low_logged and t - self._low_since >= self.low_seconds:
+                self._low_logged = True
+                self._events.write("watchdog: hashing at %.0f GH/s, under %d%% of the rated %.0f GH/s, for %d min; "
+                                   "logged only, nothing sent" % (mhs / 1000, pct, rated_mhs / 1000,
+                                                                  round((t - self._low_since) / 60)))
+            return
+        if self._low_logged:
+            self._events.write("watchdog: hashrate back above %d%% of rated after %d min (%.0f GH/s)"
+                               % (pct, round((t - self._low_since) / 60), mhs / 1000))
+        self._low_since = None
+        self._low_logged = False
 
     def _end_gap(self, why):
         """End the post-cycle settle gap early, on proof of health or of a settled fault (2026-09-19)."""
@@ -212,25 +273,35 @@ class Watchdog:
 
     def _cant_see(self):
         """Why the miner cannot be judged from here, or None. Each reason means the path, not the miner: the plug
-        sits on the same LAN, this machine's own link says it is off that LAN, or the meter shows working power."""
+        sits on the same LAN, this machine's own link says it is off that LAN, or the meter shows working power.
+        This machine's link is asked first (0.13.0): with it down the plug cannot answer either, and only that
+        reason makes `_end_dark` discard the samples, which failed on this side."""
+        if self._lan_up() is False:
+            return "this computer's LAN link to the miner is down"
         if self.plug is not None and self._plug_seen is False:
             return "the smart plug does not answer either"
         if self.plug is not None and self._plug_watts is not None and \
                 self._plug_watts >= float(self.power.get("idle_watts", 100)):
             return "the plug reads %.0f W, a working miner" % self._plug_watts
-        if self._lan_up() is False:
-            return "this computer's LAN link to the miner is down"
         return None
 
     def _end_dark(self, why):
-        """The path is back. The ladder starts from zero: a full `unreachable_minutes` of fresh dark samples
-        before anything is sent, with the episode's clock and failed-restart count reset."""
-        self._events.write("watchdog: can see again after %d min (%s); the ladder starts from zero"
-                           % (round((self._clock() - self.dark_since) / 60), why))
+        """The path is back. After this computer's own LAN link was down, the ladder starts from zero: those
+        samples failed on this side, so they say nothing about the miner, and a full `unreachable_minutes` of
+        fresh dark samples is needed before anything is sent.
+
+        After a plug that did not answer, or a meter at working power, the samples were the miner's own answers
+        and still count (0.13.0, D1): until then a one-poll plug blip cleared the episode, so a miner hung through
+        a flaky-plug hour was soft-restarted every few minutes and never cycled."""
+        lan = (self._dark_why or "").startswith("this computer's LAN link")
+        self._events.write("watchdog: can see again after %d min (%s); %s"
+                           % (round((self._clock() - self.dark_since) / 60), why,
+                              "the ladder starts from zero" if lan else "the ladder carries on"))
         self.dark_since = self._dark_why = None
-        self._rows.clear()
-        self.episode_start = None
-        self.episode_failed_restarts = 0
+        if lan:
+            self._rows.clear()
+            self.episode_start = None
+            self.episode_failed_restarts = 0
         self._power_logged = False
         self._verdict = None
 
@@ -442,8 +513,15 @@ class Watchdog:
         site rather than a load-bearing assumption of this method.
         """
         cutoff = self._clock() - 86400
-        restarts, cycles = [], []
+        restarts, cycles, deadlines = [], [], []
         for line in lines:
+            d = DEADLINE_RE.match(line or "")
+            if d:                           # 0.13.0: its own deque; it feeds the settle gap but never the cap
+                t = _parse_stamp(d.group(1))
+                if t is not None and t >= cutoff and t not in self._seeded_deadlines:
+                    self._seeded_deadlines.add(t)
+                    deadlines.append(t)
+                continue
             m = SEED_RE.match(line or "")
             if not m:
                 continue
@@ -466,10 +544,15 @@ class Watchdog:
         # rather than append.
         self._restart_times = deque(sorted(list(self._restart_times) + restarts))
         self._cycle_times = deque(sorted(list(self._cycle_times) + cycles))
+        self._deadline_times = deque(sorted(list(self._deadline_times) + deadlines))
         if restarts:
             self.last_restart = max(self.last_restart or 0, max(restarts))
-        if cycles:
-            self.power_gap_until = max(self.power_gap_until or 0, max(cycles) + float(self.power.get("settle_minutes", 0)) * 60)
+        if cycles or deadlines:
+            self.power_gap_until = max(self.power_gap_until or 0,
+                                       max(cycles + deadlines) + float(self.power.get("settle_minutes", 0)) * 60)
+        if deadlines:
+            self._events.write("service: watchdog picked up %d deadline cycle%s from the last 24 h of the event log"
+                               % (len(deadlines), "" if len(deadlines) == 1 else "s"))
         if restarts or cycles:
             plural = lambda n, w: "%d %s%s" % (n, w, "" if n == 1 else "s")
             self._events.write("service: watchdog picked up %s and %s from the last 24 h of the event log; the daily caps carry on"
@@ -529,6 +612,10 @@ class Watchdog:
         tail = rows[-self.err_rows:]
         return self._contiguous(tail) and all(not r[1] for r in tail)
 
+    def _tail_silent(self, now):
+        """As `_tail_dark`, but not one of those samples was answered at all (0.13.0, D2)."""
+        return self._tail_dark(now) and not any(r[4] for r in list(self._rows)[-self.err_rows:])
+
     def _contiguous(self, rows):
         """No gap in these samples (the PC slept, the service paused): the span fits their count with slack."""
         return rows[-1][0] - rows[0][0] <= (len(rows) - 1) * self.interval * 1.5
@@ -546,6 +633,9 @@ class Watchdog:
                 self._end_dark("the miner answered")
             elif self._cant_see() is None:
                 self._end_dark("the path is back, the miner is still silent")
+        if self._consider_deadline():
+            self.last_reason = "silent for %d min (deadline)" % round(self.dead_minutes)
+            return self.last_reason
         reason = self.diagnose()
         self.last_reason = reason
         if not reason:
@@ -598,6 +688,12 @@ class Watchdog:
             return
         now = self._clock()
         if now - self.episode_start < float(self.power["after_minutes"]) * 60:
+            return
+        if not self._tail_silent(now):
+            # 0.13.0 D2: the controller answers (an HTTP error, a refused login), it only fails the sample. It is
+            # alive, so a power cycle would not help: a wrong password would be cut every few minutes to the cap.
+            self._power_once("power: the miner answers but fails every sample (%s); a power cycle would not help, "
+                             "not cycling" % reason)
             return
         cap = int(self.power["max_cycles_per_day"])
         if self.cycles_today() >= cap:
@@ -657,7 +753,99 @@ class Watchdog:
             return
         self._cycle(reason, before)
 
-    def _cycle(self, reason, before, retry=False, unpowered=False):
+    # ------------------------------------------------------------ the deadline (0.13.0, design Option A)
+
+    def deadline_cycles_today(self):
+        cutoff = self._clock() - 86400
+        while self._deadline_times and self._deadline_times[0] < cutoff:
+            self._deadline_times.popleft()
+        return len(self._deadline_times)
+
+    def _deadline_due(self):
+        """When the next deadline cycle is due for the running silence: `dead_minutes` after it began, the second
+        `dead_minutes` after the first, then one every `dead_retry_hours`. Counted from the cycles of EITHER kind
+        since the silence began, and never sooner than `dead_minutes` after the last cycle of either kind, so a
+        fast cycle or one from before a service restart is not followed by a cut moments later (review A3)."""
+        dead = self.dead_minutes * 60
+        times = [t for t in list(self._cycle_times) + list(self._deadline_times)]
+        last = max(times) if times else None
+        since = [t for t in times if t >= self.silent_since]
+        if not since:
+            due = self.silent_since + dead
+        elif len(since) == 1:
+            due = max(since) + dead
+        else:
+            due = max(since) + float(self.power.get("dead_retry_hours", 4)) * 3600
+        return max(due, last + dead) if last is not None else due
+
+    def _deadline_refuse(self, line, key=None):
+        """One line per kind of refusal until it changes; `key` names the kind when the line carries a count."""
+        key = key or line
+        if self._deadline_refused != key:
+            self._events.write(line)
+            self._deadline_refused = key
+
+    def _consider_deadline(self):
+        """Cycle a controller that has been silent for `dead_minutes`, whatever the meter reads. True if it cycled.
+
+        The meter defers the cycle, it no longer holds it: three times (10-06, 10-11, 10-18) a frozen controller sat
+        at full board power, which the 0.10.0 meter veto read as "a working miner", for 19 h 38 min, 477 and 115 min.
+        Not counted against max_cycles_per_day, and still run when the fast rung has reached that cap (decisions 3
+        and 3a): its own back-off is the loop guard. Never for a box drawing under `unpowered_watts`, which is the
+        0.12.1 rule's alone (review A1), never while the pool is down, a hold runs, or the settle gap runs, and only
+        on a fresh, unbroken window of samples the controller did not answer at all (review A2, D2)."""
+        if not self.dead_minutes or self.plug is None or self.silent_since is None:
+            return False
+        now = self._clock()
+        if self.upstream_since is not None:
+            return False
+        if self.power_gap_until is not None and now < self.power_gap_until:
+            return False
+        if not self._tail_silent(now):
+            return False
+        due = self._deadline_due()
+        if now < due:
+            if self.dark_since is not None and not self._deadline_logged:
+                self._deadline_logged = True
+                self._events.write("watchdog: silent %d min and %s; power cycle at %s unless it answers"
+                                   % (round((now - self.silent_since) / 60), self._dark_why,
+                                      self._stamp(due)[11:16]))
+            return False
+        if self._plug_seen is False:
+            self._deadline_refuse("power: deadline reached but the plug does not answer; trying again each poll")
+            return False
+        if self._lan_up() is False:
+            self._deadline_refuse("power: deadline reached but this computer's LAN link is down; trying again "
+                                  "each poll")
+            return False
+        try:
+            info = self.plug.identify()
+            if info.get("device_id") != self.power.get("device_id"):
+                self._deadline_refuse("power: the plug is not the configured device (id differs); not cycling")
+                return False
+            if not self.plug.state():
+                self._deadline_refuse("power: plug is off (someone switched it off); not cycling")
+                return False
+            w = self.plug.watts() if info.get("meter") else None
+        except Exception as e:
+            self._deadline_refuse("power: deadline reached but the plug did not answer (%s); trying again each "
+                                  "poll" % e, key="plug error")
+            return False
+        unpowered = float(self.power.get("unpowered_watts", 0) or 0)
+        if w is not None and w < unpowered:
+            return False                    # the 0.12.1 no-load rule's case, and only its (review A1)
+        minutes = round((now - self.silent_since) / 60)
+        before = ("%.0f W before" % w) if w is not None else "no meter"
+        reason = "silent %d min; deadline" % minutes
+        if not self.power.get("cycle"):
+            self._deadline_refuse("power: would cycle now (%s; %s); dry run, set \"cycle\": true in config.json "
+                                  "to arm" % (reason, before), key="dry run")
+            return False
+        self._deadline_refused = None
+        self._cycle(reason, before, kind="deadline")
+        return True
+
+    def _cycle(self, reason, before, retry=False, unpowered=False, kind="fast"):
         """Open the relay and close it, start the settle gap, and book the boot check.
 
         Both timers run from the moment power comes BACK, not from the relay opening (2026-09-19).
@@ -671,8 +859,13 @@ class Watchdog:
         """
         now = self._clock()
         self.last_power_reason = reason
-        self._cycle_times.append(now)
-        self._seeded_cycles.add(now)        # so a later seed of the line written below does not count it twice
+        deadline = kind == "deadline"
+        if deadline:                        # 0.13.0: its own count and line form, never the cap's (decision 3)
+            self._deadline_times.append(now)
+            self._seeded_deadlines.add(now)
+        else:
+            self._cycle_times.append(now)
+            self._seeded_cycles.add(now)    # so a later seed of the line written below does not count it twice
         self.power_gap_until = now + float(self.power["settle_minutes"]) * 60
         self._gap_streak = 0
         self.episode_failed_restarts = 0
@@ -681,14 +874,17 @@ class Watchdog:
         try:
             self.plug.cycle(int(self.power["off_seconds"]), sleep=self._sleep)
             self.power_gap_until = self._clock() + float(self.power["settle_minutes"]) * 60
-            self._events.write("power: cycled #%d in 24 h: off %d s, on (%s; %s)"
-                               % (self.cycles_today(), int(self.power["off_seconds"]), reason, before))
+            self._events.write("power: %s #%d in 24 h: off %d s, on (%s; %s)"
+                               % ("deadline cycle" if deadline else "cycled",
+                                  self.deadline_cycles_today() if deadline else self.cycles_today(),
+                                  int(self.power["off_seconds"]), reason, before))
         except Exception as e:
             self._events.write("power: cycle failed: %s (%s; %s)" % (e, reason, before))
             return
         minutes = int(self.power.get("boot_check_minutes", 0) or 0)
         if minutes > 0:
-            self._boot_check = {"at": self._clock() + minutes * 60, "cycle": self.cycles_today(),
+            self._boot_check = {"at": self._clock() + minutes * 60,
+                                "cycle": self.deadline_cycles_today() if deadline else self.cycles_today(),
                                 "retry": retry, "confirmed": False, "http_ok": False, "unpowered": unpowered}
 
     def _check_boot(self):

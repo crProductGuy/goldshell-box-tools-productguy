@@ -1,4 +1,5 @@
 """Watchdog rules with a fake clock: stall, unreachable, settle gap, cap, sample gaps."""
+import datetime
 import unittest
 
 from gbox.config import DEFAULT_POWER
@@ -1353,3 +1354,214 @@ class CantSeeTest(unittest.TestCase):
             wd.observe(False, None)
             wd.check()
         self.assertEqual(wd.restarts_today(), 1)
+
+
+class DeadlineTest(unittest.TestCase):
+    """0.13.0 design Option A: a controller silent for `dead_minutes` is cycled whatever the meter reads, on its
+    own back-off (30, 60, then every dead_retry_hours), outside the daily cap, never for a box drawing nothing,
+    never for one that answers, and never on a clock that ran across a gap in the samples."""
+
+    INTERVAL = 30
+
+    def setUp(self):
+        self.clock = FakeClock()
+        self.restart = Recorder()
+        self.restart.fail = True
+        self.lines = []
+        self.events = EventLog()
+        self.events.write = lambda m: self.lines.append(m)
+        self.plug = FakePlugObject(watts=165.0)
+        self.power = dict(DEFAULT_POWER, host="x", device_id="plug-1", cycle=True, off_seconds=120)
+        self.wd = self.make()
+        self.healthy()
+
+    def make(self, dead_minutes=30, **power):
+        return Watchdog(self.restart, self.events, self.INTERVAL, stall_minutes=5, unreachable_minutes=2,
+                        min_gap_minutes=5, max_restarts_per_day=60, clock=self.clock, plug=self.plug,
+                        power=dict(self.power, **power), sleep=lambda s: None, dead_minutes=dead_minutes)
+
+    def healthy(self, n=10):
+        for i in range(n):
+            self.clock.tick(self.INTERVAL)
+            self.wd.observe_plug(True, self.plug.watts_value)
+            self.wd.observe(True, i, hashing=True)
+            self.wd.check()
+
+    def silent(self, minutes, plug_ok=True, answered=False):
+        """The controller as on 2026-10-06: no answer at all (or, with `answered`, an HTTP error every sample)."""
+        for _ in range(int(minutes * 60 / self.INTERVAL)):
+            self.clock.tick(self.INTERVAL)
+            self.wd.observe_plug(plug_ok, self.plug.watts_value if plug_ok else None)
+            self.wd.observe(False, None, answered=answered)
+            self.wd.check()
+
+    def cuts(self):
+        return self.plug.calls.count("off")
+
+    def said(self, word):
+        return [l for l in self.lines if word in l]
+
+    def test_the_10_06_freeze_is_cycled_at_30_then_60_then_every_4_h(self):
+        self.silent(29.5)
+        self.assertEqual(self.cuts(), 0)                     # the meter defers the cycle...
+        self.assertEqual(len(self.said("power cycle at")), 1)  # ...and says when
+        self.silent(1)
+        self.assertEqual(self.cuts(), 1)                     # ...but no longer holds it for ever
+        self.assertEqual(len(self.said("power: deadline cycle #1 in 24 h")), 1)
+        self.silent(29)
+        self.assertEqual(self.cuts(), 1)
+        self.silent(1)
+        self.assertEqual(self.cuts(), 2)                     # the second, 30 min after the first
+        self.silent(239)
+        self.assertEqual(self.cuts(), 2)                     # then nothing for dead_retry_hours
+        self.silent(1)
+        self.assertEqual(self.cuts(), 3)
+        self.assertEqual(self.wd.cycles_today(), 0)          # decision 3: not the cap's
+        self.assertEqual(self.wd.deadline_cycles_today(), 3)
+
+    def test_an_answer_ends_the_silence_and_a_new_one_starts_its_own_clock(self):
+        self.silent(20)
+        self.healthy(2)
+        self.silent(20)
+        self.assertEqual(self.cuts(), 0)
+        self.silent(10.5)
+        self.assertEqual(self.cuts(), 1)
+
+    def test_a_plug_blip_does_not_reset_the_clock(self):
+        for _ in range(30):                                  # 30 min: the plug misses one poll a minute
+            self.silent(0.5, plug_ok=False)
+            self.silent(0.5)
+        self.silent(2.5)
+        self.assertEqual(self.cuts(), 1)
+
+    def test_a_flaky_plug_no_longer_restarts_the_fast_rung_from_zero(self):
+        # D1: a 34 W hang through a flaky-plug hour. Until 0.13.0 each blip cleared the episode, so the fast rung
+        # (two failed soft restarts, then a cycle at after_minutes) never arrived and only the deadline would.
+        self.plug.watts_value = 34.0
+        for _ in range(15):
+            self.silent(0.5, plug_ok=False)
+            self.silent(0.5)
+        self.assertEqual(self.cuts(), 1)
+        self.assertEqual(self.wd.cycles_today(), 1)          # the fast rung's cut, not the deadline's
+
+    def test_while_the_plug_is_silent_nothing_is_cut_and_it_is_tried_each_poll(self):
+        self.silent(40, plug_ok=False)
+        self.assertEqual(self.cuts(), 0)
+        self.assertEqual(len(self.said("deadline reached but the plug does not answer")), 1)
+        self.silent(2.5)                                     # back: the cut follows within a fresh window
+        self.assertEqual(self.cuts(), 1)
+
+    def test_a_controller_that_answers_with_errors_is_never_cut(self):
+        # D2: a wrong password or a 500 at full power. Restarts fail; a power cycle would not help.
+        self.silent(24 * 60, answered=True)
+        self.assertEqual(self.cuts(), 0)
+        self.plug.watts_value = 34.0                         # ...and not by the fast rung either
+        self.silent(60, answered=True)
+        self.assertEqual(self.cuts(), 0)
+        self.assertTrue(self.said("a power cycle would not help"))
+
+    def test_a_full_rate_stall_never_reaches_a_cycle(self):
+        # Fable gateway review X1: the gateway's socket open but no work; the miner hashes, shares frozen.
+        for _ in range(240):
+            self.clock.tick(self.INTERVAL)
+            self.wd.observe_plug(True, 165.0)
+            self.wd.observe(True, 500, hashing=True)
+            self.wd.check()
+        self.assertEqual(self.cuts(), 0)
+        self.assertIsNone(self.wd.silent_since)
+
+    def test_a_box_drawing_nothing_gets_only_the_0_12_1_cycle(self):
+        # review A1: the deadline leaves no-load to the 0.12.1 rule, which cuts once and stops.
+        self.plug.watts_value = 1.0
+        self.silent(6 * 60)
+        self.assertEqual(self.cuts(), 1)
+        self.assertEqual(self.wd.deadline_cycles_today(), 0)
+
+    def test_the_clock_does_not_run_across_a_sleep(self):
+        # review A2: the PC slept at minute 20; it wakes three hours later to a miner still silent.
+        self.silent(20)
+        self.clock.tick(3 * 3600)
+        self.silent(29)
+        self.assertEqual(self.cuts(), 0)
+        self.silent(1.5)
+        self.assertEqual(self.cuts(), 1)
+
+    def test_the_fast_cap_does_not_stop_the_deadline(self):
+        # decision 3a: a 34 W hang at the fast rung's cap still gets the deadline cycle.
+        self.wd = self.make(max_cycles_per_day=0)
+        self.healthy()
+        self.plug.watts_value = 34.0
+        self.silent(29.5)
+        self.assertEqual(self.cuts(), 0)
+        self.assertTrue(self.said("is the cap"))
+        self.silent(1)
+        self.assertEqual(self.cuts(), 1)
+
+    def test_a_restart_mid_outage_does_not_buy_an_early_cut(self):
+        # review A3: the seeded deadline line holds the next cut to 30 min after it, and is not the cap's.
+        self.silent(30.5)
+        self.assertEqual(self.cuts(), 1)
+        line = [l for l in self.lines if "deadline cycle #1" in l][0]
+        stamp = datetime.datetime.fromtimestamp(self.clock() - 60).strftime("%Y-%m-%d %H:%M:%S")
+        self.wd = self.make()
+        self.wd.seed_from_events([stamp + " " + line])
+        self.assertEqual(self.wd.cycles_today(), 0)
+        self.assertEqual(self.wd.deadline_cycles_today(), 1)
+        self.silent(28)
+        self.assertEqual(self.cuts(), 1)
+        self.silent(2.5)
+        self.assertEqual(self.cuts(), 2)
+
+    def test_dry_run_says_so_once_and_cuts_nothing(self):
+        self.wd = self.make(cycle=False)
+        self.healthy()
+        self.silent(120)
+        self.assertEqual(self.cuts(), 0)
+        self.assertEqual(len(self.said("would cycle now (silent")), 1)
+
+    def test_dead_minutes_0_is_the_old_behaviour(self):
+        self.wd = self.make(dead_minutes=0)
+        self.healthy()
+        self.silent(120)
+        self.assertEqual(self.cuts(), 0)
+
+    def test_no_plug_no_deadline(self):
+        wd = Watchdog(self.restart, self.events, self.INTERVAL, max_restarts_per_day=60, clock=self.clock,
+                      dead_minutes=30)
+        for _ in range(240):
+            self.clock.tick(self.INTERVAL)
+            wd.observe(False, None)
+            wd.check()
+        self.assertIsNotNone(wd.silent_since)
+        self.assertEqual(wd.deadline_cycles_today(), 0)
+
+
+class LowHashrateTest(unittest.TestCase):
+    """0.13.0 decision 13: one line when a low-hashrate stretch has lasted, one when it ends; nothing sent."""
+
+    def setUp(self):
+        self.clock = FakeClock()
+        self.lines = []
+        self.events = EventLog()
+        self.events.write = lambda m: self.lines.append(m)
+        self.wd = Watchdog(Recorder(), self.events, 30, clock=self.clock, low_hashrate_fraction=0.3,
+                           low_hashrate_minutes=10)
+
+    def rate(self, mhs, minutes):
+        for _ in range(int(minutes * 2)):
+            self.clock.tick(30)
+            self.wd.observe_rate(mhs, 900000.0)
+
+    def test_the_10_20_hour_gets_two_lines(self):
+        self.rate(640000, 30)
+        self.rate(155000, 60)
+        self.rate(640000, 5)
+        self.assertEqual(len(self.lines), 2)
+        self.assertIn("hashing at 155 GH/s, under 30% of the rated 900 GH/s, for 10 min", self.lines[0])
+        self.assertIn("back above 30% of rated after", self.lines[1])
+
+    def test_a_short_dip_and_a_dead_board_say_nothing(self):
+        self.rate(155000, 9)
+        self.rate(640000, 1)
+        self.rate(0, 60)
+        self.assertEqual(self.lines, [])

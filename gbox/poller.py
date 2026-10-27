@@ -494,6 +494,9 @@ class Poller(threading.Thread):
             self.last_error = row["http"]
         except Exception as e:
             row = error_row(e)
+            # 0.13.0 D2: an HTTP status or a refused login is an answer; only a miner that did not answer at all
+            # (timeout, refused connection, no route) is silent, and only a silent one is ever power-cycled.
+            row["_answered"] = isinstance(e, (api.HttpStatusError, api.AuthError))
             sampled_at = self._clock()
             self.errors += 1
             self.last_error = row["http"]
@@ -520,7 +523,11 @@ class Poller(threading.Thread):
             # hashing: the board reported a 20 s hashrate. A controller back from a power-on without its
             # hashboard answers with 0.0 (2026-09-13 15:46), and a hold must not release on that.
             self.watchdog.observe(ok, row.get("accepted"), self._clock(), hashing=ok and (row.get("mhs_20s") or 0) > 0,
-                                  absent=ok and self._board_absent(row))
+                                  absent=ok and self._board_absent(row), answered=ok or bool(row.get("_answered")))
+            observe_rate = getattr(self.watchdog, "observe_rate", None)
+            if ok and observe_rate is not None:
+                rated = models.rated_for((self.miner_status or {}).get("model")) or {}
+                observe_rate(row.get("mhs_20s"), rated.get("rated_mhs"), self._clock())
             self.watchdog.check()
         if self.markers is not None:
             try:
