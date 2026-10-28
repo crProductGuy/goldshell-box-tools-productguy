@@ -385,6 +385,17 @@ class Watchdog:
         evidence = self._pool_down or (self._run_probing and not self._run_accepted)
         return evidence and (kind == "stall" or self._log_ok)
 
+    def _pool_wait_stands(self, kind):
+        """`_upstream(kind)`, except that a running pool wait survives one failed log read: it takes
+        LOG_FAILS_TO_END_POOL_WAIT in a row to end it, so one flaky read cannot cut a waiting miner. Decides when
+        `_upstream_hold` ends the episode and whether the deadline waits (release review 3: the hold cleared the
+        episode on one failed read, reached when the meter reading dropped out mid-wait, and the deadline then
+        cut)."""
+        if self._upstream(kind):
+            return True
+        return (kind == "unreachable" and self.upstream_since is not None
+                and self._log_fails < LOG_FAILS_TO_END_POOL_WAIT and self._upstream("stall"))
+
     def _upstream_hold(self, reason):
         """True when `check` must not act on `reason` now: a read newer than the verdict is still to come, or the
         pool explains it. A verdict waits for a read taken after it (at most EVIDENCE_WAIT_POLLS polls, then it is
@@ -407,7 +418,10 @@ class Watchdog:
             self.log_wanted = True
             return True
         if not self._upstream(kind):
-            self.upstream_since = None
+            # The ladder acts on this read as before (the 09-21 hang), but the episode the deadline asks about
+            # ends only by `_pool_wait_stands`' rule (release review 3).
+            if not self._pool_wait_stands(kind):
+                self.upstream_since = None
             return False
         if self.upstream_since is None:
             self.upstream_since = now
@@ -825,10 +839,8 @@ class Watchdog:
         # read (the 09-22 signature: 4028 dead, web up). Not the episode alone: `upstream_since` is cleared by
         # `_upstream_hold`, which `_dark_hold` stops being reached at full power, so a freeze inside a pool
         # outage was never cut (release review 1). A frozen controller fails the log read on its next schedule;
-        # it takes LOG_FAILS_TO_END_POOL_WAIT of them in a row, so one flaky read cannot cut a waiting miner.
-        if self.upstream_since is not None and (self._upstream("unreachable") or
-                                                (self._log_fails < LOG_FAILS_TO_END_POOL_WAIT and
-                                                 self._upstream("stall"))):
+        # it takes LOG_FAILS_TO_END_POOL_WAIT of them in a row (`_pool_wait_stands`).
+        if self.upstream_since is not None and self._pool_wait_stands("unreachable"):
             return False
         if self.power_gap_until is not None and now < self.power_gap_until:
             return False

@@ -1587,6 +1587,34 @@ class DeadlineTest(unittest.TestCase):
             self.wd.check()
         self.assertEqual(self.cuts(), 0)
 
+    def test_one_failed_read_while_the_meter_drops_out_does_not_cut(self):
+        # release review 3: with no meter reading `_upstream_hold` is reached, and it ended the episode on one
+        # failed read; the deadline then cut a miner waiting on its pool.
+        self.pool_down_then(40, log_ok=True)
+        for i in range(21):
+            self.clock.tick(self.INTERVAL)
+            self.wd.observe_plug(True, None)
+            self.wd.observe(False, None)
+            if i == 0:
+                self.wd.observe_log(False, [])
+            elif i % 10 == 1:
+                self.wd.observe_log(True, [])
+            self.wd.check()
+        self.assertEqual(self.cuts(), 0)
+        self.assertIsNotNone(self.wd.upstream_since)
+
+    def test_two_failed_reads_while_the_meter_drops_out_end_the_wait(self):
+        # the other side of the rule: a frozen controller fails the read twice in a row and is cut.
+        self.pool_down_then(40, log_ok=True)
+        for i in range(21):
+            self.clock.tick(self.INTERVAL)
+            self.wd.observe_plug(True, None)
+            self.wd.observe(False, None)
+            if i % 10 == 0:
+                self.wd.observe_log(False, [])
+            self.wd.check()
+        self.assertEqual(self.cuts(), 1)
+
     def test_dry_run_says_so_once_and_cuts_nothing(self):
         self.wd = self.make(cycle=False)
         self.healthy()
