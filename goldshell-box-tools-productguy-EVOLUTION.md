@@ -4248,3 +4248,47 @@ poller modules; the full suite, the docs, the version bump and a fresh review ar
 **Deferred, with reasons.** The dashboard's login wait, which locked the page during the morning's outage (seen again,
 first item of 0.14.0 with the banner and the backup-pool line); fleet management (until the coordinator); a gateway
 witness for gbox (after the gateway tests say whether the open-but-idle case is real).
+
+## 2026-10-27/28, session BD (33a688bc): the night read, a log row that could not tell two faults apart, and 0.13.0 through three reviews
+
+**The goal.** The owner: "open gbox and check the machines", then, after the check: "What coding could you get started
+on tonight?" The gateway tests planned for 10-27 had not happened ("I didn't do any gateway tests. future"); maybe
+10-28, which the owner called a big day.
+
+**The night read.** Both miners were hashing at the check. The SC-BOX had been dark to gbox for 15 hours: from 21:13
+the web backend answered every settings read with an HTTP 500 (the failure seen the evening before), and from about
+08:46 port 4028 timed out instead, all at a flat 146 to 148 W, its hashing draw. Whether it hashed through the night is
+unverified; pool-side shares would settle it. 0.12.1 waited, as built. Then two low-power hangs in the afternoon
+(28 W and 23 W), each cycled after two failed soft restarts and hashing within a minute, and clean since. The HS-BOX
+had run ten days on one process.
+
+**The finding that changed the plan.** The open question for 0.13.0 was whether a port 4028 timeout with the web still
+up should count as an answer, which would keep the new deadline from cutting a miner whose 4028 alone had died. Reading
+the sample code to answer it showed the question could not be answered from the logs at all: a sample reads 4028 first
+and stops there, so a "devs 4028" error row says nothing about the web. The two earlier full-power freezes and the
+morning's stretch all logged only that row. The agent had first told the owner it was a simple choice and corrected
+itself. Its recommendation, accepted ("Yes"): ship the deadline as designed (a wrong cut costs about two minutes, a
+missed freeze cost hours), and make the poller do one web read after a failed 4028 read and write the result into the
+row, as a record only, so the next freeze settles the question. Also accepted: release tonight, but restart the live
+service the next day when the owner can watch, not overnight before a big day.
+
+**Three reviews.** The first fresh review of the whole release found four reachable defects, each reproduced: a freeze
+during a pool outage was never cut, because the pool-down state could never clear at full power (the very case the
+deadline exists for); a service restart or a PC sleep after two cuts brought back the 30-minute steps; a hold that
+ended with the miner still silent was cut two minutes later rather than thirty; and the new guard against two services
+on one data directory could refuse the live service after a crash if Windows reused its old process id, silently. The
+agent also found that the old test for that guard checked against the live service's own port. The second review
+confirmed the four fixes and found that the first had overcorrected (one slow log read during a long pool wait would
+now cut a miner only waiting on its pool) and that the guard asked only the loopback address. Both fixed: two failed
+reads in a row end a pool wait, and the pid file records the address the service listens on. Every fix carries a test
+that fails on the code before it. A third, narrow review confirmed both, and found one more path: when the plug's meter
+reading drops out during a pool wait (a plug blip; or a plug without a meter), an older rule clears the pool wait on a
+single failed log read, and the deadline now acts on that. Each review had found a hole the previous fix left, so the
+agent stopped there under the working root's stop-loss (a third fix to the same code in one session means a fresh
+diagnosis in a fresh session), and did not merge or release. The full suite passed on the last commit (958 tests).
+
+**Left out, on purpose.** The 4028-only case is still cut at 30 minutes; the web read gathers the evidence first. A
+service that restarts mid-outage at full power before any pool evidence is seen can still cut a miner waiting on its
+pool (an older gap, noted). After a service restart the back-off counts every cycle of the last day, so it may wait
+longer, never less. The live restart, and the config change that goes with it (`upstream_restart_hours` 0), wait for
+the owner.
