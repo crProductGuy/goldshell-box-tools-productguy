@@ -4298,4 +4298,10 @@ to gbox at 04:14 for 202 minutes, every sample an HTTP 500 from the web backend 
 inside; then its draw collapsed, a supply-trip cycle at 07:52, and four low-power hangs before noon, each cycled and
 hashing again within a minute. The finding: the dark stretch was an HTTP error, which 0.13.0 counts as an answer and
 never cuts, so the release as built would also have waited it out. Whether hours of HTTP 500 at full power should
-count as silence goes to the owner before release, with the open review item.
+count as silence goes to the owner before release, with the open review item. The owner settled it from the pool's
+own view within the hour: both miners hashed steadily until about 07:30, and the dips after it match the hangs. The
+HTTP 500 was the web backend failing while mining went on, so the rule that never cuts on an HTTP error stays. Reading
+the sample code again showed gbox had the hashrate all along: port 4028 is read before the settings call, and the
+failed settings call threw the whole reading away. Proposed for after 0.13.0, not built: keep that half sample; cycle
+straight away when an unreachable miner draws far below hashing power, since no soft restart has reached a miner in
+that state since September; and log the web-backend failure as an event without acting on it.
