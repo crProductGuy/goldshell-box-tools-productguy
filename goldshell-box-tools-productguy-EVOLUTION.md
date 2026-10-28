@@ -4292,3 +4292,10 @@ service that restarts mid-outage at full power before any pool evidence is seen 
 pool (an older gap, noted). After a service restart the back-off counts every cycle of the last day, so it may wait
 longer, never less. The live restart, and the config change that goes with it (`upstream_restart_hours` 0), wait for
 the owner.
+
+**The next morning (10-28), same session.** The owner: "It has had a bad morning. Anything now?" The SC-BOX went dark
+to gbox at 04:14 for 202 minutes, every sample an HTTP 500 from the web backend at a flat 147 W, with no good sample
+inside; then its draw collapsed, a supply-trip cycle at 07:52, and four low-power hangs before noon, each cycled and
+hashing again within a minute. The finding: the dark stretch was an HTTP error, which 0.13.0 counts as an answer and
+never cuts, so the release as built would also have waited it out. Whether hours of HTTP 500 at full power should
+count as silence goes to the owner before release, with the open review item.
