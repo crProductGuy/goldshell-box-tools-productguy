@@ -561,7 +561,7 @@ def cmd_serve(args, cfg, data_dir):
 
     # 0.13.0: one service per data directory. A second one started with only --port would overwrite this one's
     # gbox.pid and write into the same log.csv and events.log (review b-i 5, ahead of more than one miner).
-    other = pidfile.running(data_dir)
+    other = pidfile.serving(data_dir)
     if other is not None and other.get("pid") != os.getpid():
         _die("another gbox serve (pid %s, port %s) already uses %s; give each miner its own data directory "
              "(--data or GBOX_DATA)" % (other.get("pid"), other.get("port"), data_dir))

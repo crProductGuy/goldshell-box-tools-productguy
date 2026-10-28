@@ -75,20 +75,66 @@ class ServeRefusesASharedDataDirTest(unittest.TestCase):
     """0.13.0: a second `gbox serve` on a data directory a live service already uses refuses to start, instead
     of overwriting its gbox.pid and writing into the same log.csv (review b-i 5, ahead of more miners)."""
 
-    def test_second_service_on_the_same_data_dir_exits(self):
+    def health_server(self):
+        """A stand-in for the other service's /api/health on an ephemeral loopback port (never the live 8765)."""
+        import http.server
+        import threading
+
+        class Health(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b'{"ok": true}'
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *a):
+                pass
+
+        srv = http.server.HTTPServer(("127.0.0.1", 0), Health)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return srv.server_address[1]
+
+    def sleeper(self):
         import subprocess
         import sys
         other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        self.addCleanup(other.wait)                  # cleanups run last-in first: kill, then reap
         self.addCleanup(other.kill)
+        return other.pid
+
+    def record(self, d, pid, port):
+        with open(pidfile.path(d), "w") as f:
+            json.dump({"pid": pid, "port": port, "version": "x", "started": "x"}, f)
+
+    def test_a_live_pid_that_does_not_answer_health_is_a_stale_record(self):
+        # release review 4: after an unclean exit Windows can hand the recorded pid to any process.
+        import socket
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        closed = s.getsockname()[1]
+        s.close()
+        with tempfile.TemporaryDirectory() as d:
+            self.record(d, self.sleeper(), closed)
+            self.assertIsNotNone(pidfile.running(d))
+            self.assertIsNone(pidfile.serving(d))
+            self.record(d, 2 ** 40, closed)                  # a corrupt pid: not running, and no crash
+            self.assertIsNone(pidfile.running(d))
+
+    def test_second_service_on_the_same_data_dir_exits(self):
+        import subprocess
+        import sys
+        pid, port = self.sleeper(), self.health_server()
         with tempfile.TemporaryDirectory() as d:
             with open(os.path.join(d, "config.json"), "w") as f:
                 json.dump({"host": "127.0.0.1:1"}, f)
-            with open(pidfile.path(d), "w") as f:
-                json.dump({"pid": other.pid, "port": 8765, "version": "x", "started": "x"}, f)
+            self.record(d, pid, port)
             env = dict(os.environ, GBOX_DATA=d)
             r = subprocess.run([sys.executable, "-m", "gbox", "serve", "--port", "18999"], env=env,
                                capture_output=True, text=True, timeout=30)
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("already uses", r.stderr)
             with open(pidfile.path(d)) as f:
-                self.assertEqual(json.load(f)["pid"], other.pid)      # the live record is untouched
+                self.assertEqual(json.load(f)["pid"], pid)            # the live record is untouched

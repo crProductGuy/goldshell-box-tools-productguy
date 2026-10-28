@@ -145,6 +145,10 @@ class Watchdog:
         # meter): only an answer, or a gap in the samples.
         self.dead_minutes = float(dead_minutes or 0)
         self.silent_since = None
+        # The last sample the controller answered, kept across sample gaps and holds; None until one in this run.
+        # The deadline's back-off counts the cycles after it (release review 2), not those after `silent_since`,
+        # which a gap or a hold moves on.
+        self._last_answered = None
         self._deadline_times = deque()
         self._seeded_deadlines = set()
         self._deadline_logged = False       # one "power cycle at HH:MM" line per silence
@@ -182,6 +186,7 @@ class Watchdog:
             self.silent_since = None        # nobody watched across the gap; start counting again (review A2)
         if answered:
             self.silent_since = None
+            self._last_answered = t
             self._deadline_logged = False
             self._deadline_refused = None
         elif self.silent_since is None:
@@ -444,6 +449,10 @@ class Watchdog:
             self._events.write("hold: released by you")
         self.hold = None
         self._rows.clear()
+        # The deadline's clock starts at the hold's end (design 4.1): it ran on through the hold, and a hold that
+        # expired with the cable still out was cut 2 min later (release review 3).
+        self.silent_since = None
+        self._deadline_logged = False
 
     def hold_info(self):
         """The running hold for /api/health, JSON-safe, or None."""
@@ -764,18 +773,27 @@ class Watchdog:
     def _deadline_due(self):
         """When the next deadline cycle is due for the running silence: `dead_minutes` after it began, the second
         `dead_minutes` after the first, then one every `dead_retry_hours`. Counted from the cycles of EITHER kind
-        since the silence began, and never sooner than `dead_minutes` after the last cycle of either kind, so a
-        fast cycle or one from before a service restart is not followed by a cut moments later (review A3)."""
+        since the controller last answered, and never sooner than `dead_minutes` after the last cycle of either
+        kind, so a fast cycle or one from before a service restart is not followed by a cut moments later (review
+        A3). Never sooner than `dead_minutes` into the running silence clock either, which a sample gap or a hold
+        restarts (A2, design 4.1).
+
+        Release review 2: keyed on `silent_since`, a service restart or a sample gap after two cuts found no cuts
+        "since" and ran the 30/60 schedule again, two extra cuts per restart. A service that has not yet seen an
+        answer in this run counts every cycle of the last 24 h: after a restart it may wait longer, never less."""
         dead = self.dead_minutes * 60
+        self.cycles_today()
+        self.deadline_cycles_today()        # both prune to the 24 h window
         times = [t for t in list(self._cycle_times) + list(self._deadline_times)]
         last = max(times) if times else None
-        since = [t for t in times if t >= self.silent_since]
+        since = [t for t in times if self._last_answered is None or t >= self._last_answered]
         if not since:
             due = self.silent_since + dead
         elif len(since) == 1:
             due = max(since) + dead
         else:
             due = max(since) + float(self.power.get("dead_retry_hours", 4)) * 3600
+        due = max(due, self.silent_since + dead)
         return max(due, last + dead) if last is not None else due
 
     def _deadline_refuse(self, line, key=None):
@@ -797,7 +815,11 @@ class Watchdog:
         if not self.dead_minutes or self.plug is None or self.silent_since is None:
             return False
         now = self._clock()
-        if self.upstream_since is not None:
+        # The pool explains the silence only while the log still shows it AND the web backend answered the newest
+        # read (the 09-22 signature: 4028 dead, web up). Not the episode alone: `upstream_since` is cleared by
+        # `_upstream_hold`, which `_dark_hold` stops being reached at full power, so a freeze inside a pool
+        # outage was never cut (release review 1). A frozen controller fails the log read on its next schedule.
+        if self.upstream_since is not None and self._upstream("unreachable"):
             return False
         if self.power_gap_until is not None and now < self.power_gap_until:
             return False
@@ -811,12 +833,12 @@ class Watchdog:
                                    % (round((now - self.silent_since) / 60), self._dark_why,
                                       self._stamp(due)[11:16]))
             return False
-        if self._plug_seen is False:
-            self._deadline_refuse("power: deadline reached but the plug does not answer; trying again each poll")
-            return False
-        if self._lan_up() is False:
+        if self._lan_up() is False:         # the LAN first, as in `_cant_see`: with it down the plug is silent too
             self._deadline_refuse("power: deadline reached but this computer's LAN link is down; trying again "
                                   "each poll")
+            return False
+        if self._plug_seen is False:
+            self._deadline_refuse("power: deadline reached but the plug does not answer; trying again each poll")
             return False
         try:
             info = self.plug.identify()

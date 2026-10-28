@@ -433,6 +433,13 @@ class WebProbeAfter4028Test(unittest.TestCase):
         self.assertEqual(len(rows[1]), len(rows[0]))
         self.assertTrue(rows[1][1].endswith("; web MinerError: x;y z"))
 
+    def test_no_probe_when_a_second_timeout_does_not_fit_the_poll(self):
+        miner, calls = self.stub(None)
+        miner.timeout = 15
+        row = poller.Poller(miner, self.csv, 20, watchdog=self.spy, board_source="4028").poll_once()
+        self.assertNotIn("; web", row["http"])
+        self.assertEqual(calls, ["devs4028"])
+
     def test_no_probe_when_the_failure_was_not_port_4028(self):
         calls = []
 

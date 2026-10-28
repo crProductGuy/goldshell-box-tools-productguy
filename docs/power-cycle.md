@@ -163,8 +163,14 @@ So since 0.13.0 the meter delays a cycle and no longer stops one. A controller
 that has not answered at all for `watchdog.dead_minutes` (default 30, 0 off)
 is cycled whatever the meter reads. If it is still silent, it is cycled again
 `dead_minutes` later, and from then on once every `power.dead_retry_hours`
-(default 4). The silence is counted from the last sample it answered, and the
-next deadline from the last cycle of either kind. The event log says
+(default 4). The silence is counted from the first sample it did not answer,
+and the next deadline from the last cycle of either kind. The back-off counts
+the cycles since the controller last answered, so neither a service restart
+nor the computer sleeping brings back the 30-minute steps; a service that has
+not seen the miner answer since it started counts every cycle of the last 24
+h, which can only make it wait longer. When a hold ends with the miner still
+silent, the clock starts again from the end of the hold: the first cut is 30
+minutes later, not at once. The event log says
 `watchdog: silent 12 min and <why>; power cycle at 03:16 unless it answers`
 once per episode, then `power: deadline cycle #1 in 24 h: off 120 s, on
 (silent 30 min; deadline; 147 W before)`.
@@ -174,8 +180,11 @@ Deadline cycles have their own count. They do not use up
 cap: the back-off is their loop guard. They never happen:
 
 - for a box drawing under `unpowered_watts`, which the 0.12.1 rule handles;
-- while the miner's log shows the pool down, while a hold runs, or during the
-  settle gap after a cycle;
+- while the miner's log shows the pool down and the web backend still answers
+  the log read (port 4028 dies about 8 minutes into a pool outage while the
+  web stays up), while a hold runs, or during the settle gap after a cycle. A
+  controller that freezes during a pool outage fails its next log read, and
+  from then on the deadline runs as usual;
 - for a controller that answers with an HTTP error or a refused login. That
   controller is alive, and a cut would not help; a wrong password would be cut
   every 30 minutes. A port 4028 timeout is not an answer;

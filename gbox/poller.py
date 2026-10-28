@@ -512,7 +512,11 @@ class Poller(threading.Thread):
             # 0.13.0 D2: an HTTP status or a refused login is an answer; only a miner that did not answer at all
             # (timeout, refused connection, no route) is silent, and only a silent one is ever power-cycled.
             row["_answered"] = isinstance(e, (api.HttpStatusError, api.AuthError))
-            if isinstance(e, api.MinerError) and str(e).startswith("devs 4028"):
+            # Only when a second timeout still fits in the poll: at a 20 s interval a 15 s + 15 s failed poll spaced
+            # the samples past the watchdog's 1.5 x interval contiguity test, and nothing dark was judged (release
+            # review 6). The default 30 s fits exactly.
+            if isinstance(e, api.MinerError) and str(e).startswith("devs 4028") and \
+                    self.interval >= 2 * float(getattr(self.miner, "timeout", 15) or 15):
                 row["http"] += "; web " + self._web_probe()
             sampled_at = self._clock()
             self.errors += 1

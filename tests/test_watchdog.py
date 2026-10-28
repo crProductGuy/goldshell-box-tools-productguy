@@ -1512,6 +1512,69 @@ class DeadlineTest(unittest.TestCase):
         self.silent(2.5)
         self.assertEqual(self.cuts(), 2)
 
+    def test_a_restart_after_two_cuts_keeps_the_4_h_back_off(self):
+        # release review 2: keyed on silent_since, a restart after two cuts ran the 30/60 schedule again.
+        self.silent(61)
+        self.assertEqual(self.cuts(), 2)
+        lines = [l for l in self.lines if "deadline cycle #" in l]
+        stamps = [datetime.datetime.fromtimestamp(self.clock() - s).strftime("%Y-%m-%d %H:%M:%S") for s in (1830, 30)]
+        self.wd = self.make()
+        self.wd.seed_from_events([s + " " + l for s, l in zip(stamps, lines)])
+        self.silent(235)
+        self.assertEqual(self.cuts(), 2)                     # not 30 min after the restart, nor 30 after that
+        self.silent(10)
+        self.assertEqual(self.cuts(), 3)                     # 4 h after the second
+
+    def test_a_sleep_after_two_cuts_keeps_the_4_h_back_off(self):
+        self.silent(61)
+        self.assertEqual(self.cuts(), 2)
+        self.clock.tick(6 * 60)                              # the PC slept 6 min; the miner stayed silent
+        self.silent(225)
+        self.assertEqual(self.cuts(), 2)
+        self.silent(10)
+        self.assertEqual(self.cuts(), 3)
+
+    def test_after_a_hold_the_clock_starts_at_its_end(self):
+        # release review 3, design 4.1: a 60-min hold for cable work, the cable still out when it expires.
+        self.silent(10)
+        self.wd.hold_start(60, reason="cable")
+        self.silent(60.5)
+        self.assertIsNone(self.wd.hold)
+        self.assertEqual(self.cuts(), 0)
+        self.silent(29)
+        self.assertEqual(self.cuts(), 0)                     # was cut 2 min after the hold
+        self.silent(2)
+        self.assertEqual(self.cuts(), 1)
+
+    def pool_down_then(self, minutes, log_ok):
+        """The pool goes: the miner answers with frozen shares and its log says so, which starts an upstream
+        episode; then it goes silent at full power for `minutes`, with each log read (every 5 min) ok or not."""
+        self.wd.log_reader = True
+        for _ in range(16):
+            self.clock.tick(self.INTERVAL)
+            self.wd.observe_plug(True, 165.0)
+            self.wd.observe(True, 500, hashing=True)
+            self.wd.observe_log(True, ["pool"])
+            self.wd.check()
+        self.assertIsNotNone(self.wd.upstream_since)
+        for i in range(int(minutes * 60 / self.INTERVAL)):
+            self.clock.tick(self.INTERVAL)
+            self.wd.observe_plug(True, 165.0)
+            self.wd.observe(False, None)
+            if i % 10 == 0:
+                self.wd.observe_log(log_ok, [])
+            self.wd.check()
+
+    def test_a_freeze_inside_a_pool_outage_is_still_cut(self):
+        # release review 1: a stale upstream episode blocked the deadline for good at full power.
+        self.pool_down_then(31, log_ok=False)
+        self.assertEqual(self.cuts(), 1)
+
+    def test_a_miner_waiting_on_its_pool_with_the_web_up_is_not_cut(self):
+        # the 09-22 signature: port 4028 dead, the web backend reading the log fine, the log saying pool down.
+        self.pool_down_then(6 * 60, log_ok=True)
+        self.assertEqual(self.cuts(), 0)
+
     def test_dry_run_says_so_once_and_cuts_nothing(self):
         self.wd = self.make(cycle=False)
         self.healthy()

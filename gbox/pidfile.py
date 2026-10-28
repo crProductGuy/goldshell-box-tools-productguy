@@ -26,6 +26,13 @@ def path(data_dir):
 
 def _alive(pid):
     """Is a process with this pid running? False on any doubt."""
+    try:
+        return _alive_unguarded(pid)
+    except Exception:                    # a pid ctypes cannot pass (2**40 in a corrupt file raised ArgumentError)
+        return False
+
+
+def _alive_unguarded(pid):
     if pid <= 0:
         return False
     if sys.platform == "win32":
@@ -75,6 +82,24 @@ def running(data_dir):
     that has since died reads as not running, which is what a caller wants to know."""
     d = read(data_dir)
     return d if d is not None and _alive(d["pid"]) else None
+
+
+def serving(data_dir, timeout=2):
+    """The record for a service that is running AND answers `/api/health` on its recorded port, or None.
+
+    A live pid alone is not enough to refuse a start (release review 4): an unclean exit leaves the file
+    behind, Windows hands the pid to another process, and `serve` under pythonw would then exit with nothing
+    shown and no watchdog running. Only this computer's own loopback is asked, never the network."""
+    import urllib.request
+    d = running(data_dir)
+    if d is None:
+        return None
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:%d/api/health" % int(d.get("port")), timeout=timeout) as r:
+            body = json.loads(r.read().decode("utf-8", "replace"))
+        return d if isinstance(body, dict) and body.get("ok") else None
+    except Exception:
+        return None
 
 
 def remove(data_dir, only_mine=True):

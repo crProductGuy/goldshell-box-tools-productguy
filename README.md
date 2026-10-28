@@ -225,8 +225,8 @@ nothing from its daily caps.
   meter reads, again 30 minutes later, then every `power.dead_retry_hours`
   (default 4) while it stays silent. These cycles have their own count and do
   not use up `max_cycles_per_day`. A controller that answers with an error is
-  never cut this way, nor is one while the pool is down, a hold runs or the
-  plug reads no load.
+  never cut this way, nor is one waiting on its pool with the web still up,
+  one in a hold, or one whose plug reads no load.
 - **A slow miner gets a line, not an action.** Hashing under
   `watchdog.low_hashrate_fraction` (default 0.3) of its rated rate for
   `low_hashrate_minutes` (default 10) writes one line, and one more when it
