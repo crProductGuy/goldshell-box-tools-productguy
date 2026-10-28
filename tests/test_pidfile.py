@@ -75,7 +75,7 @@ class ServeRefusesASharedDataDirTest(unittest.TestCase):
     """0.13.0: a second `gbox serve` on a data directory a live service already uses refuses to start, instead
     of overwriting its gbox.pid and writing into the same log.csv (review b-i 5, ahead of more miners)."""
 
-    def health_server(self):
+    def health_server(self, host="127.0.0.1"):
         """A stand-in for the other service's /api/health on an ephemeral loopback port (never the live 8765)."""
         import http.server
         import threading
@@ -91,7 +91,7 @@ class ServeRefusesASharedDataDirTest(unittest.TestCase):
             def log_message(self, *a):
                 pass
 
-        srv = http.server.HTTPServer(("127.0.0.1", 0), Health)
+        srv = http.server.HTTPServer((host, 0), Health)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         self.addCleanup(srv.server_close)
         self.addCleanup(srv.shutdown)
@@ -105,9 +105,26 @@ class ServeRefusesASharedDataDirTest(unittest.TestCase):
         self.addCleanup(other.kill)
         return other.pid
 
-    def record(self, d, pid, port):
+    def record(self, d, pid, port, **extra):
         with open(pidfile.path(d), "w") as f:
-            json.dump({"pid": pid, "port": port, "version": "x", "started": "x"}, f)
+            json.dump(dict({"pid": pid, "port": port, "version": "x", "started": "x"}, **extra), f)
+
+    def test_the_recorded_bind_is_the_address_asked(self):
+        # release re-review: a service bound only to one address must not be missed by a loopback-only check.
+        # 127.0.0.2 stands in for a LAN address: this computer's own, and nothing listens there on 127.0.0.1.
+        port = self.health_server("127.0.0.2")
+        with tempfile.TemporaryDirectory() as d:
+            self.record(d, self.sleeper(), port, bind="127.0.0.2")
+            self.assertIsNotNone(pidfile.serving(d))
+            self.record(d, self.sleeper(), port)              # a pre-0.13.0 file: no bind, loopback asked
+            self.assertIsNone(pidfile.serving(d))
+
+    def test_write_records_the_bind(self):
+        with tempfile.TemporaryDirectory() as d:
+            pidfile.write(d, 8765, "v", bind="0.0.0.0")
+            self.assertEqual(pidfile.read(d)["bind"], "0.0.0.0")
+            pidfile.write(d, 8765, "v")
+            self.assertNotIn("bind", pidfile.read(d))
 
     def test_a_live_pid_that_does_not_answer_health_is_a_stale_record(self):
         # release review 4: after an unclean exit Windows can hand the recorded pid to any process.

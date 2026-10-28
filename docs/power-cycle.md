@@ -183,8 +183,9 @@ cap: the back-off is their loop guard. They never happen:
 - while the miner's log shows the pool down and the web backend still answers
   the log read (port 4028 dies about 8 minutes into a pool outage while the
   web stays up), while a hold runs, or during the settle gap after a cycle. A
-  controller that freezes during a pool outage fails its next log read, and
-  from then on the deadline runs as usual;
+  controller that freezes during a pool outage fails its log reads; after two
+  failed reads in a row (one alone can be a slow read) the deadline runs as
+  usual;
 - for a controller that answers with an HTTP error or a refused login. That
   controller is alive, and a cut would not help; a wrong password would be cut
   every 30 minutes. A port 4028 timeout is not an answer;

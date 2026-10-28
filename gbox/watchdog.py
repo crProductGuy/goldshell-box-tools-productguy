@@ -64,6 +64,10 @@ EVIDENCE_WAIT_POLLS = 3
 # One bump is not enough (two "Accepted" lines 8 min into the 2026-09-22 outage, then silence); a pool that is
 # really back moves it every 10-40 s (same measurement).
 SHARES_BACK_SECONDS = 60
+# 0.13.0 release review: failed log reads in a row before the deadline stops believing a pool wait. One is not
+# enough: a single ~2 MB read can time out on a backend that is only waiting on its pool. A frozen controller fails
+# every read, so at the 300 s default this costs the deadline 5 min at most, inside its 30.
+LOG_FAILS_TO_END_POOL_WAIT = 2
 # 0.10.0: how often the LAN link is asked while it matters (on Windows each answer is a PowerShell run)
 LAN_CHECK_SECONDS = 60
 HOLD_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) hold: (?:started by (you|the schedule)"
@@ -124,6 +128,7 @@ class Watchdog:
         self.upstream_restart_hours = float(upstream_restart_hours or 0)
         self._log_read_at = None            # when the last read was attempted, and whether it answered
         self._log_ok = False
+        self._log_fails = 0                 # failed reads in a row; see LOG_FAILS_TO_END_POOL_WAIT
         self._pool_down = False             # a pool line read since the accepted counter last moved, no fault after
         self._run_probing = False           # since the newest process start: probing for a pool ...
         self._run_accepted = False          # ... and not one share accepted
@@ -334,6 +339,7 @@ class Watchdog:
         ("shares", 0.10.1); a process start begins a new run's evidence."""
         self._log_read_at = self._clock() if t is None else t
         self._log_ok = bool(ok)
+        self._log_fails = 0 if ok else self._log_fails + 1
         self.log_wanted = False
         for s in signals:
             if s == "pool":
@@ -818,8 +824,11 @@ class Watchdog:
         # The pool explains the silence only while the log still shows it AND the web backend answered the newest
         # read (the 09-22 signature: 4028 dead, web up). Not the episode alone: `upstream_since` is cleared by
         # `_upstream_hold`, which `_dark_hold` stops being reached at full power, so a freeze inside a pool
-        # outage was never cut (release review 1). A frozen controller fails the log read on its next schedule.
-        if self.upstream_since is not None and self._upstream("unreachable"):
+        # outage was never cut (release review 1). A frozen controller fails the log read on its next schedule;
+        # it takes LOG_FAILS_TO_END_POOL_WAIT of them in a row, so one flaky read cannot cut a waiting miner.
+        if self.upstream_since is not None and (self._upstream("unreachable") or
+                                                (self._log_fails < LOG_FAILS_TO_END_POOL_WAIT and
+                                                 self._upstream("stall"))):
             return False
         if self.power_gap_until is not None and now < self.power_gap_until:
             return False

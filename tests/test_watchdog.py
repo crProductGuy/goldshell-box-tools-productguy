@@ -1575,6 +1575,18 @@ class DeadlineTest(unittest.TestCase):
         self.pool_down_then(6 * 60, log_ok=True)
         self.assertEqual(self.cuts(), 0)
 
+    def test_one_flaky_log_read_in_a_pool_wait_does_not_cut(self):
+        # release re-review: one ~2 MB read timing out on a backend that is only waiting on its pool.
+        self.pool_down_then(40, log_ok=True)
+        for i in range(120):                                 # an hour; every third read fails, never two in a row
+            self.clock.tick(self.INTERVAL)
+            self.wd.observe_plug(True, 165.0)
+            self.wd.observe(False, None)
+            if i % 10 == 0:
+                self.wd.observe_log(i % 30 != 0, [])
+            self.wd.check()
+        self.assertEqual(self.cuts(), 0)
+
     def test_dry_run_says_so_once_and_cuts_nothing(self):
         self.wd = self.make(cycle=False)
         self.healthy()

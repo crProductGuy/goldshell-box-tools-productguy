@@ -56,12 +56,16 @@ def _alive_unguarded(pid):
     return True
 
 
-def write(data_dir, port, version):
-    """Record this process. Best-effort: returns the path written, or None."""
+def write(data_dir, port, version, bind=None):
+    """Record this process. Best-effort: returns the path written, or None. `bind` (0.13.0) is the address the
+    service listens on, so `serving` asks the right one."""
     try:
+        record = {"pid": os.getpid(), "port": int(port), "version": str(version),
+                  "started": time.strftime("%Y-%m-%d %H:%M:%S")}
+        if bind is not None:
+            record["bind"] = str(bind)
         with open(path(data_dir), "w") as f:
-            json.dump({"pid": os.getpid(), "port": int(port), "version": str(version),
-                       "started": time.strftime("%Y-%m-%d %H:%M:%S")}, f)
+            json.dump(record, f)
         return path(data_dir)
     except OSError:
         return None
@@ -89,13 +93,19 @@ def serving(data_dir, timeout=2):
 
     A live pid alone is not enough to refuse a start (release review 4): an unclean exit leaves the file
     behind, Windows hands the pid to another process, and `serve` under pythonw would then exit with nothing
-    shown and no watchdog running. Only this computer's own loopback is asked, never the network."""
+    shown and no watchdog running. The address asked is the one the service recorded it listens on (loopback
+    for a wildcard, or for a file from before 0.13.0); a service bound only to a LAN address would otherwise be
+    missed and a second one let in (release re-review)."""
     import urllib.request
     d = running(data_dir)
     if d is None:
         return None
+    bind = d.get("bind")
+    host = "127.0.0.1" if bind in (None, "", "0.0.0.0", "localhost") else ("::1" if bind == "::" else str(bind))
+    if ":" in host:
+        host = "[%s]" % host
     try:
-        with urllib.request.urlopen("http://127.0.0.1:%d/api/health" % int(d.get("port")), timeout=timeout) as r:
+        with urllib.request.urlopen("http://%s:%d/api/health" % (host, int(d.get("port"))), timeout=timeout) as r:
             body = json.loads(r.read().decode("utf-8", "replace"))
         return d if isinstance(body, dict) and body.get("ok") else None
     except Exception:
