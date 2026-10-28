@@ -150,6 +150,50 @@ draw with the miner off the network is the rarer case seen on
 2026-09-06; the cycle happens either way, and the number is there to tell
 the two apart afterwards.
 
+### The deadline (0.13.0)
+
+The fast rung above is held back by the meter (see the config block below):
+a reading at working power means the path is down, not the miner. Three times
+that reading was wrong. On 10-06, 10-11 and 10-18 the SC-BOX's controller froze
+with its hashboard still at full power, answered nothing, and sat for 19 h 38
+min, 477 min and 115 min while the watchdog waited for a path that was never
+down.
+
+So since 0.13.0 the meter delays a cycle and no longer stops one. A controller
+that has not answered at all for `watchdog.dead_minutes` (default 30, 0 off)
+is cycled whatever the meter reads. If it is still silent, it is cycled again
+`dead_minutes` later, and from then on once every `power.dead_retry_hours`
+(default 4). The silence is counted from the last sample it answered, and the
+next deadline from the last cycle of either kind. The event log says
+`watchdog: silent 12 min and <why>; power cycle at 03:16 unless it answers`
+once per episode, then `power: deadline cycle #1 in 24 h: off 120 s, on
+(silent 30 min; deadline; 147 W before)`.
+
+Deadline cycles have their own count. They do not use up
+`max_cycles_per_day`, and they still run when the fast rung has reached that
+cap: the back-off is their loop guard. They never happen:
+
+- for a box drawing under `unpowered_watts`, which the 0.12.1 rule handles;
+- while the miner's log shows the pool down, while a hold runs, or during the
+  settle gap after a cycle;
+- for a controller that answers with an HTTP error or a refused login. That
+  controller is alive, and a cut would not help; a wrong password would be cut
+  every 30 minutes. A port 4028 timeout is not an answer;
+- across a gap in the samples longer than 5 minutes (the computer slept or the
+  service paused): the clock starts again from fresh samples;
+- when the plug does not answer, is not the recorded device, is off, or this
+  computer's own LAN link is down. Each of those says so once and is tried
+  again on the next poll.
+
+**A port 4028 timeout and the web.** A sample reads port 4028 first and stops
+there when it fails, so until 0.13.0 a `devs 4028` error row said nothing about
+the web backend. A frozen controller and a hashing miner with only port 4028
+dead logged the same row. Since 0.13.0 the poller makes one web read after a
+failed 4028 read and appends its result to the `http` column: `; web ok`, `;
+web HTTP 500`, `; web no token`, or the error. It is a record only; the
+watchdog does not read it. If a deadline cycle ever cuts a miner whose web
+answered `ok` throughout, that row is the evidence that 4028 alone had died.
+
 ## Arming it
 
 Watch the dry run through at least one real freeze, or run one deliberate
@@ -183,12 +227,14 @@ clock it was on. Then set `"cycle": true` in the `power` block of
   "unpowered_watts": 10,
   "unpowered_cycle_minutes": 10,
   "boot_watts": 20,
-  "boot_check_minutes": 2
+  "boot_check_minutes": 2,
+  "dead_retry_hours": 4
 }
 ```
 
 Since 0.10.0 the rung reads the meter just before it acts, and the meter can
-only stop a cycle. At or over `idle_watts` the miner is working and the path
+only stop a cycle on the fast rung; since 0.13.0 the deadline above cycles a
+silent controller whatever the meter reads. At or over `idle_watts` the miner is working and the path
 to it is down; under `unpowered_watts` with the relay on, nothing behind the
 plug is drawing power (a cord out downstream, the miner's own switch off).
 Neither is cycled, and each says so once per episode in the event log (since
@@ -294,6 +340,12 @@ page names the boot time next to them.
 | `power: plug is off (someone switched it off); not cycling` | left alone on purpose |
 | `power: plug did not answer (...); not cycling` | the network, not the miner, may be the problem |
 | `power: would cycle (...), but N cycles in 24 h is the cap; not cycling` | the daily cap |
+| `watchdog: silent 12 min and <why>; power cycle at 03:16 unless it answers` | 0.13.0: the deadline is running for a controller the meter says is working |
+| `power: deadline cycle #N in 24 h: off 120 s, on (silent 30 min; deadline; ...)` | 0.13.0: the deadline cycle; its own count, outside the daily cap |
+| `power: deadline reached but ...; trying again each poll` | the plug, or this computer's LAN link, did not allow it |
+| `power: the miner answers but fails every sample (...); a power cycle would not help, not cycling` | 0.13.0: an HTTP error or refused login is an answer |
+| `service: watchdog picked up N deadline cycles from the last 24 h of the event log` | the service restarted; the deadline schedule carried on |
+| `watchdog: hashing at 210 GH/s, under 30% of the rated 900 GH/s, for 10 min; logged only, nothing sent` / `watchdog: hashrate back above 30% of rated after 62 min (...)` | 0.13.0: a slow miner, recorded, never acted on |
 | `service: watchdog picked up N restarts and M cycles from the last 24 h of the event log; the daily caps carry on` | the service restarted; the caps did not reset |
 | `dashboard: power: cycled by hand (gbox power cycle; ...)` | you ran the command |
 

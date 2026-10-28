@@ -373,6 +373,92 @@ class PollerHashingSignalTest(unittest.TestCase):
         self.assertEqual(got, [(False, True), (False, False)])
 
 
+class WebProbeAfter4028Test(unittest.TestCase):
+    """0.13.0: a failed port 4028 read is followed by one web read, recorded in the http column only. A frozen
+    controller and a hashing miner with only 4028 dead logged identical rows before (10-11, 10-18, 10-27)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.csv = Path(self.tmp.name) / "log.csv"
+        self.got = []
+        got = self.got
+
+        class Spy:
+            def observe(self, ok, accepted, t=None, hashing=None, absent=None, answered=None):
+                got.append((ok, answered))
+
+            def check(self):
+                return None
+
+        self.spy = Spy()
+
+    def stub(self, web):
+        calls = []
+
+        class Stub:
+            def devs4028(self, port=4028):
+                calls.append("devs4028")
+                raise api.MinerError("devs 4028: TimeoutError: timed out")
+
+            def setting(self):
+                calls.append("setting")
+                if web is not None:
+                    raise web
+                return {"temp_target": 65}
+        return Stub(), calls
+
+    def poll(self, miner):
+        return poller.Poller(miner, self.csv, 30, watchdog=self.spy, board_source="4028").poll_once()
+
+    def test_web_answering_is_recorded_and_the_verdict_is_unchanged(self):
+        miner, calls = self.stub(None)
+        row = self.poll(miner)
+        self.assertEqual(row["http"], "ERR:MinerError:devs 4028: TimeoutError: timed out; web ok")
+        self.assertEqual(calls, ["devs4028", "setting"])          # one extra read, after, never concurrent
+        self.assertEqual(self.got, [(False, False)])                # still silent to the watchdog: diagnostic only
+
+    def test_web_http_status_no_token_and_timeout_each_read_plainly(self):
+        for web, want in ((api.HttpStatusError("GET mcb/setting: HTTP 500", 500), "; web HTTP 500"),
+                          (api.NoCredentials("no token"), "; web no token"),
+                          (api.MinerError("GET mcb/setting: timed out, again"), "; web MinerError: GET mcb/setting: timed out; again")):
+            miner, _ = self.stub(web)
+            self.assertTrue(self.poll(miner)["http"].endswith(want), want)
+
+    def test_the_csv_row_keeps_its_shape(self):
+        miner, _ = self.stub(api.MinerError("x,y\nz"))
+        self.poll(miner)
+        with open(self.csv, newline="") as f:
+            rows = list(csv.reader(f))
+        self.assertEqual(len(rows[1]), len(rows[0]))
+        self.assertTrue(rows[1][1].endswith("; web MinerError: x;y z"))
+
+    def test_no_probe_when_the_failure_was_not_port_4028(self):
+        calls = []
+
+        class Web500:
+            def __getattr__(self, name):
+                def fail(*a, **kw):
+                    calls.append(name)
+                    raise api.HttpStatusError("GET mcb/setting: HTTP 500", 500)
+                return fail
+
+        row = poller.Poller(Web500(), self.csv, 30, watchdog=self.spy, board_source="minerinfo").poll_once()
+        self.assertNotIn("; web", row["http"])
+        self.assertEqual(calls, ["minerinfo_boards"])
+
+    def test_a_real_closed_4028_with_the_web_up(self):
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        closed_port = s.getsockname()[1]
+        s.close()
+        with FakeMiner(fixtures="sc5proii", port4028=True) as fm:
+            row = poller.Poller(api.Miner(fm.address, password="password"), self.csv, 30, watchdog=self.spy,
+                                board_source="4028", devs4028_port=closed_port).poll_once()
+        self.assertTrue(row["http"].startswith("ERR:MinerError:devs 4028:"), row["http"])
+        self.assertTrue(row["http"].endswith("; web ok"), row["http"])
+
+
 class PollerScheduleTest(unittest.TestCase):
     """The scheduler ticks once per sample, after the sample, and never fails one."""
 

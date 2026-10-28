@@ -350,6 +350,21 @@ class Poller(threading.Thread):
         self._source = "4028"
         return sample(self.miner, "4028", devs4028_port=self.devs4028_port, icinfo_optional=not self._icinfo_seen)
 
+    def _web_probe(self):
+        """0.13.0: one web read after port 4028 failed, recorded in the row's http column and nothing else.
+        sample() reads 4028 first and stops there, so a "devs 4028" error used to say nothing about the web
+        backend: a frozen controller and a hashing miner with only 4028 dead logged the same row (the 10-11 and
+        10-18 freezes, 10-27 08:46-12:23). Diagnostic only; the watchdog's verdict does not read it."""
+        try:
+            self.miner.setting()
+            return "ok"
+        except api.NoCredentials:
+            return "no token"
+        except api.HttpStatusError as e:
+            return "HTTP %d" % e.code
+        except Exception as e:
+            return "%s: %s" % (type(e).__name__, str(e)[:40].replace(",", ";").replace("\n", " "))
+
     def _append_boards(self, now, boards):
         """boards.csv beside log.csv: one row per board per poll, header on create. Only called when the
         unit has more than one board; a single-board unit never gets this file."""
@@ -497,6 +512,8 @@ class Poller(threading.Thread):
             # 0.13.0 D2: an HTTP status or a refused login is an answer; only a miner that did not answer at all
             # (timeout, refused connection, no route) is silent, and only a silent one is ever power-cycled.
             row["_answered"] = isinstance(e, (api.HttpStatusError, api.AuthError))
+            if isinstance(e, api.MinerError) and str(e).startswith("devs 4028"):
+                row["http"] += "; web " + self._web_probe()
             sampled_at = self._clock()
             self.errors += 1
             self.last_error = row["http"]

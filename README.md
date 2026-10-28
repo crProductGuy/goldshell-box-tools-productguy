@@ -204,10 +204,11 @@ nothing from its daily caps.
 - **The LAN is down between this computer and the miner.** When the smart plug
   does not answer either, when this computer's own LAN link is down, or when the
   plug's meter shows the miner drawing working power, the miner is not the
-  problem. Nothing is sent and nothing is counted; one line when it starts and
-  one when it ends. When the LAN comes back with the miner still silent, the
-  watchdog starts its ladder from the beginning. Without a plug, only the link
-  test applies.
+  problem, at first. Nothing is sent and nothing is counted; one line when it
+  starts and one when it ends. When the LAN comes back with the miner still
+  silent, the watchdog starts its ladder from the beginning, unless only the
+  plug or the miner blinked and this computer's link stayed up (since 0.13.0).
+  Without a plug, only the link test applies.
 - **The power cycle is the last rung, and it reads the meter first.** A plug
   reading at least `idle_watts` means a working miner behind a dead path; one
   reading under `unpowered_watts` (default 10) with its relay on means nothing
@@ -217,6 +218,19 @@ nothing from its daily caps.
   exactly like that and a cycle resets it. After that one cut it is left
   alone until the miner answers again (a service restart in between allows
   one more, within the daily cap). A plug without a meter behaves as before.
+- **Since 0.13.0 the meter only delays a cycle.** Three times a frozen
+  controller sat at full board power, which the meter read as a working miner,
+  for up to 19 hours. Now a controller that has not answered at all for
+  `watchdog.dead_minutes` (default 30, 0 for never) is cycled whatever the
+  meter reads, again 30 minutes later, then every `power.dead_retry_hours`
+  (default 4) while it stays silent. These cycles have their own count and do
+  not use up `max_cycles_per_day`. A controller that answers with an error is
+  never cut this way, nor is one while the pool is down, a hold runs or the
+  plug reads no load.
+- **A slow miner gets a line, not an action.** Hashing under
+  `watchdog.low_hashrate_fraction` (default 0.3) of its rated rate for
+  `low_hashrate_minutes` (default 10) writes one line, and one more when it
+  recovers.
 
 Give the miner, the plug and this computer DHCP reservations in your router. A
 device that comes back from an outage on a different address looks exactly like

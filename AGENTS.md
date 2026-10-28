@@ -30,8 +30,8 @@ Read these before acting, in this order:
 
 ## Standing check: read the aftermath of every power cycle
 
-Added 2026-09-17 (session W). **If `events.log` shows a `power: cycled` line
-since the last session, read what happened in the twenty minutes after it
+Added 2026-09-17 (session W). **If `events.log` shows a `power: cycled` line,
+or since 0.13.0 a `power: deadline cycle` line, since the last session, read what happened in the twenty minutes after it
 before doing anything else, and report it.** Do not wait for the owner to
 notice a bad day in the numbers.
 
