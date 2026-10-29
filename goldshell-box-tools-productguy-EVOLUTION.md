@@ -4386,5 +4386,15 @@ reach a test server on the PC.
 one chip's rate at the lowest clock we've ever run", because a quarter-rate threshold "sets up for the next missing
 hours". A scanner read every log since September: the sick state is unmistakable (1 to 4 chips, 8 to 36% of the
 clock's normal rate, 7 minutes to 4 hours, shares still accepted, so the frozen-shares rule missed the long ones),
-and a healthy box never spent even two samples in a row under half its normal rate. Proposal in progress; see the
-next entry or STATUS.md.
+and a healthy box never spent even two samples in a row under half its normal rate. Every spell that ended in a
+restart or cycle came back healthy within about a minute and a half and stayed healthy.
+
+**Proposal and decision.** A soft restart when, for five minutes after the settle gap, every sample sits under seven
+chips' worth at the current clock, the window's middle value is above the owner's floor (36 GH/s: one chip at
+500 MHz, 40.4 GH/s, less 10%), and accepted shares are still rising. The last condition is what keeps it apart from
+the frozen-shares rule. At most two restarts per weak spell, then log only, so a chip a restart cannot fix does not
+eat the daily cap; it never reaches the power rung. Replayed over every log, it fired 10 times: 8 real spells (last
+night's would have been restarted at 02:05 instead of running four hours at a quarter rate), 2 slow warm-ups that
+recovered on their own at about 17 minutes, none during healthy running. The alternative was to hold it for the 0.14.0
+state-table review with A and B; the agent leaned to shipping it alone, sooner, because it touches nothing A and B
+change. The owner adopted the rule as proposed, as 0.13.2, next, and approved merging, tagging and pushing 0.13.1.
