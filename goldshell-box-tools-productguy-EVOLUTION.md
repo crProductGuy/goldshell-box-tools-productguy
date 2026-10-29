@@ -4305,3 +4305,39 @@ the sample code again showed gbox had the hashrate all along: port 4028 is read 
 failed settings call threw the whole reading away. Proposed for after 0.13.0, not built: keep that half sample; cycle
 straight away when an unreachable miner draws far below hashing power, since no soft restart has reached a miner in
 that state since September; and log the web-backend failure as an event without acting on it.
+
+## 2026-10-28, session BE (760489e0): the last hole closed, 0.13.0 released and live, and a gateway that saw everything
+
+**Goal.** The owner: "pick up gbox and go". The plan from BD: fix the third review's item, review it fresh, release,
+and restart the live service only with the owner watching.
+
+**The fix.** One rule now decides when a pool wait ends: two failed log reads in a row. The older hold had cleared the
+wait on one, and the deadline then cut a miner that was only waiting on its pool whenever the plug's meter reading
+dropped out. The agent's first version also made the soft-restart ladder wait for the second failure; an existing test
+caught that as a change to the 09-21 behaviour, which was not the bug, and the fix was narrowed to the wait alone. The
+new test fails on the code before it. The five probe scripts from BD were run against old and new code and diffed:
+only the bug's cases changed. A fresh reviewer confirmed the deadline's gate is unchanged in every other state (192
+combinations by brute force), found nothing blocking, and noted a side effect: the "pool unreachable" line is no longer
+repeated after each flaky read, and an `upstream_restart_hours` timer now actually runs its length on a meterless plug
+(moot here, set to 0 in the same restart). Full suite 960 OK. Merged, tagged v0.13.0, pushed.
+
+**The restart.** The owner, after a night of hangs: "OK to restart the service now." The agent read the evening first:
+three hangs, and at 23:10 two cycles in a row that the controller did not come up from (12 W, silent), the boot check
+cycling once more and then handing over, and a third cycle by the ladder that worked. Then the config change, the stop
+by pid file, the start from the Startup script; health showed 0.13.0 with samples advancing and the counters carried.
+
+**The HS-BOX question.** The owner saw the HS-BOX down for an hour to an hour and a half, hashing again. Its uptime
+showed no restart at all (266 h, exactly a day more than the reading the night before), no failover to the backup pool,
+one work-fetch failure in eleven days, and its own log showed shares accepted by the local gateway with no gap over
+three minutes from 13:26 to 23:40. The one hour without new-block notices (19:17 to 20:17) looked like the answer until
+the gateway's log showed the chain itself had gone an hour between two blocks. The gateway kept both miners connected
+all day except during two SC-BOX hangs, logged no warning or error, and through the SC-BOX's 202-minute HTTP 500
+stretch that morning held two clients at full hashrate: independent proof, from our own machines, that the box mined
+on while its web backend failed. What the gateway's log cannot show is its link to the pool; it records nothing about
+it. So whatever the owner saw in the pool view sits upstream of the house, or outside the log's window, and the time
+of the gap is the open question.
+
+**Left out.** Proposals A and B (keep the half sample; cycle at once at low draw) are 0.14.0, session BF, state table
+and Fable review first. A reviewer's aside, unrelated to the fix: on a meterless plug with the deadline off, the ladder
+kept soft-restarting and never reached a power cycle in two hours; noted, not diagnosed. A small wording bug: the
+"restarted after" line after cycle #10 named cycle #8.
