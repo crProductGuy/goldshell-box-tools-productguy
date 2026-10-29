@@ -679,7 +679,7 @@ class Watchdog:
 
     def _seed_weak(self, lines):
         """0.13.2: the weak restarts written after the newest "weak hashing ended" line in the tail are the running
-        episode's, so a service restart does not hand it a fresh pair. No 24 h cutoff: an episode at its limit can
+        episode's, so a service restart does not hand it a fresh set. No 24 h cutoff: an episode at its limit can
         stay weak longer than a day (review 3). A stale one is ended by the first weak window an hour or more after
         its last one, with its own "ended" line, or by the first window at strength. Idempotent by timestamp, as the caps are; a failed attempt counts, as
         it does live (design review 6)."""
