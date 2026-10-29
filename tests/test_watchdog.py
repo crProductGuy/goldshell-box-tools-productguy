@@ -1806,6 +1806,20 @@ class WeakHashingTest(unittest.TestCase):
         self.assertEqual(len(limit), 1, self.lines)
         self.assertIn("nothing sent", limit[0])
 
+    def test_the_shipped_default_is_three_restarts_per_episode(self):
+        """The owner raised 2 to 3 on 2026-10-29 for hashing uptime."""
+        self.wd = Watchdog(self.restart, self.events, self.INTERVAL, stall_minutes=5, unreachable_minutes=2,
+                           min_gap_minutes=5, max_restarts_per_day=60, clock=self.clock)
+        self.feed(10, 165000)
+        self.feed(20, 165000)
+        self.feed(20, 165000)
+        self.assertEqual(self.restart.restarts, 3)
+        self.feed(120, 165000)
+        self.assertEqual(self.restart.restarts, 3)
+        limit = [m for m in self.lines if "is the limit" in m]
+        self.assertEqual(len(limit), 1, self.lines)
+        self.assertIn("3 weak restarts", limit[0])
+
     def test_a_full_window_at_strength_an_hour_on_ends_the_episode(self):
         self.feed(10, 165000)
         self.feed(20, 165000)

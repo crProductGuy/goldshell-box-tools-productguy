@@ -29,10 +29,10 @@ DEFAULT_WATCHDOG = {
     "max_restarts_per_day": 12,  # at least twice power.max_cycles_per_day plus a few: a cycle needs two failed attempts
     "upstream_restart_hours": 8, # 0.10.0: a miner waiting on its pool is not restarted; after this long, once. 0: never
     "dead_minutes": 30,          # 0.13.0: silent this long with a plug that answers -> one power cycle, whatever the meter reads (three full-power freezes, 10-06 19 h 38 min, 10-11 477 min, 10-18 115 min). 0: off
-    "weak_restarts": 2,          # 0.13.2: soft restarts per weak-hashing episode (1-4 chips of 16 while shares flow; numbers per model in models.WEAK_HASHING), then lines only. 0: lines only. Replaces 0.13.0's low_hashrate_fraction / _minutes, which are now ignored
+    "weak_restarts": 3,          # 0.13.2: soft restarts per weak-hashing episode (1-4 chips of 16 while shares flow; numbers per model in models.WEAK_HASHING), then lines only. 0: lines only. Replaces 0.13.0's low_hashrate_fraction / _minutes, which are now ignored
 }
 MAX_UPSTREAM_RESTART_HOURS = 168
-MAX_WEAK_RESTARTS = 2           # the owner's "at most 2 per weak episode" (2026-10-29) is a ceiling, not a default
+MAX_WEAK_RESTARTS = 3           # the owner's "at most 3 per weak episode" (2026-10-29, raised from 2 for hashing uptime: a restart costs a weak board seconds of full-rate work, a spell can last hours)
 
 # The optional smart-plug block. Absent: no plug, nothing changes. Present: the
 # watchdog may cut power to a frozen controller after soft restarts have failed.

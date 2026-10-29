@@ -205,13 +205,15 @@ class DeadlineConfigTest(unittest.TestCase):
         cfg = config.Config(host="m", power={"host": "p", "device_id": "abc", "dead_retry_hours": 0})
         with self.assertRaises(ValueError):
             cfg.validate()
-        for bad in (3, -1, 1.5, True, "2"):
+        for bad in (4, -1, 1.5, True, "2"):
             cfg = config.Config(host="m")
             cfg.watchdog["weak_restarts"] = bad
             with self.assertRaises(ValueError, msg=repr(bad)):
                 cfg.validate()
         cfg = config.Config(host="m")
-        self.assertEqual(cfg.watchdog["weak_restarts"], 2)
+        self.assertEqual(cfg.watchdog["weak_restarts"], 3)
+        cfg.watchdog["weak_restarts"] = 3
+        cfg.validate()
         cfg.watchdog["weak_restarts"] = 0
         cfg.validate()
 

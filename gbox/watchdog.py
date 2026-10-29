@@ -111,7 +111,7 @@ class Watchdog:
     def __init__(self, restart, events, interval, stall_minutes=5, unreachable_minutes=2,
                  min_gap_minutes=10, max_restarts_per_day=6, clock=time.time,
                  plug=None, power=None, sleep=time.sleep, absent_minutes=2, upstream_restart_hours=8,
-                 dead_minutes=0, weak_restarts=2):
+                 dead_minutes=0, weak_restarts=3):
         self._restart = restart
         self._events = events
         self.interval = float(interval)
