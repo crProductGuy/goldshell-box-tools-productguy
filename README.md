@@ -83,6 +83,13 @@ service should survive a reboot without anyone opening the page, use
 encrypted form, which is password-equivalent, so the file is owner-readable
 only. `gbox serve --forget` removes it.
 
+The login box can be closed (×, Esc or "not now"), and it stays closed in that
+tab until you press "log in", so the charts stay in view when the miner will
+not take a login. When the miner stops accepting the session (its own page's
+"Lock" does this, and so does a reboot), the page keeps its token, says so in
+a banner, and keeps trying: the miner's token is one fixed string, and it
+works again as soon as anyone logs in to the miner (docs/firmware-api.md).
+
 The dashboard also works with no service at all: open `gbox/web/index.html`
 straight from disk. You get live status; the fan and temperature history and
 the event log need `gbox serve`.

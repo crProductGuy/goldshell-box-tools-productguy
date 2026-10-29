@@ -919,10 +919,62 @@ function uptimeSample() {
     longest: { start: "2026-09-27 09:10:37", end: "2026-10-01 00:14:13", hours: 87.06, ongoing: true } };
 }
 
-let failed = 0;
-for (const [name, fn] of Object.entries(tests)) {
-  try { fn(); console.log("ok   " + name); }
-  catch (e) { failed++; console.log("FAIL " + name + "\n     " + String(e.message).split("\n").join("\n     ")); }
-}
-console.log(failed ? failed + " failed" : Object.keys(tests).length + " passed");
-process.exit(failed ? 1 : 0);
+// 0.13.1: the login under a stand-in fetch. Each case puts its own fetch in place and the runner restores the real one.
+const realFetch = global.fetch;
+const subtle = require("crypto").webcrypto.subtle;
+const GOOD = "aaa.bbb.ccc";
+Object.assign(tests, {
+  async "login: a good answer returns the token, and the request carries an abort signal"() {
+    let seen = null;
+    global.fetch = async (url, opts) => { seen = opts; return { ok: true, json: async () => ({ "JWT Token": GOOD }) }; };
+    assert.strictEqual(await app.login("http://m", "pw", subtle), GOOD);
+    assert.ok(seen && seen.signal, "no AbortSignal passed to fetch");
+  },
+  async "login: a miner that never answers is given up after the timeout, as 'login timed out'"() {
+    global.fetch = (url, opts) => new Promise((res, rej) =>
+      opts.signal.addEventListener("abort", () => rej(Object.assign(new Error("aborted"), { name: "AbortError" }))));
+    const t0 = Date.now();
+    await assert.rejects(app.login("http://m", "pw", subtle, 50), { message: "login timed out" });
+    assert.ok(Date.now() - t0 < 2000);
+  },
+  async "login: a network error (the miner's 500 without a CORS header) becomes 'login unanswered'"() {
+    global.fetch = async () => { throw new TypeError("Failed to fetch"); };
+    await assert.rejects(app.login("http://m", "pw", subtle), { message: "login unanswered" });
+  },
+  async "login: an HTTP error the page can read, and an answer without a token, keep their old messages"() {
+    global.fetch = async () => ({ ok: false, status: 500 });
+    await assert.rejects(app.login("http://m", "pw", subtle), { message: "login failed: HTTP 500" });
+    global.fetch = async () => ({ ok: true, json: async () => ({ "JWT Token": "nope" }) });
+    await assert.rejects(app.login("http://m", "pw", subtle), { message: "login rejected (wrong password?)" });
+  },
+  "loginErrorText: each failure gets a sentence that says what to do; anything else passes through"() {
+    assert.match(app.loginErrorText("login timed out", "10.0.0.5"), /within 10 s/);
+    const un = app.loginErrorText("login unanswered", "10.0.0.5");
+    assert.match(un, /password is wrong, or the miner's own login is failing/);
+    assert.match(un, /http:\/\/10\.0\.0\.5\)/);
+    assert.match(un, /Close this box/);
+    assert.match(app.loginErrorText("login unanswered", "http://10.0.0.5"), /\(http:\/\/10\.0\.0\.5\)/);   // no doubled scheme
+    assert.match(app.loginErrorText("login unanswered", ""), /its own page,/);
+    assert.match(app.loginErrorText("login failed: HTTP 403", "h"), /refused the login \(HTTP 403\)/);
+    assert.strictEqual(app.loginErrorText("enter the miner's address", "h"), "enter the miner's address");
+  },
+  "sessionNote: empty without a rejection; otherwise since when, how many tries, and who can bring it back"() {
+    assert.strictEqual(app.sessionNote(null, 3, true), "");
+    const since = new Date(2026, 9, 29, 9, 43, 0).getTime();
+    const s = app.sessionNote(since, 7, true);
+    assert.match(s, /since 09:43 \(7 tries\)/);
+    assert.match(s, /gbox service keeps trying on its own/);
+    assert.doesNotMatch(app.sessionNote(since, 3, false), /gbox service/);
+  },
+});
+
+(async () => {
+  let failed = 0;
+  for (const [name, fn] of Object.entries(tests)) {
+    try { await fn(); console.log("ok   " + name); }
+    catch (e) { failed++; console.log("FAIL " + name + "\n     " + String(e.message).split("\n").join("\n     ")); }
+    finally { global.fetch = realFetch; }
+  }
+  console.log(failed ? failed + " failed" : Object.keys(tests).length + " passed");
+  process.exit(failed ? 1 : 0);
+})();

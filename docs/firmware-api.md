@@ -23,8 +23,26 @@ No Goldshell code is reproduced here, only observed behavior.
   settings, change pools or restart the unit. Treat the miner as an
   unauthenticated device on a trusted LAN; gbox's own password prompt on
   the power buttons guards the page, not the miner.
+- **But the miner keeps one logged-in state behind that token** (verified on
+  the SC-BOX, 2026-10-29, from its own web log, `/dbg/syslog`). `GET
+  /user/logout`, which is what the factory page's "Lock" sends, and a reboot
+  both make the miner refuse the token to every client: each request gets 401
+  `Check Token Error` until anyone logs in successfully. After that, the same
+  token works for every client again, including ones that never logged in
+  themselves. So a 401 is not a reason to throw the token away: a new login
+  returns the same string. The web log records `Login`, `Logout` and `Check
+  Token Error` lines with no detail of why a login failed.
+- **The login itself sometimes fails for long stretches.** On 2026-10-29 the
+  SC-BOX answered gbox's login with a bare HTTP 500 for 63 minutes, about every
+  30 s, while logins from the factory page in a browser went through. The
+  password, the request headers, cookies and an `Authorization` header were all
+  ruled out; the cause is inside the firmware and unknown. It ended after logins
+  from the factory page. A wrong password gets the same bare 500.
 - Every other request: header `Authorization: Bearer <token>`.
-- CORS: `Access-Control-Allow-Origin: *`. A preflight `OPTIONS` on
+- CORS: `Access-Control-Allow-Origin: *` on 200 answers, **but not on the 500
+  `Server Error` answers** (verified 2026-10-29): a page on another origin
+  cannot read the status of a failed login, and the browser reports only a
+  network error ("Failed to fetch"). A preflight `OPTIONS` on
   `/mcb/setting` and `/mcb/restart` answers 200 with
   `Access-Control-Allow-Methods: GET, PUT, POST, OPTIONS` and
   `Access-Control-Allow-Headers: appkey,X_forwarded-for,Content-Type,Authorization, X-Requested-With`

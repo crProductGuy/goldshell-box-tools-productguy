@@ -69,6 +69,13 @@ dl { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:0 } dt {
 .overlay input,.overlay button { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--ink) }
 .overlay label input { width:100%; margin-top:4px }
 .overlay button { cursor:pointer; font-weight:600 }
+.loginhead { display:flex; align-items:center; justify-content:space-between; gap:12px }
+.overlay .loginhead .x { padding:0 8px; font-size:20px; line-height:1.4; font-weight:400 }
+.loginbtns { display:flex; gap:8px } .loginbtns button { flex:1 }
+#loginerr { max-width:340px }
+.sessionbar { background:var(--warnbg); color:var(--warn); padding:8px 12px; border-radius:8px; font-size:13px }
+.sessionbar a { color:inherit; margin:0 8px }
+.sessionbar button { font:inherit; padding:2px 10px; border:1px solid currentColor; border-radius:6px; background:transparent; color:inherit; cursor:pointer }
 /* controls and the confirm dialog */
 .ctrls { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:10px }
 .ctrl { border:1px solid var(--line); border-radius:8px; padding:10px 12px; background:var(--bg) }

@@ -13,17 +13,22 @@
   <span class="meta" id="meta">&mdash;</span>
   <span style="flex:1"></span>
   <label class="meta">miner <input id="host" placeholder="192.168.1.100" autocomplete="off"></label>
-  <button id="relogin" title="Forget the saved session token and log in again">re-login</button>
+  <button id="relogin" title="Open the login box; the session this page holds stays in use until a new one arrives">log in</button>
   <span class="meta" id="updated"></span>
 </header>
 <p class="note" id="modelnote" hidden></p>
+<p class="sessionbar" id="session" role="status" hidden><span id="sessiontext"></span>
+  <a id="sessionlink" target="_blank" rel="noopener">open the miner's page</a>
+  <button type="button" id="sessionlogin">log in here</button></p>
 
 <div class="overlay" id="overlay"><form id="loginform">
-  <strong>Miner web UI password</strong>
+  <div class="loginhead"><strong>Miner web UI password</strong>
+    <button type="button" id="loginclose" class="x" aria-label="Close" title="Close (Esc); the charts stay live">&times;</button></div>
   <span class="note">Only the session token is kept, in this browser. Nothing is sent anywhere but the miner<span id="svcnote"></span>.</span>
   <label class="note" id="hostrow">miner address <input id="host2" placeholder="192.168.1.100" autocomplete="off"></label>
   <input id="pw" type="password" autocomplete="current-password" placeholder="password" autofocus>
-  <button type="submit">log in</button>
+  <div class="loginbtns"><button type="submit" id="loginsubmit">log in</button>
+    <button type="button" id="loginlater">not now, show the charts</button></div>
   <span class="err" id="loginerr"></span>
 </form></div>
 

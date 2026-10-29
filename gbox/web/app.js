@@ -12,13 +12,47 @@ async function encryptPassword(pw, subtle) {
   const ct = new Uint8Array(await subtle.encrypt({ name: "AES-CBC", iv: new Uint8Array(16) }, key, padded));
   return Array.from(ct.slice(0, padLen), b => b.toString(16).padStart(2, "0")).join("");
 }
-async function login(base, pw, subtle) {
+// 0.13.1: a login the miner never answers is given up after this long, so the box never waits on it for good.
+const LOGIN_TIMEOUT_MS = 10000;
+async function login(base, pw, subtle, timeoutMs) {
   const enc = await encryptPassword(pw, subtle);
-  const r = await fetch(base + "/user/login?username=admin&password=" + enc + "&cipher=true");
-  if (!r.ok) throw new Error("login failed: HTTP " + r.status);
-  const tok = (await r.json())["JWT Token"];
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), timeoutMs || LOGIN_TIMEOUT_MS);
+  let tok;
+  try {
+    const r = await fetch(base + "/user/login?username=admin&password=" + enc + "&cipher=true", { signal: ctl.signal });
+    if (!r.ok) throw new Error("login failed: HTTP " + r.status);
+    tok = (await r.json())["JWT Token"];
+  } catch (e) {
+    if (ctl.signal.aborted) throw new Error("login timed out");
+    // The miner's error replies carry no CORS header (verified 2026-10-29), so a wrong password and a failing
+    // login both reach the page as a bare network error: "Failed to fetch" in Chrome, "fetch failed" in Node.
+    if (e instanceof TypeError) throw new Error("login unanswered");
+    throw e;
+  } finally { clearTimeout(timer); }
   if (typeof tok !== "string" || tok.split(".").length !== 3) throw new Error("login rejected (wrong password?)");
   return tok;
+}
+// What the login box says about a failed login. `host` is the miner's address, for the factory page's link text.
+function loginErrorText(message, host) {
+  const page = host ? "its own page (http://" + host.replace(/^https?:\/\//, "") + ")" : "its own page";
+  if (message === "login timed out")
+    return "The miner did not answer the login within " + LOGIN_TIMEOUT_MS / 1000 + " s. It may be restarting; try again in a minute.";
+  if (message === "login unanswered")
+    return "The login failed, and the browser cannot see why: either the password is wrong, or the miner's own login is " +
+      "failing, which it sometimes does for an hour at a time. If you are sure of the password, log in once at " + page +
+      ", then try again here. Close this box to keep watching the charts.";
+  const m = /^login failed: HTTP (\d+)$/.exec(message);
+  if (m) return "The miner refused the login (HTTP " + m[1] + "). Check the password, or try again in a minute.";
+  return message;
+}
+// 0.13.1: the session banner. The miner's token is one constant string, but the miner can stop accepting it (a Lock in
+// its own page, a reboot) until anyone logs in again; then the same token works for every client (verified
+// 2026-10-29). So the page keeps its token and keeps polling with it, and says why the numbers stopped.
+function sessionNote(since, tries, serviceLogin) {
+  if (!since) return "";
+  return "The miner has rejected this page's session since " + clockLabel(since) + " (" + tries + " tries). The page keeps " +
+    "trying with the same session, which works again as soon as anyone logs in to the miner" +
+    (serviceLogin ? ": the gbox service keeps trying on its own, or" : "; to do that,") + " log in at the miner's page or here.";
 }
 async function apiText(base, token, path, attempt) {
   const r = await fetch(base + "/" + path, { headers: { Authorization: "Bearer " + token } });
@@ -850,7 +884,7 @@ function axisTicks(spanMin, now, wide) {
   }
   return { tickEvery: 60, labels: labels };
 }
-const VERSION = "0.13.0";
+const VERSION = "0.13.1";
 // The wall-clock time under a chart's "now" label: 24-hour, minutes only, so the last refresh reads at a glance.
 function clockLabel(t) { const d = new Date(t); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
 // The service log as the page shows it: newest line on top, like the interventions table, so a short window shows what matters.
@@ -887,7 +921,7 @@ function holdWhyState(wasHeld, h, typed) {
   if (h.hold) return { value: h.hold.reason || "", readOnly: true, held: true };
   return { value: wasHeld ? "" : typed, readOnly: false, held: false };
 }
-if (typeof module !== "undefined") module.exports = { VERSION, hottestChip, clockLabel, newestFirst, ladderLine, encryptPassword, login, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
+if (typeof module !== "undefined") module.exports = { VERSION, hottestChip, clockLabel, newestFirst, ladderLine, encryptPassword, login, loginErrorText, sessionNote, fetchAll, apiText, apiPut, parseMinerInfo, parseBoards, chipHealth, hashUnit,
   parsePlan, formatPlan, withMhz, clockRange, planRequest, fanRange, fanTargetRequest, presetList, presetRequest, restartRequest, settingDiff, describeRequest, eventMarkers,
   powerActionRequest, holdRequest, holdReleaseRequest, holdLine, holdWhyState, seriesRows, errorTip, resetsTip, clockTip, clockPanel, axisTicks, parseStamp, errorFacts, markerWords,
   markerGlyph, markerRow, settingWords, dropClose, keepTop, markerKind, markerTitle, chartKey, powerLine, logLine, TRIAL_COLUMNS, trialDuration, trialCells, trialStatus, chartData, MODELS, ratedFor, pctOf, alarmBucket, resetsSuffix, profileFor, modelNote,
@@ -911,26 +945,54 @@ const store = {
 function host() { return $("host").value.trim(); }
 function base() { const h = host(); return /^https?:\/\//.test(h) ? h : "http://" + h; }
 function getToken() { return store.get("gbox_token"); }
-function showLogin(msg) {
+// 0.13.1: the login box can be closed, and stays closed in this tab (a reload included) until someone opens it from
+// the "log in" button, the session banner or a control that needs it. Until then the poll timer never reopens it, so
+// the charts underneath stay in view while the miner refuses logins.
+const tabStore = {
+  get: k => { try { return sessionStorage.getItem(k); } catch (e) { return null; } },
+  set: (k, v) => { try { sessionStorage.setItem(k, v); } catch (e) {} } };
+let loginClosed = tabStore.get("gbox_login_closed") === "1";
+function showLogin(msg, asked) {
   if (msg) $("loginerr").textContent = msg;
   // The poll timer calls this every cycle. Once the dialog is open, never touch its fields or
   // focus again: someone is typing in it.
   if ($("overlay").classList.contains("show")) return;
+  if (loginClosed && !asked) return;
   $("loginerr").textContent = msg || "";
   $("host2").value = host(); $("hostrow").hidden = !!host();
   $("overlay").classList.add("show"); (host() ? $("pw") : $("host2")).focus();
 }
+function closeLogin() {
+  $("overlay").classList.remove("show"); $("pw").value = "";
+  loginClosed = true; tabStore.set("gbox_login_closed", "1");
+}
 $("loginform").onsubmit = async e => {
   e.preventDefault();
+  const btn = $("loginsubmit");
+  btn.disabled = true; $("loginerr").textContent = "logging in…";
   try {
     if (!host() && $("host2").value.trim()) { $("host").value = $("host2").value.trim(); store.set("gbox_host", host()); }
     if (!host()) throw new Error("enter the miner's address");
     if (!crypto.subtle) throw new Error("WebCrypto unavailable: open this file over file:// or http://localhost in Chrome/Firefox");
     const t = await login(base(), $("pw").value, crypto.subtle);
-    store.set("gbox_token", t); $("pw").value = ""; $("overlay").classList.remove("show");
+    store.set("gbox_token", t); $("pw").value = ""; $("loginerr").textContent = ""; $("overlay").classList.remove("show");
+    loginClosed = false; tabStore.set("gbox_login_closed", "");
+    unauthorizedStreak = 0; rejectedSince = null; renderSession();
     tokenHandedTo = null; refresh();
-  } catch (err) { $("loginerr").textContent = err.message; }
+  } catch (err) { $("loginerr").textContent = loginErrorText(err.message, host()); }
+  finally { btn.disabled = false; }
 };
+$("loginclose").onclick = closeLogin;
+$("loginlater").onclick = closeLogin;
+$("overlay").addEventListener("keydown", e => { if (e.key === "Escape") closeLogin(); });
+// The session banner: shown after three rejections in a row, gone on the first poll the miner accepts.
+let rejectedSince = null;
+function renderSession() {
+  const text = unauthorizedStreak >= 3 ? sessionNote(rejectedSince, unauthorizedStreak, !!(service && service.can_login)) : "";
+  $("sessiontext").textContent = text; $("session").hidden = !text;
+  if (text) $("sessionlink").href = base();
+}
+$("sessionlogin").onclick = () => showLogin("", true);
 function setBadge(cls, text) { const b = $("badge"); b.className = "badge " + cls; b.textContent = "● " + text; }
 
 // ---- service (only when served by gbox) ----
@@ -1041,13 +1103,16 @@ async function refresh() {
   try {
     const data = await fetchAll(base(), token, undefined, !!service);
     if (Date.now() - lastFanRead > 60000) { await refreshFan(); lastFanRead = Date.now(); }
-    unauthorizedStreak = 0; render(data); $("err").textContent = "";
+    unauthorizedStreak = 0; rejectedSince = null; renderSession(); render(data); $("err").textContent = "";
     handOffToken();
   } catch (e) {
     if (e.message === "401") {
-      unauthorizedStreak++; console.warn("miner answered 401 (" + unauthorizedStreak + " in a row) at " + new Date().toLocaleTimeString());
+      unauthorizedStreak++; if (!rejectedSince) rejectedSince = Date.now();
+      console.warn("miner answered 401 (" + unauthorizedStreak + " in a row) at " + new Date().toLocaleTimeString());
       if (unauthorizedStreak < 3) { $("err").textContent = "Miner rejected the session token (" + unauthorizedStreak + "/3), retrying"; return; }
-      store.del("gbox_token"); unauthorizedStreak = 0; setBadge("idle", "session rejected"); showLogin("The miner rejected the session token three times in a row. Log in again."); return;
+      // 0.13.1: the token is kept. Deleting it bought nothing (a new login returns the same string) and left the page
+      // stuck behind the login box whenever the miner's login itself was failing (2026-10-29).
+      $("err").textContent = ""; setBadge("warn", "session rejected"); renderSession(); return;
     }
     $("err").textContent = "Last error " + new Date().toLocaleTimeString() + ": " + e.message;
     setBadge("bad", /fetch|network/i.test(e.message) ? "UNREACHABLE" : "error");
@@ -1230,7 +1295,8 @@ function renderChart(hist) {
 
 $("host").value = store.get("gbox_host") || "";
 $("host").onchange = () => { store.set("gbox_host", host()); baseline = null; fetchAll.cache = null; poll(); };
-$("relogin").onclick = () => { store.del("gbox_token"); tokenHandedTo = null; refresh(); };
+// 0.13.1: opens the login box and keeps the old token until a new one arrives (it is the same string anyway).
+$("relogin").onclick = () => showLogin("", true);
 // fan duty cycle lives only in the fan controller's log (a few hundred KB), so it is read once a minute, not every refresh
 async function refreshFan() {
   const token = getToken(); if (!token) return;
@@ -1690,7 +1756,7 @@ async function runServiceRequest(req, say) {
 }
 async function openConfirm(title, build) {
   const token = getToken();
-  if (!host() || !token) { showLogin(); return; }
+  if (!host() || !token) { showLogin("", true); return; }
   $("err").textContent = "";
   try {
     // build against what the miner holds right now, not the cached copy
