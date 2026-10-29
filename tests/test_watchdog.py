@@ -1645,7 +1645,8 @@ WEAK = models.weak_hashing_for("Goldshell-SCBox")
 
 class WeakHashingTest(unittest.TestCase):
     """0.13.2: a miner hashing weakly (1-4 chips of 16) while shares still flow gets a soft restart, at most
-    `weak_restarts` per weak episode; an episode ends only on a full window at strength. Replaces decision 13."""
+    `weak_restarts` per weak episode; an episode ends on a full window at strength an hour after its last weak
+    window, or when weakness comes back after an hour unseen. Replaces decision 13."""
 
     INTERVAL = 30
 
