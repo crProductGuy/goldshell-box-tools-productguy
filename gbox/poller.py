@@ -546,9 +546,10 @@ class Poller(threading.Thread):
             self.watchdog.observe(ok, row.get("accepted"), self._clock(), hashing=ok and (row.get("mhs_20s") or 0) > 0,
                                   absent=ok and self._board_absent(row), answered=ok or bool(row.get("_answered")))
             observe_rate = getattr(self.watchdog, "observe_rate", None)
-            if ok and observe_rate is not None:
-                rated = models.rated_for((self.miner_status or {}).get("model")) or {}
-                observe_rate(row.get("mhs_20s"), rated.get("rated_mhs"), self._clock())
+            if ok and observe_rate is not None:     # 0.13.2: the weak-hashing rule, for a model that has its numbers
+                weak = models.weak_hashing_for((self.miner_status or {}).get("model"))
+                observe_rate(row.get("mhs_20s"), weak, clock=row.get("clock"), elapsed=row.get("elapsed"),
+                             t=self._clock())
             self.watchdog.check()
         if self.markers is not None:
             try:

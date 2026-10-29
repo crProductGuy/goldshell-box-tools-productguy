@@ -153,6 +153,24 @@ def _key(model):
 _BY_KEY = {_key(k): v for k, v in MODELS.items()}
 
 
+# 0.13.2: the weak-hashing rule's numbers, per model, kept out of the profile so /api/health does not change.
+# A model earns a row from its own log, as `absent_signature` does. The SC-BOX's come from every rotated log.csv,
+# 2026-09-05..10-29 (session BF): one chip makes 0.0806 GH/s per MHz, linear 500-600 MHz; the lowest clock ever
+# run is 500; the floor is one chip at 500 less 10% (the owner's, 36 GH/s); weak is under 7 chips' worth.
+# Under `min_clock` 16 healthy chips can fall under the ceiling (400 MHz: 516 against 282 GH/s), so the rule
+# does not judge there at all.
+WEAK_HASHING = {
+    "Goldshell-SCBox": {"chip_mhs_per_mhz": 80.6, "ceiling_chips": 7, "min_clock": 500.0, "floor_mhs": 36000.0},
+}
+_WEAK_BY_KEY = {_key(k): v for k, v in WEAK_HASHING.items()}
+
+
+def weak_hashing_for(model):
+    """The weak-hashing rule's numbers for a model string (a fresh dict), or None: the rule is off for it."""
+    row = _WEAK_BY_KEY.get(_key(model))
+    return dict(row) if row is not None else None
+
+
 def rated_for(model):
     """The table row for a model string, or None when the model is not in the table."""
     return _BY_KEY.get(_key(model))

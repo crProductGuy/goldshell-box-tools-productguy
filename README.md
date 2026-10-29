@@ -234,10 +234,16 @@ nothing from its daily caps.
   not use up `max_cycles_per_day`. A controller that answers with an error is
   never cut this way, nor is one waiting on its pool with the web still up,
   one in a hold, or one whose plug reads no load.
-- **A slow miner gets a line, not an action.** Hashing under
-  `watchdog.low_hashrate_fraction` (default 0.3) of its rated rate for
-  `low_hashrate_minutes` (default 10) writes one line, and one more when it
-  recovers.
+- **A miner hashing weakly gets a soft restart, twice at most.** On an
+  SC-BOX, 1 to 4 of the 16 chips sometimes go on hashing alone, for hours,
+  while shares still flow. Five minutes of that brings a soft restart: every
+  sample under 7 chips' worth at its clock, the median at least one chip's
+  worth (36 GH/s), shares rising, and the miner past its first 5 minutes. A
+  restart cured every such spell on record. An episode gets
+  `watchdog.weak_restarts` (default 2, 0 for lines only) restarts, then
+  lines only. It ends when the miner hashes at strength for 5 minutes, at
+  least an hour after its last weak stretch. This rule never cuts power. It
+  is off for models whose per-chip rate has not been measured.
 
 Give the miner, the plug and this computer DHCP reservations in your router. A
 device that comes back from an outage on a different address looks exactly like

@@ -2,10 +2,11 @@
 import datetime
 import unittest
 
+from gbox import models
 from gbox.config import DEFAULT_POWER
 from gbox.events import EventLog
 from gbox.plug import Plug, PlugError
-from gbox.watchdog import Watchdog
+from gbox.watchdog import WEAK_SEED_RE, Watchdog
 
 
 class FakeClock:
@@ -1639,32 +1640,256 @@ class DeadlineTest(unittest.TestCase):
         self.assertEqual(wd.deadline_cycles_today(), 0)
 
 
-class LowHashrateTest(unittest.TestCase):
-    """0.13.0 decision 13: one line when a low-hashrate stretch has lasted, one when it ends; nothing sent."""
+WEAK = models.weak_hashing_for("Goldshell-SCBox")
+
+
+class WeakHashingTest(unittest.TestCase):
+    """0.13.2: a miner hashing weakly (1-4 chips of 16) while shares still flow gets a soft restart, at most
+    `weak_restarts` per weak episode; an episode ends only on a full window at strength. Replaces decision 13."""
+
+    INTERVAL = 30
 
     def setUp(self):
         self.clock = FakeClock()
+        self.restart = Recorder()
         self.lines = []
         self.events = EventLog()
         self.events.write = lambda m: self.lines.append(m)
-        self.wd = Watchdog(Recorder(), self.events, 30, clock=self.clock, low_hashrate_fraction=0.3,
-                           low_hashrate_minutes=10)
+        self.plug = FakePlugObject(watts=146.0)
+        self.wd = self.make()
+        self.acc = 1000
+        self.up = 3600                      # miner uptime, s
 
-    def rate(self, mhs, minutes):
-        for _ in range(int(minutes * 2)):
+    def make(self, **kw):
+        args = dict(stall_minutes=5, unreachable_minutes=2, min_gap_minutes=5, max_restarts_per_day=60,
+                    clock=self.clock, weak_restarts=2)
+        args.update(kw)
+        return Watchdog(self.restart, self.events, self.INTERVAL, **args)
+
+    def feed(self, n, mhs, clock=500.0, shares=True, weak=WEAK, ok=True):
+        """n samples at `mhs` MH/s. A restart the watchdog sends resets the uptime, as the miner would."""
+        last = None
+        for _ in range(n):
+            self.clock.tick(self.INTERVAL)
+            before = self.restart.restarts
+            if ok:
+                self.up += self.INTERVAL
+                if shares:
+                    self.acc += 3
+                self.wd.observe(True, self.acc, hashing=mhs > 0)
+                self.wd.observe_rate(mhs, weak, clock=clock, elapsed=self.up)
+            else:
+                self.wd.observe(False, None)
+            last = self.wd.check()
+            if self.restart.restarts != before:
+                self.up = 0
+        return last
+
+    def weak_lines(self):
+        return [m for m in self.lines if "weak" in m]
+
+    def test_the_10_29_night_restarts_after_five_minutes(self):
+        self.feed(20, 680000)
+        self.assertIsNone(self.feed(9, 165000))
+        reason = self.feed(1, 165000)
+        self.assertEqual(self.restart.restarts, 1)
+        self.assertTrue(reason.startswith("hashing weakly"), reason)
+        self.assertIn("165 GH/s", self.lines[-1])
+        self.assertIn("restart #1 sent", self.lines[-1])
+
+    def test_healthy_running_and_the_lowest_healthy_dip_never_restart(self):
+        self.feed(200, 640000)
+        self.feed(1, 268000)                # 0.298 of the clock median, the lowest healthy sample on record
+        self.feed(50, 640000)
+        self.assertEqual(self.restart.restarts, 0)
+        self.assertEqual(self.weak_lines(), [])
+
+    def test_under_the_floor_is_not_this_rules_business(self):
+        self.feed(30, 30000)                # under one chip's worth: "not hashing"
+        self.assertEqual(self.restart.restarts, 0)
+
+    def test_one_chip_at_the_floor_fires(self):
+        self.feed(10, 36000)
+        self.assertEqual(self.restart.restarts, 1)
+
+    def test_frozen_shares_belong_to_the_stall_rule(self):
+        reason = self.feed(10, 165000, shares=False)
+        self.assertIn("frozen", reason)
+        self.assertFalse(any("weakly" in m for m in self.lines))
+
+    def test_warm_up_samples_do_not_count(self):
+        self.up = 0
+        self.feed(9, 165000)                # uptime 30..270 s
+        self.assertEqual(self.restart.restarts, 0)
+        self.feed(9, 165000)                # 300..540 s: nine warm samples, one short
+        self.assertEqual(self.restart.restarts, 0)
+        self.feed(1, 165000)
+        self.assertEqual(self.restart.restarts, 1)
+
+    def test_missing_uptime_is_never_warm(self):
+        for _ in range(20):
             self.clock.tick(30)
-            self.wd.observe_rate(mhs, 900000.0)
+            self.acc += 3
+            self.wd.observe(True, self.acc, hashing=True)
+            self.wd.observe_rate(165000, WEAK, clock=500.0, elapsed=None)
+            self.wd.check()
+        self.assertEqual(self.restart.restarts, 0)
 
-    def test_the_10_20_hour_gets_two_lines(self):
-        self.rate(640000, 30)
-        self.rate(155000, 60)
-        self.rate(640000, 5)
-        self.assertEqual(len(self.lines), 2)
-        self.assertIn("hashing at 155 GH/s, under 30% of the rated 900 GH/s, for 10 min", self.lines[0])
-        self.assertIn("back above 30% of rated after", self.lines[1])
+    def test_the_ceiling_scales_with_the_clock(self):
+        self.feed(10, 300000, clock=500.0)  # 7 chips at 500 MHz is 282 GH/s: 300 is not weak
+        self.assertEqual(self.restart.restarts, 0)
+        self.feed(10, 300000, clock=600.0)  # at 600 MHz it is 338.5 GH/s: 300 is
+        self.assertEqual(self.restart.restarts, 1)
 
-    def test_a_short_dip_and_a_dead_board_say_nothing(self):
-        self.rate(155000, 9)
-        self.rate(640000, 1)
-        self.rate(0, 60)
-        self.assertEqual(self.lines, [])
+    def test_a_clock_under_500_or_missing_is_never_judged(self):
+        self.feed(30, 165000, clock=0)
+        self.feed(30, 165000, clock=None)
+        self.feed(30, 165000, clock=400.0)  # 16 healthy chips at 400 MHz make 516 GH/s; the rule stays out
+        self.assertEqual(self.restart.restarts, 0)
+        self.feed(9, 165000, clock=500.0)
+        self.feed(1, 165000, clock=None)    # one sample with no clock breaks the window
+        self.feed(9, 165000, clock=500.0)
+        self.assertEqual(self.restart.restarts, 0)
+        self.feed(1, 165000, clock=500.0)
+        self.assertEqual(self.restart.restarts, 1)
+
+    def test_a_failed_sample_restarts_the_window(self):
+        self.feed(9, 165000)
+        self.feed(1, 0, ok=False)
+        self.feed(9, 165000)
+        self.assertEqual(self.restart.restarts, 0)
+        self.feed(1, 165000)
+        self.assertEqual(self.restart.restarts, 1)
+
+    def test_two_restarts_per_episode_then_one_line(self):
+        self.feed(10, 165000)
+        self.assertEqual(self.restart.restarts, 1)
+        self.feed(10 + 10, 165000)          # min_gap 5 min, then the uptime warm-up
+        self.assertEqual(self.restart.restarts, 2)
+        self.feed(120, 165000)
+        self.assertEqual(self.restart.restarts, 2)
+        limit = [m for m in self.lines if "is the limit" in m]
+        self.assertEqual(len(limit), 1, self.lines)
+        self.assertIn("nothing sent", limit[0])
+
+    def test_a_full_window_at_strength_an_hour_on_ends_the_episode(self):
+        self.feed(10, 165000)
+        self.feed(20, 165000)
+        self.assertEqual(self.restart.restarts, 2)
+        self.feed(9, 640000)                # one short of a full window
+        self.feed(20, 165000)
+        self.assertEqual(self.restart.restarts, 2)
+        self.feed(119, 640000)              # an hour at strength since the last weak window, one sample short
+        self.assertEqual([m for m in self.lines if "weak hashing ended" in m], [])
+        self.feed(1, 640000)
+        ended = [m for m in self.lines if "weak hashing ended" in m]
+        self.assertEqual(len(ended), 1)
+        self.assertIn("2 restarts in the episode", ended[0])
+        self.feed(10, 165000)               # a new episode gets its own restarts
+        self.assertEqual(self.restart.restarts, 3)
+
+    def test_a_board_that_relapses_gets_no_fresh_pair(self):
+        """Design review 1: restart, five minutes at strength, weak again. That is one episode, not a new one."""
+        for _ in range(6):
+            self.feed(10, 640000)           # cured by the restart, a full window at strength
+            self.feed(30, 165000)           # relapses 5 min later
+        self.assertEqual(self.restart.restarts, 2)
+
+    def test_a_power_cycle_or_hang_does_not_end_the_episode(self):
+        self.feed(10, 165000)
+        self.feed(20, 165000)
+        self.feed(8, 0, ok=False)           # a hang; the unreachable rule restarts it
+        self.up = 0
+        self.feed(30, 165000)               # back, still weak
+        weak = [m for m in self.lines if "restart #" in m and "weakly" in m]
+        self.assertEqual(len(weak), 2)
+
+    def test_zero_restarts_is_log_only(self):
+        self.wd = self.make(weak_restarts=0)
+        self.feed(60, 165000)
+        self.assertEqual(self.restart.restarts, 0)
+        self.assertEqual(len([m for m in self.lines if "is the limit" in m]), 1)
+
+    def test_a_model_without_the_rule_is_never_judged(self):
+        self.feed(60, 165000, weak=None)
+        self.assertEqual(self.restart.restarts, 0)
+        self.assertEqual(self.weak_lines(), [])
+
+    def test_a_hold_stands_it_down_and_a_fresh_window_follows_it(self):
+        self.feed(8, 165000)
+        self.wd.hold_start(60, "test")
+        self.feed(2, 165000)                # a hashing miner releases the hold on the second sample
+        self.assertIsNone(self.wd.hold)
+        self.feed(9, 165000)
+        self.assertEqual(self.restart.restarts, 0)
+        self.feed(1, 165000)
+        self.assertEqual(self.restart.restarts, 1)
+
+    def test_the_daily_cap_counts_it(self):
+        self.wd = self.make(max_restarts_per_day=1)
+        self.wd._restart_times.append(self.clock() - 3600)
+        self.feed(10, 165000)
+        self.assertEqual(self.restart.restarts, 0)
+        self.assertTrue(any("is the cap" in m and "weakly" in m for m in self.lines))
+
+    def test_pool_lines_with_shares_flowing_do_not_hold_it(self):
+        """Design review 4: a rising counter is the proof the pool is up; the pool wait is not this rule's."""
+        self.wd.log_reader = True
+        for _ in range(20):
+            self.clock.tick(30)
+            self.up += 30
+            self.acc += 3
+            self.wd.observe(True, self.acc, hashing=True)
+            self.wd.observe_rate(165000, WEAK, clock=500.0, elapsed=self.up)
+            self.wd.observe_log(True, ["pool"])     # a pool line on every read
+            self.wd.check()
+            if self.restart.restarts:
+                break
+        self.assertEqual(self.restart.restarts, 1)
+        self.assertIsNone(self.wd.upstream_since)
+        self.assertFalse(any("pool unreachable" in m for m in self.lines))
+
+    def test_never_the_power_rung(self):
+        self.restart.fail = True
+        self.wd = self.make(plug=self.plug, power=dict(DEFAULT_POWER, host="x", device_id="plug-1", cycle=True),
+                            sleep=lambda s: None)
+        self.feed(60, 165000)
+        self.assertEqual(self.plug.calls, [])
+        self.assertEqual(self.plug.identifies, 0)
+
+    def stamp(self, minutes_ago):
+        return datetime.datetime.fromtimestamp(self.clock() - minutes_ago * 60).strftime("%Y-%m-%d %H:%M:%S")
+
+    def test_the_episode_survives_a_service_restart(self):
+        self.wd.seed_from_events([
+            self.stamp(60) + " watchdog: restart #20 sent (hashing weakly for 5 min: median 165 GH/s)",
+            self.stamp(30) + " watchdog: restart #21 sent (hashing weakly for 5 min: median 160 GH/s)"])
+        self.feed(20, 165000)
+        self.assertEqual(self.restart.restarts, 0)
+        self.assertTrue(any("is the limit" in m for m in self.lines))
+
+    def test_an_end_line_after_the_seeded_restarts_clears_them(self):
+        self.wd.seed_from_events([
+            self.stamp(60) + " watchdog: restart #20 sent (hashing weakly for 5 min: median 165 GH/s)",
+            self.stamp(50) + " watchdog: restart #21 sent (hashing weakly for 5 min: median 160 GH/s)",
+            self.stamp(40) + " watchdog: weak hashing ended after 25 min (640 GH/s); 2 restarts in the episode"])
+        self.feed(10, 165000)
+        self.assertEqual(self.restart.restarts, 1)
+
+    def test_the_seed_is_idempotent_and_counts_a_failed_attempt(self):
+        lines = [self.stamp(30) + " watchdog: restart attempt failed: PUT mcb/restart: timed out (x) "
+                 "(hashing weakly for 5 min: median 165 GH/s, under the 282 GH/s of 7 chips at 500 MHz)",
+                 self.stamp(25 * 60) + " watchdog: restart #3 sent (hashing weakly for 5 min: median 1 GH/s)"]
+        self.wd.seed_from_events(lines)
+        self.wd.seed_from_events(lines)
+        self.assertEqual(self.wd._weak_count, 1)    # the 25 h old line is outside the day
+        self.feed(30, 165000)
+        self.assertEqual(self.restart.restarts, 1)
+
+    def test_a_live_restart_line_is_read_back_by_the_seed(self):
+        self.feed(10, 165000)
+        sent = [m for m in self.lines if "restart #1 sent" in m][0]
+        stamp = datetime.datetime.fromtimestamp(self.clock()).strftime("%Y-%m-%d %H:%M:%S")
+        self.assertTrue(WEAK_SEED_RE.match(stamp + " watchdog: " + sent.split("watchdog: ", 1)[1]), sent)
+        self.wd.seed_from_events([stamp + " " + sent])
+        self.assertEqual(self.wd._weak_count, 1)    # its own line is not counted twice

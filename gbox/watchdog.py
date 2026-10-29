@@ -40,7 +40,9 @@ episode and nothing moves. With it true: off, `off_seconds`, on, then
 ladder again. An episode ends at the first successful sample.
 """
 import datetime
+import math
 import re
+import statistics
 import time
 from collections import deque
 
@@ -73,6 +75,28 @@ LAN_CHECK_SECONDS = 60
 HOLD_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) hold: (?:started by (you|the schedule)"
                      r"(?: until (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})|, no expiry)(?: \((.*)\))?|(released|expired))")
 STAMP = "%Y-%m-%d %H:%M:%S"
+# 0.13.2: the weak-hashing rule (owner's decision 2026-10-29, numbers per model in `models.WEAK_HASHING`). A window
+# is this many ok samples in a row, every one under the ceiling and taken at least WEAK_WARM_SECONDS into the
+# miner's run: the replay over every log since September counted samples from 300 s of uptime, and the power settle
+# gap ends about a minute after power returns, too soon for a slow warm-up.
+WEAK_SAMPLES = 10
+WEAK_WARM_SECONDS = 300
+# An episode ends on a full window at strength at least this long after its last weak window. Five minutes alone
+# would let a board that relapses 20 min after each restart start a new episode, and a new pair of restarts, each
+# time (design review, 2026-10-29); no cured spell on record relapsed inside 2 h.
+WEAK_QUIET_SECONDS = 3600
+# Read back at start so a service restart does not hand a weak episode fresh restarts. The reason is the line's
+# last parenthesis and carries none of its own; an attempt that failed has the exception's text before it.
+WEAK_SEED_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) watchdog: restart (?:#\d+ sent|attempt failed: .*) "
+                          r"\(hashing weakly [^()]*\)$")
+WEAK_END_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) watchdog: weak hashing ended ")
+
+
+def _num(x):
+    """A finite number from a sample's field, or None (the miner's JSON is untrusted; bool is not a number)."""
+    if isinstance(x, bool) or not isinstance(x, (int, float)) or not math.isfinite(x):
+        return None
+    return float(x)
 
 
 def _parse_stamp(text):
@@ -86,7 +110,7 @@ class Watchdog:
     def __init__(self, restart, events, interval, stall_minutes=5, unreachable_minutes=2,
                  min_gap_minutes=10, max_restarts_per_day=6, clock=time.time,
                  plug=None, power=None, sleep=time.sleep, absent_minutes=2, upstream_restart_hours=8,
-                 dead_minutes=0, low_hashrate_fraction=0, low_hashrate_minutes=10):
+                 dead_minutes=0, weak_restarts=2):
         self._restart = restart
         self._events = events
         self.interval = float(interval)
@@ -158,11 +182,18 @@ class Watchdog:
         self._seeded_deadlines = set()
         self._deadline_logged = False       # one "power cycle at HH:MM" line per silence
         self._deadline_refused = None       # the refusal last written, so a repeat is not written every poll
-        # 0.13.0 decision 13: a stretch of low hashrate is logged, start and end, and nothing else
-        self.low_fraction = float(low_hashrate_fraction or 0)
-        self.low_seconds = float(low_hashrate_minutes or 0) * 60
-        self._low_since = None
-        self._low_logged = False
+        # 0.13.2: weak hashing. `_weak` holds the newest run of samples under the ceiling, (t, mhs, ceiling, warm,
+        # accepted, the model's row, clock); `_weak_healthy` the times of the newest run at strength. Either is emptied by
+        # a sample that breaks it: a failed one, one with no clock or rate, one under the model's lowest clock.
+        self.weak_restarts = int(weak_restarts or 0)
+        self._weak = deque(maxlen=WEAK_SAMPLES)
+        self._weak_healthy = deque(maxlen=WEAK_SAMPLES)
+        self.weak_since = None              # the running weak episode, or None
+        self._weak_last = None              # its newest qualifying window
+        self._weak_count = 0                # weak restarts taken in it (an attempt counts, like the daily cap)
+        self._weak_logged = False           # its one "is the limit" line
+        self._seeded_weak = set()
+        self._weak_after = float("-inf")    # a hold's end: no weak window reaches back past it
 
     def observe(self, ok, accepted, t=None, hashing=None, absent=None, answered=None):
         """One sample. `hashing` says whether the miner reported a hashrate; a hold releases only on
@@ -216,6 +247,8 @@ class Watchdog:
                 # least on the network: that is what picks the remedy, with no meter needed (2026-09-19).
                 self._boot_check["http_ok"] = True
         else:
+            self._weak.clear()              # the poller hands only ok samples to observe_rate (design review 7)
+            self._weak_healthy.clear()
             if answered and self._boot_check is not None:
                 self._boot_check["http_ok"] = True   # a 500 while booting is an answer too (review A7)
             if self.episode_start is None:
@@ -229,29 +262,68 @@ class Watchdog:
             if self._gap_streak >= HOLD_OK_SAMPLES:
                 self._end_gap("the miner is hashing again")
 
-    def observe_rate(self, mhs, rated_mhs, t=None):
-        """0.13.0 decision 13: a hashing miner under `low_hashrate_fraction` of its rated rate for
-        `low_hashrate_minutes` gets one line, and one more when it recovers. Nothing is sent: on 2026-10-20 an hour
-        at a quarter rate (12 of 16 chips quiet) ended with the miner's own restart, and there is one such hour on
-        record, too few to act on. Only samples that hash at all are judged; a dead board is the other rules'."""
-        if not self.low_fraction or not rated_mhs or not mhs or mhs <= 0:
-            return
+    def observe_rate(self, mhs, weak, clock=None, elapsed=None, t=None):
+        """0.13.2: one ok sample's 20 s rate for the weak-hashing rule, called after `observe`. `weak` is the
+        model's row from `models.weak_hashing_for` (None: the rule is off for this model). The ceiling is
+        `ceiling_chips` chips' worth at the sample's clock; a sample under it joins the weak window, one at or over
+        it the window at strength that ends an episode. Replaces decision 13's log-only line (the 10-20 hour and the
+        10-29 night, 4 h at 4 chips of 16, were both spells this rule exists for)."""
         t = self._clock() if t is None else t
-        pct = round(self.low_fraction * 100)
-        if mhs < self.low_fraction * rated_mhs:
-            if self._low_since is None:
-                self._low_since = t
-            elif not self._low_logged and t - self._low_since >= self.low_seconds:
-                self._low_logged = True
-                self._events.write("watchdog: hashing at %.0f GH/s, under %d%% of the rated %.0f GH/s, for %d min; "
-                                   "logged only, nothing sent" % (mhs / 1000, pct, rated_mhs / 1000,
-                                                                  round((t - self._low_since) / 60)))
+        mhs, clock, elapsed = _num(mhs), _num(clock), _num(elapsed)
+        if not weak or mhs is None or clock is None or clock < weak["min_clock"]:
+            self._weak.clear()              # nothing to judge on: a missing clock is not a guess (review 2, 3)
+            self._weak_healthy.clear()
             return
-        if self._low_logged:
-            self._events.write("watchdog: hashrate back above %d%% of rated after %d min (%.0f GH/s)"
-                               % (pct, round((t - self._low_since) / 60), mhs / 1000))
-        self._low_since = None
-        self._low_logged = False
+        ceiling = weak["ceiling_chips"] * weak["chip_mhs_per_mhz"] * clock
+        if mhs < ceiling:
+            warm = elapsed is not None and elapsed >= WEAK_WARM_SECONDS
+            self._weak.append((t, mhs, ceiling, warm, self._last_accepted, weak, clock))
+            self._weak_healthy.clear()
+            return
+        self._weak.clear()
+        self._weak_healthy.append(t)
+        if (self.weak_since is not None and len(self._weak_healthy) == WEAK_SAMPLES
+                and self._contiguous([(x,) for x in self._weak_healthy])
+                and t - (self._weak_last or self.weak_since) >= WEAK_QUIET_SECONDS):
+            self._events.write("watchdog: weak hashing ended after %d min (%.0f GH/s); %d restart%s in the episode"
+                               % (round((t - self.weak_since) / 60), mhs / 1000, self._weak_count,
+                                  "" if self._weak_count == 1 else "s"))
+            self.weak_since = self._weak_last = None
+            self._weak_count = 0
+            self._weak_logged = False
+
+    def _weak_reason(self, floor):
+        """The weak-hashing verdict, or None. A full window after `floor` (the restart and settle gaps), every
+        sample warm and under the ceiling, the newest the newest sample seen, its median at or over the model's
+        floor (under it is "not hashing", the other rules' business), and the accepted counter higher at its end
+        than at its start (frozen is the stall rule's). Past `weak_restarts` in this episode it writes one line and
+        returns None, so the idle path in `check` still runs (design review 5)."""
+        rows = [r for r in self._weak if r[0] > max(floor, self._weak_after)]
+        if len(rows) < WEAK_SAMPLES or not self._rows or rows[-1][0] != self._rows[-1][0]:
+            return None
+        if not self._contiguous(rows) or not all(r[3] for r in rows):
+            return None
+        median = statistics.median(r[1] for r in rows)
+        first, last = rows[0][4], rows[-1][4]
+        if median < rows[-1][5]["floor_mhs"] or first is None or last is None or last <= first:
+            return None
+        now = self._clock()
+        if self.weak_since is None:
+            self.weak_since = now
+            self._weak_count = 0
+            self._weak_logged = False
+        self._weak_last = now
+        mins = round(WEAK_SAMPLES * self.interval / 60)
+        if self._weak_count >= self.weak_restarts:
+            if not self._weak_logged:
+                self._weak_logged = True
+                self._events.write("watchdog: hashing weakly for %d min, median %.0f GH/s; %d weak restart%s in this "
+                                   "episode is the limit, logged only, nothing sent until it hashes at strength "
+                                   "for a full window an hour after its last weak one"
+                                   % (mins, median / 1000, self.weak_restarts, "" if self.weak_restarts == 1 else "s"))
+            return None
+        return ("hashing weakly for %d min: median %.0f GH/s, under the %.0f GH/s of %d chips at %.0f MHz"
+                % (mins, median / 1000, rows[-1][2] / 1000, rows[-1][5]["ceiling_chips"], rows[-1][6]))
 
     def _end_gap(self, why):
         """End the post-cycle settle gap early, on proof of health or of a settled fault (2026-09-19)."""
@@ -469,6 +541,7 @@ class Watchdog:
             self._events.write("hold: released by you")
         self.hold = None
         self._rows.clear()
+        self._weak_after = self._clock()    # 0.13.2: like the stall rule, a full weak window after the hold
         # The deadline's clock starts at the hold's end (design 4.1): it ran on through the hold, and a hold that
         # expired with the cable still out was cut 2 min later (release review 3).
         self.silent_since = None
@@ -587,7 +660,38 @@ class Watchdog:
             self._events.write("service: watchdog picked up %s and %s from the last 24 h of the event log; the daily caps carry on"
                                % (plural(len(restarts), "restart"), plural(len(cycles), "cycle")))
         self._seed_hold(lines)
+        self._seed_weak(lines, cutoff)
         return len(restarts), len(cycles)
+
+    def _seed_weak(self, lines, cutoff):
+        """0.13.2: the weak restarts of the last 24 h written after the newest "weak hashing ended" line are the
+        running episode's, so a service restart does not hand it a fresh pair. Idempotent by timestamp, as the caps
+        are; a failed attempt counts, as it does live (design review 6)."""
+        weak, ended = [], None
+        for line in lines:
+            e = WEAK_END_RE.match(line or "")
+            if e:
+                t = _parse_stamp(e.group(1))
+                if t is not None:
+                    ended, weak = t, []
+                continue
+            m = WEAK_SEED_RE.match((line or "").rstrip("\r\n"))
+            if m:
+                t = _parse_stamp(m.group(1))
+                if t is not None and t >= cutoff:
+                    weak.append(t)
+        new = [t for t in weak if t not in self._seeded_weak and (ended is None or t > ended)]
+        if not new:
+            return
+        self._seeded_weak.update(new)
+        if self.weak_since is None:
+            self.weak_since = min(weak)
+            self._weak_logged = False
+        self._weak_count += len(new)
+        self._weak_last = max(self._weak_last or 0, max(new))
+        self._events.write("service: watchdog picked up a weak-hashing episode from the event log: %d weak "
+                           "restart%s since %s" % (self._weak_count, "" if self._weak_count == 1 else "s",
+                                                   self._stamp(self.weak_since)))
 
     def external_restart(self):
         """Someone else (the dashboard's button) restarted the miner: start the settle gap.
@@ -622,6 +726,11 @@ class Watchdog:
             tail = [r for r in rows if r[0] > floor][-self.absent_rows:]
             if len(tail) == self.absent_rows and self._contiguous(tail) and all(r[3] for r in tail):
                 return "hashboard absent for %d min" % round(self.absent_rows * self.interval / 60)
+        # weak hashing (0.13.2): before the stall rule's own window test, which would otherwise gate it on
+        # `stall_rows` (design review 8). The two cannot both hold: weak needs the counter to rise, stall frozen.
+        weak = self._weak_reason(floor)
+        if weak:
+            return weak
         # stalled: a full window of fresh samples after the gap, so a reboot's own quiet counter is never judged
         recent = [r for r in rows if r[0] > floor][-self.stall_rows:]
         if len(recent) < self.stall_rows or not self._contiguous(recent):
@@ -694,6 +803,11 @@ class Watchdog:
         self.last_restart = now
         self._restart_times.append(now)
         self._seeded_restarts.add(now)      # as in _cycle: this restart's own log line must not be re-counted
+        if reason.startswith("hashing weakly"):
+            # Counted when the slot is taken, like the cap. Never the power rung: `_consider_power` takes only
+            # "miner unreachable". A PUT that raises does add to `episode_failed_restarts`, as a stall's does.
+            self._weak_count += 1
+            self._seeded_weak.add(now)
         try:
             self._restart()
             self._events.write("watchdog: restart #%d sent (%s)" % (self.restarts_today(), reason))

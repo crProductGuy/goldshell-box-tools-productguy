@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from gbox import api, config, poller, series, trials, uptime
+from gbox import api, config, models, poller, series, trials, uptime
 from gbox.events import EventLog
 from gbox.watchdog import Watchdog
 from tests.fake_miner import FakeMiner
@@ -342,6 +342,23 @@ class PollerHashingSignalTest(unittest.TestCase):
         poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, watchdog=spy).poll_once()
         poller.Poller(api.Miner("127.0.0.1:1", password="password", timeout=1), self.csv, 30, watchdog=spy).poll_once()
         self.assertEqual(spy.seen, [(True, True), (False, False)])
+
+    def test_the_weak_rule_gets_the_rate_clock_uptime_and_the_models_numbers(self):
+        got = []
+
+        class RateSpy(self.Spy):
+            def observe_rate(self, mhs, weak, clock=None, elapsed=None, t=None):
+                got.append((mhs, weak, clock, elapsed))
+
+        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, watchdog=RateSpy())
+        row = p.poll_once()
+        poller.Poller(api.Miner("127.0.0.1:1", password="password", timeout=1), self.csv, 30,
+                      watchdog=RateSpy()).poll_once()             # a failed sample is not handed over
+        self.assertEqual(len(got), 1)
+        mhs, weak, clock, elapsed = got[0]
+        self.assertEqual((mhs, clock, elapsed), (row["mhs_20s"], row["clock"], row["elapsed"]))
+        self.assertIsNotNone(clock)
+        self.assertEqual(weak, models.weak_hashing_for((p.miner_status or {}).get("model")))
 
     def test_hashing_is_false_when_the_board_reports_no_hashrate(self):
         import re

@@ -201,11 +201,20 @@ class DeadlineConfigTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             cfg.validate()
 
-    def test_retry_hours_and_low_hashrate_are_bounded(self):
+    def test_retry_hours_and_weak_restarts_are_bounded(self):
         cfg = config.Config(host="m", power={"host": "p", "device_id": "abc", "dead_retry_hours": 0})
         with self.assertRaises(ValueError):
             cfg.validate()
+        for bad in (3, -1, 1.5, True, "2"):
+            cfg = config.Config(host="m")
+            cfg.watchdog["weak_restarts"] = bad
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                cfg.validate()
         cfg = config.Config(host="m")
-        cfg.watchdog["low_hashrate_fraction"] = 1.0
-        with self.assertRaises(ValueError):
-            cfg.validate()
+        self.assertEqual(cfg.watchdog["weak_restarts"], 2)
+        cfg.watchdog["weak_restarts"] = 0
+        cfg.validate()
+
+    def test_the_retired_low_hashrate_keys_are_ignored(self):
+        cfg = config.Config(host="m", watchdog={"low_hashrate_fraction": 1.0, "low_hashrate_minutes": 0})
+        cfg.validate()                      # 0.13.2: a 0.13.0 config with them, even out of range, still loads
