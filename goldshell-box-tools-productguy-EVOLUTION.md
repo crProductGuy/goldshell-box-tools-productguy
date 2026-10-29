@@ -4341,3 +4341,10 @@ of the gap is the open question.
 and Fable review first. A reviewer's aside, unrelated to the fix: on a meterless plug with the deadline off, the ladder
 kept soft-restarting and never reached a power cycle in two hours; noted, not diagnosed. A small wording bug: the
 "restarted after" line after cycle #10 named cycle #8.
+
+**The HS-BOX question, answered.** The owner then sent a screenshot of the factory page's hashrate chart: flat at zero
+for two hours, then normal. The miner's own history, the endpoint that chart is drawn from, read a minute later with no
+zero in it. The page's code showed why the two could differ: it fetches the history once when it loads, stamps the
+points with the browser's clock, and after that keeps its own copy in the tab, one point a minute. The agent suggested a
+reload; the owner reloaded and the line was full. It was the tab. Lesson for anyone reading these miners: the factory
+chart is a picture held by one browser tab, so reload it before believing a gap in it.
