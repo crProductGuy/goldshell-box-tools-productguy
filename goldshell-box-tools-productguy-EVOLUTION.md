@@ -4348,3 +4348,43 @@ zero in it. The page's code showed why the two could differ: it fetches the hist
 points with the browser's clock, and after that keeps its own copy in the tab, one point a minute. The agent suggested a
 reload; the owner reloaded and the line was full. It was the tab. Lesson for anyone reading these miners: the factory
 chart is a picture held by one browser tab, so reload it before believing a gap in it.
+
+## 2026-10-29, session BF (7cb5c513): a login the miner would not take, a page that would not let go, and sickly hashing
+
+**The goal, in the owner's words.** "Look at what happened overnight. It wasn't hashing for hours, AND the Login is
+still stuck. log in -> Failed to fetch." Then: "At a minimum, I want to be able to dismiss the login window when it's
+'stuck' like this, because it blocks the graphs underneath. Think hard on this."
+
+**The night.** Four hangs, each cycled. Between two of them, for about four hours, only 4 of the 16 chips produced:
+about 165 GH/s at full power draw. The 0.13.0 low-rate rule logged it and, as decided, did nothing else.
+
+**Pushback that found the flaw.** The agent first suspected login slots, then a stale password; both were wrong, and
+the owner said so plainly: the same password, typed or saved, unlocked the factory page every time and never the gbox
+box. "It's structural to the modal operation. Find the flaw." The miner's own web log answered it. The token is one
+fixed string, but the miner keeps a logged-in state behind it: the factory page's Lock, or a reboot, makes it refuse
+the token to everyone until anyone logs in, and then the same token works for all again. Separately, the miner's
+login itself failed with a bare 500 for an hour after a restart, while logins from its own page in a browser went
+through; nothing the agent varied (password, headers, cookies) changed that, so the cause stays inside the firmware.
+Those 500s carry no CORS header, so the page could only ever say "Failed to fetch". And gbox made it worse: after three
+refusals the page threw its token away, a token a new login would only have handed back unchanged, and opened a
+login box with no way out, in front of the charts and the Hold button.
+
+**Decisions (owner).** Build the page part now as 0.13.1; the service part (the page takes the token from the
+service, re-login back-off, event lines, Off/Cycle saying why) goes in 0.14.0 with A and B. Delete the saved miner log,
+which held the pool user strings.
+
+**Built and verified.** 0.13.1 keeps the token on refusals, shows a banner with the time the refusal began and keeps
+polling, lets the login box close (x, Esc, "not now") and stay closed in the tab, gives up a login after 10 s and
+explains failures in sentences. Checked with unit tests that fail on the old page, then in a headless browser driven
+from a stdlib script against a stand-in miner taught to fail exactly as the real one did (refuse the token, answer the
+login with a bare 500): ten steps, all passed. A fresh review found one gap the agent had opened: with the token
+never deleted, a control that needed the miner hit the refusal and only flashed an error; it now opens the login
+box. The browser-checker subagent could not run the check: the only browser attached was the Mac's, which cannot
+reach a test server on the PC.
+
+**Sickly hashing.** The owner asked for a rule that acts on weak hashing, with a floor "just above 0, about 10% under
+one chip's rate at the lowest clock we've ever run", because a quarter-rate threshold "sets up for the next missing
+hours". A scanner read every log since September: the sick state is unmistakable (1 to 4 chips, 8 to 36% of the
+clock's normal rate, 7 minutes to 4 hours, shares still accepted, so the frozen-shares rule missed the long ones),
+and a healthy box never spent even two samples in a row under half its normal rate. Proposal in progress; see the
+next entry or STATUS.md.
