@@ -984,7 +984,8 @@ $("loginform").onsubmit = async e => {
 };
 $("loginclose").onclick = closeLogin;
 $("loginlater").onclick = closeLogin;
-$("overlay").addEventListener("keydown", e => { if (e.key === "Escape") closeLogin(); });
+// On the document, not the box: after a click on "log in" the button is disabled and focus leaves the box (review 1).
+document.addEventListener("keydown", e => { if (e.key === "Escape" && $("overlay").classList.contains("show")) closeLogin(); });
 // The session banner: shown after three rejections in a row, gone on the first poll the miner accepts.
 let rejectedSince = null;
 function renderSession() {
@@ -1112,10 +1113,12 @@ async function refresh() {
       if (unauthorizedStreak < 3) { $("err").textContent = "Miner rejected the session token (" + unauthorizedStreak + "/3), retrying"; return; }
       // 0.13.1: the token is kept. Deleting it bought nothing (a new login returns the same string) and left the page
       // stuck behind the login box whenever the miner's login itself was failing (2026-10-29).
-      $("err").textContent = ""; setBadge("warn", "session rejected"); renderSession(); return;
+      if (/^Miner rejected the session token/.test($("err").textContent)) $("err").textContent = "";   // a control's own error stays
+      setBadge("warn", "session rejected"); renderSession(); return;
     }
     $("err").textContent = "Last error " + new Date().toLocaleTimeString() + ": " + e.message;
     setBadge("bad", /fetch|network/i.test(e.message) ? "UNREACHABLE" : "error");
+    $("session").hidden = true;     // not a refusal; the next 401 shows the banner again (review 1)
   }
 }
 
@@ -1294,7 +1297,7 @@ function renderChart(hist) {
 }
 
 $("host").value = store.get("gbox_host") || "";
-$("host").onchange = () => { store.set("gbox_host", host()); baseline = null; fetchAll.cache = null; poll(); };
+$("host").onchange = () => { store.set("gbox_host", host()); baseline = null; fetchAll.cache = null; unauthorizedStreak = 0; rejectedSince = null; renderSession(); poll(); };
 // 0.13.1: opens the login box and keeps the old token until a new one arrives (it is the same string anyway).
 $("relogin").onclick = () => showLogin("", true);
 // fan duty cycle lives only in the fan controller's log (a few hundred KB), so it is read once a minute, not every refresh
@@ -1769,7 +1772,12 @@ async function openConfirm(title, build) {
     $("cstatus").textContent = ""; $("cstatus").className = "note";
     $("cok").disabled = false; $("cok").hidden = false; $("ccancel").disabled = false; $("ccancel").textContent = "cancel";
     $("confirm").classList.add("show"); (req.password ? $("cpw") : $("ccancel")).focus();
-  } catch (e) { $("err").textContent = "Could not prepare the request: " + (e.message === "401" ? "the miner rejected the session token" : e.message); }
+  } catch (e) {
+    // 0.13.1 review 1: the token is never deleted now, so a refused session is the case that needs the box. A login
+    // here brings the session back for every client, this page's polls included.
+    if (e.message === "401") { showLogin("The miner is refusing this page's session. A login here brings it back.", true); return; }
+    $("err").textContent = "Could not prepare the request: " + e.message;
+  }
 }
 function closeConfirm() { pending = null; $("cpw").value = ""; $("confirm").classList.remove("show"); }
 async function runConfirmed() {
@@ -1810,6 +1818,7 @@ async function runConfirmed() {
   } catch (e) {
     const msg = e.message === "401" ? "the miner rejected the session token; nothing was sent. Close this and log in again."
       : /login rejected/.test(e.message) ? "wrong password; nothing was sent."
+      : /^login (unanswered|timed out|failed)/.test(e.message) ? loginErrorText(e.message, host()).replace(/ Close this box.*$/, "") + " Nothing was sent."
       : e.message + (req.path === "mcb/setting" ? " Check the Miner panel before trying again." : "");
     say("Failed: " + msg, "err");
     $("cok").disabled = false; $("ccancel").disabled = false; if (req.password) { $("cpw").focus(); $("cpw").select(); }
