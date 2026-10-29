@@ -4451,3 +4451,15 @@ hand as the tests.
 
 **Left out:** an end-to-end run of the real poller against a weak fake miner (the moving-clock test and the poller
 stamp test cover the gap that was found); 0.14.0 (A, B, the service login) stays next.
+
+**The owner raised the limit to 3 (same session, after the build).** Asked what "episode" means, then: "I feel like
+max 2 restarts/episode might be a little low. Suppose we made it 3. what does the history say about net loss of
+hashing time ... My bias is always maximizing hashing uptime." The agent's answer from the BF rate study: seven
+real weak spells since September (about 5.4 h at 8-28% of normal, roughly 4 h of full-rate work lost), and every
+one ended at the first restart or power cycle, back over 80% at 1.3 min of uptime with no relapse in 2 h. So
+history cannot tell 2 from 3; the limit was never reached in a real spell. The argument for 3 is the asymmetry: a
+restart costs a weak board seconds of full-rate work, a spell can last hours. The argument against: a slow
+warm-up (twice in seven weeks, ~17 min) can be interrupted once more, and a restart can leave a board worse. Options
+were 3 as default and ceiling, 3 as ceiling only, or keep 2; the agent recommended the first and the owner chose it.
+Default and ceiling of `watchdog.weak_restarts` are 3; two tests fail on the previous commit; a fresh reviewer
+found no defect.
