@@ -81,7 +81,8 @@ STAMP = "%Y-%m-%d %H:%M:%S"
 # gap ends about a minute after power returns, too soon for a slow warm-up.
 WEAK_SAMPLES = 10
 WEAK_WARM_SECONDS = 300
-# An episode ends on a full window at strength at least this long after its last weak window. Five minutes alone
+# An episode ends on a full window at strength at least this long after its last weak window, or when a weak window
+# comes at least this long after the last one (the box was unseen meanwhile: a new fault as far as can be told). Five minutes alone
 # would let a board that relapses 20 min after each restart start a new episode, and a new pair of restarts, each
 # time (design review, 2026-10-29); no cured spell on record relapsed inside 2 h.
 WEAK_QUIET_SECONDS = 3600
@@ -312,6 +313,15 @@ class Watchdog:
         if median < rows[-1][5]["floor_mhs"] or first is None or last is None or last <= first:
             return None
         now = self._clock()
+        last = self._weak_last or self.weak_since
+        if self.weak_since is not None and now - last >= WEAK_QUIET_SECONDS:
+            # An hour or more with no weak window (the box hung, was off, or was not seen), and weak again: a new
+            # fault as far as anything here can tell, so a new episode. Without this an episode at its limit never
+            # ended unless it was seen at strength, and a box back weak days later got nothing (fix review 1).
+            self._events.write("watchdog: weak hashing ended %d min ago, unseen since; %d restart%s in that episode, "
+                               "a new one begins" % (round((now - last) / 60), self._weak_count,
+                                                     "" if self._weak_count == 1 else "s"))
+            self.weak_since = None
         if self.weak_since is None:
             self.weak_since = now
             self._weak_count = 0
@@ -670,8 +680,8 @@ class Watchdog:
     def _seed_weak(self, lines):
         """0.13.2: the weak restarts written after the newest "weak hashing ended" line in the tail are the running
         episode's, so a service restart does not hand it a fresh pair. No 24 h cutoff: an episode at its limit can
-        stay weak longer than a day (review 3). A stale one costs nothing: it ends on the first window at strength,
-        its last weak window being long past. Idempotent by timestamp, as the caps are; a failed attempt counts, as
+        stay weak longer than a day (review 3). A stale one is ended by the first weak window an hour or more after
+        its last one, with its own "ended" line, or by the first window at strength. Idempotent by timestamp, as the caps are; a failed attempt counts, as
         it does live (design review 6)."""
         weak, ended = [], None
         for line in lines:

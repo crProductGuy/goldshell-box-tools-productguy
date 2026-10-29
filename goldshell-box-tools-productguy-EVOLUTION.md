@@ -4398,3 +4398,56 @@ night's would have been restarted at 02:05 instead of running four hours at a qu
 recovered on their own at about 17 minutes, none during healthy running. The alternative was to hold it for the 0.14.0
 state-table review with A and B; the agent leaned to shipping it alone, sooner, because it touches nothing A and B
 change. The owner adopted the rule as proposed, as 0.13.2, next, and approved merging, tagging and pushing 0.13.1.
+
+## 2026-10-29, session BG (42f9ab84): the weak-hashing rule built, and the review that found it could never fire
+
+**Goal, in the owner's words:** "open gbox, read STATUS.md, build 0.13.2 per the brief". The brief, written at the end
+of BF: soft-restart a miner hashing weakly while shares flow, at most two per weak episode, without changing any other
+rung, and propose when an episode ends.
+
+**Design before code.** The agent wrote a state table and four choices of its own, and sent them to a fresh reviewer
+before writing code. The choices: the rule is per model (the numbers come from one SC-BOX's logs, so other models get
+none, as `absent_signature` was earned); every sample in the window must be at least five minutes into the miner's
+run, which the replay assumed and the early end of the power settle gap does not give; the old log-only keys retired;
+a patch bump. The numbers went into their own table in `models.py` rather than the model profile, which `/api/health`
+serves, so the HTTP API did not change. The review found one blocker. As first drawn, an episode ended after five
+healthy minutes, so a board that came back after each restart and relapsed 20 minutes later would start a new episode,
+and earn a new pair of restarts, every time, all taken from the 60-a-day cap the hang rules need. An episode now ends
+only on a healthy window that comes at least an hour after its last weak one. The same review moved the rule out of
+the pool-wait path (rising shares already prove the pool is up, and going through it could have written "pool
+unreachable" while shares flowed), made a missing clock or one under 500 MHz end the judgement instead of a guess, and
+put the limit inside the rule so the idle path still runs.
+
+**Built and checked.** Tests first, against the fake clock. Writing them turned up a gap the table missed: a hold
+ends on two hashing samples and clears the stall rule's window but not the new one, so samples taken during a hold
+could finish a weak window just after it. The weak window now starts after a hold's end too. A replay fed every
+rotated `log.csv` since September (151,000 samples) through the built class itself, not a copy of its logic: ten
+episodes, a first restart at each of the ten moments the BF study predicted (one four minutes later), none in healthy
+running, never more than two in an episode.
+
+**The review that mattered.** A second fresh reviewer, on the diff, found that the rule could not fire in the
+service at all. The poller stamps its two calls to the watchdog with two reads of the clock, the rule matched them
+exactly, and the real clock moves between the reads. The tests' fake clock does not move, and the replay passed one
+stamp to both calls, so every check the agent had run passed on code that would have done nothing. Fixed both ways
+(one stamp, and a match within half a poll), with a test whose clock moves between the calls and a poller test that
+checks the stamps; both fail on the first build. The same review found smaller things, all fixed: a NaN counter
+would read as rising; seeding back only 24 h would hand a fresh pair to an episode weak for over a day; a wrong
+reason for the 500 MHz floor in the comments (the ceiling scales with the clock; the real reason is that no rate
+was ever measured under 500). Security pass, once at feature-complete: nothing new reaches the network or a file,
+the new event lines carry only numbers, the new pattern is not catastrophic.
+
+**A third look, at the fixes.** A fresh reviewer confirmed all five and found one consequence of the third: with no
+24 h limit on what is read back, an episode at its limit whose box then went off for days, never seen at strength,
+would come back weak after the next service start and get nothing, ever, because every weak verdict renewed the hour
+the episode needed to end. The same trap existed without a service restart, after any hang or off period over an
+hour. The agent chose, and states here for the owner's review, that weakness coming back after an hour with no weak
+verdict at all is a new episode, with its own "ended" line. Continuous weakness and quick relapses stay one episode;
+the rule can no longer go silent for good, which is the failure the release exists to stop. Two tests for it fail on
+the previous commit. The replay did not change.
+
+**Lesson recorded.** A test double that is more regular than the real thing (a clock that never moves between two
+calls) can make a whole feature look finished. The replay shared the blind spot because it was written by the same
+hand as the tests.
+
+**Left out:** an end-to-end run of the real poller against a weak fake miner (the moving-clock test and the poller
+stamp test cover the gap that was found); 0.14.0 (A, B, the service login) stays next.

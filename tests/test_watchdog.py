@@ -1838,6 +1838,27 @@ class WeakHashingTest(unittest.TestCase):
         weak = [m for m in self.lines if "restart #" in m and "weakly" in m]
         self.assertEqual(len(weak), 2)
 
+    def test_weak_again_after_an_hour_unseen_is_a_new_episode(self):
+        """Fix review 1: at its limit, off for two hours, back weak. Not seen at strength, but not seen weak either:
+        a new fault as far as can be told, and it gets restarts."""
+        self.feed(10, 165000)
+        self.feed(20, 165000)
+        self.feed(10, 165000)
+        self.assertEqual(self.restart.restarts, 2)
+        self.clock.tick(2 * 3600)           # the box was off: no samples at all
+        self.up = 0
+        self.feed(20, 165000)
+        self.assertEqual(self.restart.restarts, 3)
+        self.assertTrue(any("unseen since" in m and "a new one begins" in m for m in self.lines))
+
+    def test_a_stale_seeded_episode_does_not_silence_a_new_fault(self):
+        self.wd.seed_from_events([
+            self.stamp(3 * 24 * 60) + " watchdog: restart #20 sent (hashing weakly for 5 min: median 165 GH/s)",
+            self.stamp(3 * 24 * 60 - 10) + " watchdog: restart #21 sent (hashing weakly for 5 min: median 160 GH/s)"])
+        self.assertEqual(self.wd._weak_count, 2)
+        self.feed(10, 165000)
+        self.assertEqual(self.restart.restarts, 1)
+
     def test_zero_restarts_is_log_only(self):
         self.wd = self.make(weak_restarts=0)
         self.feed(60, 165000)

@@ -242,7 +242,9 @@ nothing from its daily caps.
   restart cured every such spell on record. An episode gets
   `watchdog.weak_restarts` (default 2, 0 for lines only) restarts, then
   lines only. It ends when the miner hashes at strength for 5 minutes, at
-  least an hour after its last weak stretch. This rule never cuts power. It
+  least an hour after its last weak stretch, or when weakness comes back
+  after an hour unseen (hung or off), which counts as a new episode. This
+  rule never cuts power. It
   is off for models whose per-chip rate has not been measured.
 
 Give the miner, the plug and this computer DHCP reservations in your router. A
