@@ -1704,6 +1704,40 @@ class WeakHashingTest(unittest.TestCase):
         self.assertEqual(self.restart.restarts, 0)
         self.assertEqual(self.weak_lines(), [])
 
+    def test_a_clock_that_moves_between_the_two_calls_still_fires(self):
+        """0.13.2 review 1: the service's clock is time.time, which moves between observe and observe_rate. The
+        first build matched their stamps exactly and never fired outside the tests."""
+        for _ in range(10):
+            self.clock.tick(30)
+            self.up += 30
+            self.acc += 3
+            self.wd.observe(True, self.acc, hashing=True)           # stamped by the clock ...
+            self.clock.tick(0.000001)
+            self.wd.observe_rate(165000, WEAK, clock=500.0, elapsed=self.up)   # ... and again, a little later
+            self.clock.tick(0.000001)
+            self.wd.check()
+        self.assertEqual(self.restart.restarts, 1)
+
+    def test_a_nan_counter_is_not_rising(self):
+        for _ in range(20):
+            self.clock.tick(30)
+            self.up += 30
+            self.wd.observe(True, float("nan"), hashing=True)
+            self.wd.observe_rate(165000, WEAK, clock=500.0, elapsed=self.up)
+            self.wd.check()
+        self.assertEqual(self.restart.restarts, 0)
+
+    def test_junk_from_the_miner_breaks_the_window(self):
+        for junk in (dict(mhs=float("nan")), dict(mhs=True), dict(clock=float("inf")), dict(clock="500")):
+            self.feed(9, 165000)
+            self.clock.tick(30)
+            self.up += 30
+            self.acc += 3
+            self.wd.observe(True, self.acc, hashing=True)
+            self.wd.observe_rate(junk.get("mhs", 165000), WEAK, clock=junk.get("clock", 500.0), elapsed=self.up)
+            self.wd.check()
+            self.assertEqual(self.restart.restarts, 0, junk)
+
     def test_under_the_floor_is_not_this_rules_business(self):
         self.feed(30, 30000)                # under one chip's worth: "not hashing"
         self.assertEqual(self.restart.restarts, 0)
@@ -1744,7 +1778,7 @@ class WeakHashingTest(unittest.TestCase):
     def test_a_clock_under_500_or_missing_is_never_judged(self):
         self.feed(30, 165000, clock=0)
         self.feed(30, 165000, clock=None)
-        self.feed(30, 165000, clock=400.0)  # 16 healthy chips at 400 MHz make 516 GH/s; the rule stays out
+        self.feed(30, 165000, clock=400.0)  # never run there, the per-chip rate unmeasured: the rule stays out
         self.assertEqual(self.restart.restarts, 0)
         self.feed(9, 165000, clock=500.0)
         self.feed(1, 165000, clock=None)    # one sample with no clock breaks the window
@@ -1877,16 +1911,18 @@ class WeakHashingTest(unittest.TestCase):
         self.assertEqual(self.restart.restarts, 1)
 
     def test_the_seed_is_idempotent_and_counts_a_failed_attempt(self):
-        lines = [self.stamp(30) + " watchdog: restart attempt failed: PUT mcb/restart: timed out (x) "
-                 "(hashing weakly for 5 min: median 165 GH/s, under the 282 GH/s of 7 chips at 500 MHz)",
-                 self.stamp(25 * 60) + " watchdog: restart #3 sent (hashing weakly for 5 min: median 1 GH/s)"]
+        lines = [self.stamp(25 * 60) + " watchdog: restart #3 sent (hashing weakly for 5 min: median 150 GH/s)",
+                 self.stamp(30) + " watchdog: restart attempt failed: PUT mcb/restart: timed out (x) "
+                 "(hashing weakly for 5 min: median 165 GH/s, under the 282 GH/s of 7 chips at 500 MHz)"]
         self.wd.seed_from_events(lines)
         self.wd.seed_from_events(lines)
-        self.assertEqual(self.wd._weak_count, 1)    # the 25 h old line is outside the day
+        # both count: an episode at its limit can stay weak longer than a day (review 3)
+        self.assertEqual(self.wd._weak_count, 2)
         self.feed(30, 165000)
-        self.assertEqual(self.restart.restarts, 1)
+        self.assertEqual(self.restart.restarts, 0)
 
     def test_a_live_restart_line_is_read_back_by_the_seed(self):
+        self.clock.t += 0.4                 # time.time is fractional; the log's stamp is not (review 4)
         self.feed(10, 165000)
         sent = [m for m in self.lines if "restart #1 sent" in m][0]
         stamp = datetime.datetime.fromtimestamp(self.clock()).strftime("%Y-%m-%d %H:%M:%S")

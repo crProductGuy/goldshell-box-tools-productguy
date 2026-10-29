@@ -277,7 +277,8 @@ class Watchdog:
         ceiling = weak["ceiling_chips"] * weak["chip_mhs_per_mhz"] * clock
         if mhs < ceiling:
             warm = elapsed is not None and elapsed >= WEAK_WARM_SECONDS
-            self._weak.append((t, mhs, ceiling, warm, self._last_accepted, weak, clock))
+            # a non-finite counter is no counter: NaN <= NaN is False and would read as rising (review 2)
+            self._weak.append((t, mhs, ceiling, warm, _num(self._last_accepted), weak, clock))
             self._weak_healthy.clear()
             return
         self._weak.clear()
@@ -299,7 +300,10 @@ class Watchdog:
         than at its start (frozen is the stall rule's). Past `weak_restarts` in this episode it writes one line and
         returns None, so the idle path in `check` still runs (design review 5)."""
         rows = [r for r in self._weak if r[0] > max(floor, self._weak_after)]
-        if len(rows) < WEAK_SAMPLES or not self._rows or rows[-1][0] != self._rows[-1][0]:
+        # The window's newest sample must be the newest sample seen. Matched within half a poll, not exactly: a
+        # caller that stamps the two calls separately differs by microseconds, and exact equality made the rule
+        # dead in the service (0.13.2 review 1).
+        if len(rows) < WEAK_SAMPLES or not self._rows or abs(rows[-1][0] - self._rows[-1][0]) > self.interval / 2:
             return None
         if not self._contiguous(rows) or not all(r[3] for r in rows):
             return None
@@ -660,13 +664,15 @@ class Watchdog:
             self._events.write("service: watchdog picked up %s and %s from the last 24 h of the event log; the daily caps carry on"
                                % (plural(len(restarts), "restart"), plural(len(cycles), "cycle")))
         self._seed_hold(lines)
-        self._seed_weak(lines, cutoff)
+        self._seed_weak(lines)
         return len(restarts), len(cycles)
 
-    def _seed_weak(self, lines, cutoff):
-        """0.13.2: the weak restarts of the last 24 h written after the newest "weak hashing ended" line are the
-        running episode's, so a service restart does not hand it a fresh pair. Idempotent by timestamp, as the caps
-        are; a failed attempt counts, as it does live (design review 6)."""
+    def _seed_weak(self, lines):
+        """0.13.2: the weak restarts written after the newest "weak hashing ended" line in the tail are the running
+        episode's, so a service restart does not hand it a fresh pair. No 24 h cutoff: an episode at its limit can
+        stay weak longer than a day (review 3). A stale one costs nothing: it ends on the first window at strength,
+        its last weak window being long past. Idempotent by timestamp, as the caps are; a failed attempt counts, as
+        it does live (design review 6)."""
         weak, ended = [], None
         for line in lines:
             e = WEAK_END_RE.match(line or "")
@@ -678,8 +684,8 @@ class Watchdog:
             m = WEAK_SEED_RE.match((line or "").rstrip("\r\n"))
             if m:
                 t = _parse_stamp(m.group(1))
-                if t is not None and t >= cutoff:
-                    weak.append(t)
+                if t is not None:
+                    weak.append(int(t))
         new = [t for t in weak if t not in self._seeded_weak and (ended is None or t > ended)]
         if not new:
             return
@@ -807,7 +813,7 @@ class Watchdog:
             # Counted when the slot is taken, like the cap. Never the power rung: `_consider_power` takes only
             # "miner unreachable". A PUT that raises does add to `episode_failed_restarts`, as a stall's does.
             self._weak_count += 1
-            self._seeded_weak.add(now)
+            self._seeded_weak.add(int(now))     # the log's stamp is whole seconds (review 4)
         try:
             self._restart()
             self._events.write("watchdog: restart #%d sent (%s)" % (self.restarts_today(), reason))

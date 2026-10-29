@@ -344,21 +344,29 @@ class PollerHashingSignalTest(unittest.TestCase):
         self.assertEqual(spy.seen, [(True, True), (False, False)])
 
     def test_the_weak_rule_gets_the_rate_clock_uptime_and_the_models_numbers(self):
-        got = []
+        got, stamps = [], []
 
         class RateSpy(self.Spy):
-            def observe_rate(self, mhs, weak, clock=None, elapsed=None, t=None):
-                got.append((mhs, weak, clock, elapsed))
+            def observe(self, ok, accepted, t=None, hashing=None, absent=None, answered=None):
+                stamps.append(t)
 
-        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, watchdog=RateSpy())
+            def observe_rate(self, mhs, weak, clock=None, elapsed=None, t=None):
+                got.append((mhs, weak, clock, elapsed, t))
+
+        ticks = iter(range(1_000_000, 2_000_000))   # a clock that moves on every call, as time.time does
+        p = poller.Poller(api.Miner(self.fm.address, password="password"), self.csv, 30, watchdog=RateSpy(),
+                          clock=lambda: float(next(ticks)))
         row = p.poll_once()
         poller.Poller(api.Miner("127.0.0.1:1", password="password", timeout=1), self.csv, 30,
                       watchdog=RateSpy()).poll_once()             # a failed sample is not handed over
         self.assertEqual(len(got), 1)
-        mhs, weak, clock, elapsed = got[0]
+        mhs, weak, clock, elapsed, t = got[0]
         self.assertEqual((mhs, clock, elapsed), (row["mhs_20s"], row["clock"], row["elapsed"]))
         self.assertIsNotNone(clock)
-        self.assertEqual(weak, models.weak_hashing_for((p.miner_status or {}).get("model")))
+        self.assertEqual(p.miner_status.get("model"), "Goldshell-SCBox")
+        self.assertEqual(weak, models.weak_hashing_for("Goldshell-SCBox"))
+        self.assertIsNotNone(weak)
+        self.assertEqual(t, stamps[0])              # one stamp for both calls (0.13.2 review 1)
 
     def test_hashing_is_false_when_the_board_reports_no_hashrate(self):
         import re

@@ -157,8 +157,8 @@ _BY_KEY = {_key(k): v for k, v in MODELS.items()}
 # A model earns a row from its own log, as `absent_signature` does. The SC-BOX's come from every rotated log.csv,
 # 2026-09-05..10-29 (session BF): one chip makes 0.0806 GH/s per MHz, linear 500-600 MHz; the lowest clock ever
 # run is 500; the floor is one chip at 500 less 10% (the owner's, 36 GH/s); weak is under 7 chips' worth.
-# Under `min_clock` 16 healthy chips can fall under the ceiling (400 MHz: 516 against 282 GH/s), so the rule
-# does not judge there at all.
+# Under `min_clock` the per-chip rate has never been measured (the box has never run there), so the rule does not
+# judge there at all rather than extrapolate.
 WEAK_HASHING = {
     "Goldshell-SCBox": {"chip_mhs_per_mhz": 80.6, "ceiling_chips": 7, "min_clock": 500.0, "floor_mhs": 36000.0},
 }

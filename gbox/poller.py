@@ -541,15 +541,16 @@ class Poller(threading.Thread):
         self.latest = row
         if self.watchdog is not None and not row["http"].startswith("ERR:NoCredentials"):
             ok = row["http"] == "ok"
+            judged = self._clock()          # one stamp for both calls: the weak rule matches them (0.13.2 review 1)
             # hashing: the board reported a 20 s hashrate. A controller back from a power-on without its
             # hashboard answers with 0.0 (2026-09-13 15:46), and a hold must not release on that.
-            self.watchdog.observe(ok, row.get("accepted"), self._clock(), hashing=ok and (row.get("mhs_20s") or 0) > 0,
+            self.watchdog.observe(ok, row.get("accepted"), judged, hashing=ok and (row.get("mhs_20s") or 0) > 0,
                                   absent=ok and self._board_absent(row), answered=ok or bool(row.get("_answered")))
             observe_rate = getattr(self.watchdog, "observe_rate", None)
             if ok and observe_rate is not None:     # 0.13.2: the weak-hashing rule, for a model that has its numbers
                 weak = models.weak_hashing_for((self.miner_status or {}).get("model"))
                 observe_rate(row.get("mhs_20s"), weak, clock=row.get("clock"), elapsed=row.get("elapsed"),
-                             t=self._clock())
+                             t=judged)
             self.watchdog.check()
         if self.markers is not None:
             try:
