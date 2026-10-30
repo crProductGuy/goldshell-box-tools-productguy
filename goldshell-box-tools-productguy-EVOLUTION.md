@@ -4463,3 +4463,10 @@ warm-up (twice in seven weeks, ~17 min) can be interrupted once more, and a rest
 were 3 as default and ceiling, 3 as ceiling only, or keep 2; the agent recommended the first and the owner chose it.
 Default and ceiling of `watchdog.weak_restarts` are 3; two tests fail on the previous commit; a fresh reviewer
 found no defect.
+
+**Released (same session, at the owner's word "do all 4").** Fast-forward merge, tag v0.13.2, push, live service
+restarted through its pid file and the Startup launcher; `/api/health` read 0.13.2 with samples advancing, the
+24-hour restart and cycle counts carried over, and the miner kept hashing through the service restart. The worktree
+and branch were removed. The owner asked for a plain-language explainer of the rule, the episodes and the limit;
+it was published as a private page outside the repo. Next in line: read the first weak spell the release sees,
+then 0.14.0 (keep the half sample, skip soft restarts at low draw, the service side of the login fix).
