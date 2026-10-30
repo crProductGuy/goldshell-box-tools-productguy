@@ -4470,3 +4470,54 @@ restarted through its pid file and the Startup launcher; `/api/health` read 0.13
 and branch were removed. The owner asked for a plain-language explainer of the rule, the episodes and the limit;
 it was published as a private page outside the repo. Next in line: read the first weak spell the release sees,
 then 0.14.0 (keep the half sample, skip soft restarts at low draw, the service side of the login fix).
+
+## 2026-10-29, session BH (9ea03052): the 0.14.0 design on paper, and what the numbers did to it
+
+**Goal.** "open gbox, continue." The night on 0.13.2 had not happened yet (the service was 30 minutes old), so the
+session took the second item: the 0.14.0 design (A keep the half sample, B skip soft restarts at low draw, the
+service side of the login fix, two small bugs) as a state table plus incident replays, reviewed once before any code.
+The owner: "Run the most appropriate model on the agent for this task."
+
+**How the work was split.** Two Sonnet scanners read the logs (four incident timelines; the evidence behind B over
+151,593 de-duplicated samples), and one Opus agent mapped the watchdog from the code into a state table with
+`file:line` citations, the deltas, the interactions and the replays. The review went to Fable, kept apart from the
+drafting so it stays independent. Two process slips: both scanner briefs asked a read-only agent type to write files
+(the main session wrote them from the reports), and one scanner ran into its turn cap before reporting.
+
+**Findings that changed the design.**
+- **B shrank.** A normal reboot (a self-reboot, or a soft restart that worked) dips to 2-27 W for one or two samples,
+  so the proposed 2-minute confirmation would sit on top of healthy reboots; the data supports about 5 minutes. At 5
+  minutes B coincides with the existing 5-minute power rung and only removes "two failed soft restarts first". The
+  ladder already cut most low-draw hangs at 7-8 minutes, so B saves about 3 minutes a hang, not the 9 estimated on
+  10-28. 208 soft restarts to an unreachable miner have failed, none has worked since 09-21, but three were followed
+  by a reboot within four minutes.
+- **A grew.** Six readers of the `http` column (the watchdog, markers, series, trials, uptime and the page) test for
+  exactly `ok`, so a half row would read as a failure everywhere unless all six change. A must also cover a failed
+  chip read, which comes before the settings read.
+- **A has a side effect.** With the half samples counted as answers, the outage clock starts when port 4028 dies, not
+  hours earlier when the web backend began to fail; the no-load rule's 10 minutes then really run, and a refused rung
+  is only asked again at the next soft restart. On the 10-28 supply trip that would cut about 5 minutes later than
+  0.13.2. Fix: re-ask the no-load rung on every dark sample once due.
+- **A code gap no note recorded:** at the 60-restart cap the normal power rung can never fire, because it waits for
+  two failed restarts that are never sent. B closes it for low-draw hangs.
+- **The replays put the release in proportion.** 0.13.0's deadline cut is worth 94-457 minutes on each full-power
+  freeze and is already live; 0.14.0 adds about 20 minutes over the four incidents and changes no cut counts. Its
+  value is visibility (a web-500 night shows as hashing) and the login fix.
+- **Corrections:** the 10-29 morning's failing logins were not the service's (its requests were accepted throughout);
+  a watts reading of 0.0 is a plug that answered with nothing drawing, a failed plug leaves it blank; the 09-20 17:13
+  stretch at 2 W was a dead hashboard on an answering controller, cured by a soft restart, so no low-draw rule could
+  have cut it.
+
+**Format pushback from the owner.** The 6,500-word markdown draft was unreadable for the owner ("I cannot read that
+as MD file"). It was rebuilt as a private HTML page with the three real decisions highlighted and timelines for two
+of them. Standing rule from here: any plan over one or two pages, or with a table or diagram, goes to the owner as an
+HTML page built from the markdown working file.
+
+**Decisions (the owner).** Q1 yes: B still sends one soft restart at the 2-minute verdict and cuts at 5 minutes if the
+plug answered and read 10 to under 100 W throughout. Q6 "a definite yes": the weak-hashing rule counts half samples
+and may restart on them. Q12 yes: the no-load re-ask. Build 0.14.0 as planned, after one Fable review. The other
+nine questions were presented as the agent's calls with a recommendation each and drew no objection; they are
+adopted, not individually confirmed. Bug 2 (endless accepted restarts on a meterless plug in a pool wait) gets a
+probe before any ladder change.
+
+**Left for the next session:** the first night on 0.13.2; the Fable review's findings; then the build.
