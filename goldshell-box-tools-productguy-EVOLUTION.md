@@ -4521,3 +4521,16 @@ adopted, not individually confirmed. Bug 2 (endless accepted restarts on a meter
 probe before any ladder change.
 
 **Left for the next session:** the first night on 0.13.2; the Fable review's findings; then the build.
+
+**The Fable review (same session, after the owner went to bed).** Verdict: ready to code after fixes, no redesign.
+Three findings would have shipped a wrong ladder if coded from the design's words: B could power-cycle a miner that
+was only waiting on its pool, because a single failed log read already lets a soft restart through in a pool wait
+and B removed the accidental guard (two failed restarts) that kept it from becoming a cut; the Q12 re-ask, built
+"like the idle path", would never run, because the no-load rule's own message latches the flag that path checks; and
+"B replaces the two failed restarts" read literally would strand every hang outside B's band until the 30-minute
+deadline. The first two were confirmed in the code by the main session. Also found: B could cut a restart the owner
+pressed by hand, and replay 4.4 was 2-3 minutes early, which turns Q12's result from slightly worse than 0.13.2 into
+level or better. All were written into the design as amendments; one is the owner's to decide (accept that B's
+5-minute cut can land, 3 times in 208, on a restart that took effect late; recommended: accept). The lesson matches
+BG's: the drafter's plain-language rules were right in intent, and the gaps sat in how they would meet existing
+flags in the code, which a reviewer reading the code found and the drafter, writing from it, did not.
