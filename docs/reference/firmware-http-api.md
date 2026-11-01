@@ -30,14 +30,18 @@ Evidence: [notebook, Authentication and Endpoints](../firmware-api.md#authentica
   token. `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-05]`
 - The SC-BOX's token matched an SC5 Pro II's on all 458 compared characters
   (audience "yotta mc", issuer intchains.com, id 1, subject "minerd").
-  `[verified: SC-BOX MCB_V5_4 fw 2.2.5, and SC5 Pro II MCB_V3_3 fw 2.2.0, 2026-09-15]`
+  The SC-BOX side is `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-15]`. The
+  SC5 Pro II side is another owner's capture:
+  `[reported: SC5 Pro II owner, MCB_V3_3, fw 2.2.0, 2026-09-15]`.
 - So the web password gates nothing the miner does over HTTP. Anyone on the
   network holding any Goldshell's token can read settings, change pools or
   restart the unit. Public helper repos carry that token. This is
   `[unverified]` as a general claim for every model: it follows from the two
   units compared.
-- Changing the password is the only way to invalidate the token, per an
-  earlier security note. `[unverified]`: no test on record.
+- Changing the password does not invalidate the token. An earlier security note
+  said it was the only way; the payload is fixed and RS256 is deterministic, and
+  the same token worked on two units. `[contradicted: 2026-09-15, see notebook
+  Authentication]`. No way to invalidate it is on record.
   ([evidence](../firmware-api.md#authentication))
 
 ## Logout, reboot and `Check Token Error`
@@ -131,13 +135,13 @@ and sends no credential.
 - The SC5 Pro II's `[STATUS]` block carries `voltage` (mV), `current` and
   `powerid`. `current` is unit-level, repeated on every board, and in mA only by
   arithmetic against the 3300 W rating (`[unverified]`).
-  `[verified: SC5 Pro II, MCB_V3_3, fw 2.2.0, 2026-09-15]`
+  `[reported: SC5 Pro II owner, MCB_V3_3, fw 2.2.0, 2026-09-15]`
 - The SC-BOX's block carries none of the three, so this transport yields no
   firmware watts figure on that unit.
   `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-15]`
 - Answered 200 on an SC5 Pro II with and without a Referer, so the "debug lock"
   that SC Lite notes describe is not on that firmware.
-  `[verified: SC5 Pro II, MCB_V3_3, fw 2.2.0, 2026-09-15]`
+  `[reported: SC5 Pro II owner, MCB_V3_3, fw 2.2.0, 2026-09-15]`
 - Answered 200 on an SC Lite, four `[PGAn]` blocks.
   `[reported: SC Lite owner, MCB_V4_3, fw 2.2.0, 2026-09-22]`
 - A single 401 on a `/dbg/` request is the token race. Retry it.

@@ -33,22 +33,29 @@ An SC-BOX answered `GET /mcb/setting` with this shape (the unit's MAC is in
 
 ## `manual` and `manualPowerplan`
 
-- With `manual:false`, the unit runs the selected preset (`select` picks it
-  from `powerplans`). On the SC-BOX that is one real preset, 725 MHz at 0.41 V
-  (level 0), plus a 0 MHz entry that means "off" (level 3).
-  `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-11-01]`
+- With `manual:false`, the unit runs the selected preset. On the SC-BOX the
+  list holds one real preset, 725 MHz at 0.41 V (level 0), and a 0 MHz entry
+  (level 3). `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-05]`
+  ([notebook](../firmware-api.md#2026-11-01-manual-plan-lost-across-a-power-cycle-sc-box)
+  shows `preset 0 (manual=False)` at 725 MHz.) That `select` picks the preset
+  and that the 0 MHz entry means "off" are `[unverified]`: neither has a source
+  beyond the shape of the object.
 - With `manual:true`, the unit runs the string in `manualPowerplan`, live, with
   no reboot. `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-05]`
-- The stock UI never shows `manual`. The Miner page keeps showing "Hashrate
-  Mode" while a manual plan runs. `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-11-01]`
+- The stock UI never shows `manual`.
+  `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-07]`
+  ([notebook](../firmware-api.md#settings-object))
+- The Miner page keeps showing "Hashrate Mode" while a manual plan runs.
+  `[unverified: stated in gbox/cli.py, observation date not recorded]`
 - The fan fields inside the plan string are ignored. Fan speed is a PID on the
   board sensor (`tstemp-2`) toward `temp_target`.
-  `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-07]`
+  `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09, day not recorded]`
 
 ### What the stock UI Save writes
 
-Read from the stock UI's `setting-miner` chunk on 2026-09-07, and confirmed on
-2026-11-01: `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-11-01]`
+Read from the stock UI's `setting-miner` chunk:
+`[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-07]`
+([notebook, the stock Miner page](../firmware-api.md#settings-object))
 
 - The Miner page has one settings block: miner name (read-only), a power plan
   dropdown over `powerplans`, a temperature control checkbox (read-only) and a
@@ -78,6 +85,7 @@ Read from the stock UI's `setting-miner` chunk on 2026-09-07, and confirmed on
   `manual:false`, preset 0, 725 MHz, read with `gbox status`. Voltage and fan
   target came through unchanged.
   `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-11-01]`
+- Details and sources for both: [notebook, 2026-11-01 section](../firmware-api.md#2026-11-01-manual-plan-lost-across-a-power-cycle-sc-box).
 - The cause is unknown. This is one observation, not a rule. Do not assume
   either outcome: check the clock after every power loss.
 - The same fact in two older pages is also marked: the
@@ -91,6 +99,7 @@ Read from the stock UI's `setting-miner` chunk on 2026-09-07, and confirmed on
 - During chip-init failures the clock can read an intermediate value for one
   poll: 670 MHz at 07:06 on 2026-11-01, with `set_clock_failed` in the miner
   log. `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-11-01]`
+  ([notebook](../firmware-api.md#2026-11-01-manual-plan-lost-across-a-power-cycle-sc-box))
 - A restart ramps the clock from 50 MHz in 10 MHz steps, so a poll can read
   280, 410, 80, 300. That is a board being re-initialized, not retuned.
   `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-20]`
@@ -105,10 +114,11 @@ Read from the stock UI's `setting-miner` chunk on 2026-09-07, and confirmed on
 - The board sensor reads 5 to 10 C below the chips.
   `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-05]`
 - `tempcontrol` is the overheat-shutdown flag, and it does not affect fans.
-  With it set false, an SC Lite's fan log kept writing `Fans Change` and
-  `Fan stay` lines with `target_temp:85`, as with the flag on (first about 60 s,
-  then 10 minutes with an abort at 75 C that was never reached).
-  `[reported: SC Lite owner, MCB_V4_3, fw 2.2.0, 2026-09-22]`
+  `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09, day not recorded]`
+- The same held on an SC Lite: with the flag set false, its fan log kept writing
+  `Fans Change` and `Fan stay` lines with `target_temp:85`, as with the flag on
+  (first about 60 s, then 10 minutes with an abort at 75 C that was never
+  reached). `[reported: SC Lite owner, MCB_V4_3, fw 2.2.0, 2026-09-22]`
 - What `tempcontrol:false` does under heat is `[unverified]` on every model.
   gbox never writes it.
 - `temp_target` lives in `/mcb/setting`, not in `/dbg/minerinfo`. Reading it

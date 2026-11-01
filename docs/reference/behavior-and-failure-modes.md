@@ -68,13 +68,13 @@ Evidence: [notebook, Hashboard behavior](../firmware-api.md#hashboard-behavior-s
 | Mode | What you see | How it ends | Tag |
 |---|---|---|---|
 | Reset burst | `rebootcnt` climbing by 8 or more a sample; `clock` and temperatures real, often mid-ramp; log line `Read Nonce Faild 10 Times, Reinit Device!!!` | by itself in 0 to 2.5 minutes (12 episodes) | `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-20]` |
-| Board absent | HTTP fine, `clock` 0, `tstemp-2` at -150, `rebootcnt` static, a few watts at the wall; log lines `Auto addressing failed`, `BistStart err` | never by itself; 6 to 22 minutes, each until a soft restart (6 episodes) | `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-20]` |
-| Controller hang | no HTTP, no ping, no ARP, fans still turning, about 34 to 53 W at the wall against 183 to 188 W hashing, barely warm air | a power cut clears it; a soft restart cannot reach it; one episode ended by itself after 51 minutes (HTTP 500 during boot, then 34 W straight to 188 W) | `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-09]` |
+| Board absent | HTTP fine, `clock` 0, `tstemp-2` at -150, `rebootcnt` static, a few watts at the wall; log line `WatchDog Exit for CPB Idle...` every 5 s | never by itself; 6 to 22 minutes, each until a soft restart (6 episodes) | `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-20]` |
+| Controller hang | no HTTP, no ping, no ARP, fans still turning, about 34 to 53 W at the wall against 183 to 188 W hashing, barely warm air; the miner log shows runs of `Auto addressing failed`, `BistStart err`, `SEND JOB FAILD ... REINIT THIS CPB` and `WatchDog Exit for CPB Idle` around it (the controller losing its hashboard) | a power cut clears it; a soft restart cannot reach it; one episode ended by itself after 51 minutes (HTTP 500 during boot, then 34 W straight to 188 W) | `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-09 and 2026-09-21]` |
 
 - A second sub-mode of a failing board: it accepts work and reports each job
   finished instantly without hashing. The firmware notices after minutes via
   `SEND JOB FAILD 10 TIMES, REINIT THIS CPB`.
-  `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-09]`
+  `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09, day not recorded]`
 - The controller hang was seen 2026-09-06, 2026-09-09 19:00 and 2026-09-09
   22:22. Another hang on 2026-11-01: wall draw fell to about 12 W at 05:57.
   `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-11-01]`
@@ -153,18 +153,20 @@ clock. Evidence: [notebook](../firmware-api.md#the-miners-own-log-dbgminersyslog
 
 ### The miner's clock
 
-- It has no RTC. After a power loss it restarts at `2007-01-01 08:03` until the
+- It appears to have no real-time clock (inferred from the 2007 boot time).
+  After a power loss it restarts at `2007-01-01 08:03` until the
   controller reaches a time server, and the log keeps the run before the outage:
   a `Started intminer` line stamped 2007 was followed by lines stamped
   2026-09-21 19:27. So the log is in timestamp order only within one run.
-  `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-21]`. The 2026-11-01 note says
-  it boots at 2007-01-01 until NTP sets it.
+  `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-21]`. On 2026-11-01 it again
+  booted at 2007-01-01 08:00 until NTP set it.
   `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-11-01]`
-- **Zone offset: two readings.** In September 2026 the log ran 12 hours ahead of
-  local time. In November 2026 the log times ran in UTC+8 on this unit. Whether
-  the offset changed or one reading is wrong is not settled
-  (`[contradicted: 2026-11-01, see README open questions]`). Use the stamps to
-  order lines, never to say when.
+- **Zone offset: UTC+8.** Once NTP has set it, the log's times run 13 hours
+  ahead of EST on 2026-11-01 (19:10 on the log against 06:10) and ran 12 hours
+  ahead of EDT in September. Both are UTC+8.
+  `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-11-01]`
+  ([notebook](../firmware-api.md#2026-11-01-manual-plan-lost-across-a-power-cycle-sc-box))
+  Use the stamps to order lines within one run; convert them before you say when.
 - Blocking `find.goldshell.com` at the resolver is fine, but block only that
   name, because the clock needs NTP. ([off-LAN traffic](off-lan-traffic.md))
 
@@ -199,7 +201,7 @@ log. `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-11-01]`
 
 ## Chip-level figures on this unit
 
-- `goodcores` rises by 1277 a boot on this unit. `[verified: SC-BOX, MCB_V5_4,
+- `goodcores` rises by 1277 at each successful board init on this unit. `[verified: SC-BOX, MCB_V5_4,
   fw 2.2.5, 2026-09-20]`
 - On 2026-09-20 the unit ran 80 minutes at 162 W instead of 184 W on the same
   550 MHz with all 16 chips at normal rates, then stepped back up through one

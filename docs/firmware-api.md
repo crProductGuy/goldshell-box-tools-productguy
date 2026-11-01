@@ -412,3 +412,28 @@ is not needed for mining; an owner who wants it stopped can block that one
 name at the resolver. Block only that name: the miner sets its clock over
 NTP, and a cold start reads 2007 until it does. Whether other models do the
 same is unchecked.
+
+## 2026-11-01: manual plan lost across a power cycle (SC-BOX)
+
+Verified by the owner's session on 2026-11-01 from the service's `events.log`,
+`log.csv` and `minerlog.csv` and one `gbox status` read. SC-BOX, MCB_V5_4,
+fw 2.2.5. Times are EST.
+
+- 05:57: the unit stopped answering at a 500 MHz manual plan. The plug's meter
+  fell from about 147 W to about 12 W, the controller-hang signature.
+- 06:09: the watchdog cut power for 120 s. The first good sample, 06:10, read
+  725 MHz. A later `gbox status` read `plan preset 0 (manual=False)`, with
+  voltage 0.41 V and fan target 65 unchanged.
+- The manual plan had come through every outage and power cycle between
+  2026-10-20 and 2026-10-31 (the `log.csv` clock column was back at 500 after
+  each), including an off and on by the owner on 2026-10-31. More than 20 cold
+  boots in all. The cause of this loss is unknown. It is one observation, not a
+  rule, and it contradicts the sentence in the third failure-mode paragraph
+  above.
+- 07:06, after a later power cycle: one poll read 670 MHz during chip-init
+  failures (miner log labels: addressing failed, BIST errors, set clock failed,
+  init failed), then 725.
+- The miner log's clock boots at 2007-01-01 08:00 before NTP sets it. After
+  that its times run 13 hours ahead of EST on 2026-11-01 (19:10 on the log
+  against 06:10), and ran 12 hours ahead of EDT in September. Both are the same
+  offset, UTC+8, so the earlier "12 hours ahead" and this reading agree.

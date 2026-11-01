@@ -25,7 +25,7 @@ are not recorded in the notebook).
   a blocked unit over a full day is on record.
 - An owner who wants it stopped can block that one name at the resolver.
 - **Block only that name.** The miner sets its clock over NTP, and a cold start
-  reads 2007 until it does. The miner has no real-time clock.
+  reads 2007 until it does. It appears to have no real-time clock (inferred from the 2007 boot time).
   `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-21]`
   ([clock behavior](behavior-and-failure-modes.md#the-miners-clock))
 

@@ -30,19 +30,22 @@ Each rule was learned the hard way. Follow them before you script anything.
    `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-08]`
    ([evidence](../firmware-api.md#reliability-quirks))
 3. **Never call `PUT /mcb/facrst`.** It is a factory reset, one request away
-   once you hold a token. It does not clear stored WiFi credentials either.
-   `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-06]`, never called, so the
-   reset itself is `[unverified]`.
+   once you hold a token. Keep stored WiFi credentials in mind: a factory reset
+   may not clear them. `[unverified: inferred from a unit bought after a
+   factory reset]`. The reset itself was never called, so its effect is
+   `[unverified]`.
    ([evidence](../firmware-api.md#endpoints-all-need-the-token-except-mcbstatus))
 4. **Treat the miner as an unauthenticated device.** The login token never
    expires and is identical on every unit. Keep the miner on a LAN you trust
-   and never port-forward it. ([details](firmware-http-api.md#login))
+   and never port-forward it. Tag: see the
+   [token section](firmware-http-api.md#the-token-never-expires-and-is-the-same-on-every-unit).
 5. **Never save from the stock Miner page while you run a tuned clock.** Every
-   Save writes `manual:false` and drops the unit back to the preset.
+   Save writes `manual:false` and drops the unit back to the preset. Tag: see
+   [what the stock UI Save writes](settings-and-power-plans.md#what-the-stock-ui-save-writes).
    ([details](settings-and-power-plans.md#what-the-stock-ui-save-writes))
 6. **Do not read or store `/dbg/minersyslog` carelessly.** It repeats your
    pool user, which is usually a wallet address. Screenshots of the debug page
-   carry it too. ([details](behavior-and-failure-modes.md#the-miner-log-dbgminersyslog))
+   carry it too. Tag: see the [miner log section](behavior-and-failure-modes.md#the-miner-log-dbgminersyslog). ([details](behavior-and-failure-modes.md#the-miner-log-dbgminersyslog))
 7. **A soft restart is not free.** Of four sent while the board was present,
    three lost the board. `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-20]`
    ([evidence](../firmware-api.md#two-ways-a-sick-board-looks-and-they-behave-oppositely))
@@ -71,7 +74,7 @@ Columns are the units on record. Cell codes: **V** verified on a unit,
 | Endpoint or setting | SC-BOX (MCB_V5_4, fw 2.2.5) | HS-BOX (MCB_V5_4, fw 2.2.6) | SC5 Pro II (MCB_V3_3, fw 2.2.0) | SC Lite (MCB_V4_3, fw 2.2.0) |
 |---|---|---|---|---|
 | `GET /mcb/status` with no token | V | U | U | U |
-| `GET /user/login` (cipher login) | V | U | V | U |
+| `GET /user/login` (cipher login) | V | U | R | U |
 | `GET /mcb/setting` | V | V | U | R |
 | `PUT /mcb/setting` (clock, fan target) | V | U | U | R |
 | `GET /mcb/pools` | V | U | U | U |
@@ -80,27 +83,28 @@ Columns are the units on record. Cell codes: **V** verified on a unit,
 | `GET /mcb/cgminer` | F (500) | U | U | U |
 | `GET/PUT /mcb/wifisetting` | V | U | U | U |
 | `GET /cpb/hshistory` | V | U | U | U |
-| `GET /dbg/minerinfo` | V | U | V | R |
+| `GET /dbg/minerinfo` | V | U | R | R |
 | `GET /dbg/icinfo` | V | U | U | U |
 | `GET /dbg/fanctrllog` | V | U | U | R |
 | `GET /dbg/minersyslog` | V | U | R | U |
 | `GET /dbg/syslog` | V | U | U | U |
 | `GET /dbg/vsinfo` | F (500) | U | U | U |
-| Port 4028 `devs` | V | U | V | R |
+| Port 4028 `devs` | V | U | R | R |
 | Port 4028 `summary` | U | U | U | U |
-| Port 4028 `stats` (malformed JSON) | U | U | U | U |
+| Port 4028 `stats` (malformed JSON) | V | U | U | U |
 | `manual` and `manualPowerplan` fields | V | V | U | R |
 | Flat `powerplans` list | V | F (nested) | U | R |
-| `tempcontrol` has no effect on fans | U | U | U | R |
-| Voltage on 4028 is a setpoint echo | V | U | F (millivolts) | F (not the setpoint) |
+| `tempcontrol` has no effect on fans | V | U | U | R |
+| Voltage on 4028 is a setpoint echo | V | U | R, differs (millivolts) | R, differs (not the setpoint) |
 | Posts to `find.goldshell.com` | V | U | U | U |
 
-Port 4028 `summary` and `stats` read U everywhere because the notebook records
-the answer without naming the unit.
+Port 4028 `summary` reads U everywhere because the notebook records the answer
+without naming the unit. SC5 Pro II cells are R because that unit belongs to
+another owner and its facts come from a capture.
 
-Where "F" is not an error code but a difference: the HS-BOX has a nested
-`powerplans` shape, and the SC5 Pro II and SC Lite report a different voltage
-unit.
+"R, differs" and the HS-BOX "F (nested)" are not error codes but differences
+from the SC-BOX: the HS-BOX has a nested `powerplans` shape, and the SC5 Pro II
+and SC Lite report a different voltage unit.
 
 ## The pages
 
@@ -125,14 +129,9 @@ resolved.
    `[contradicted: 2026-11-01, see settings-and-power-plans.md]`. The plan
    survived more than 20 cold boots between 2026-10-20 and 2026-10-31, then
    came back as the preset on 2026-11-01. One observation, cause unknown.
-2. **What zone does the miner's log clock use?** The notebook says the
-   SC-BOX's log ran 12 hours ahead of local time in September 2026. A later
-   reading says UTC+8 on the same family. Whether the unit changed or the two
-   readings used different local zones is not settled.
-   ([details](behavior-and-failure-modes.md#the-miners-clock))
-3. **Are the HS-BOX facts from one unit?** Everything about the HS-BOX is one
+2. **Are the HS-BOX facts from one unit?** Everything about the HS-BOX is one
    unit read on 2026-09-25. Treat it as one sample.
-4. **Do other models post to `find.goldshell.com`?** Only the SC-BOX was
+3. **Do other models post to `find.goldshell.com`?** Only the SC-BOX was
    checked. ([details](off-lan-traffic.md))
-5. **What does `tempcontrol:false` do under heat?** Untested on any model.
-6. **What do `/mcb/protect` and `/mcb/defend` do?** Never called.
+4. **What does `tempcontrol:false` do under heat?** Untested on any model.
+5. **What do `/mcb/protect` and `/mcb/defend` do?** Never called.

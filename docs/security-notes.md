@@ -16,7 +16,9 @@ For the owner's summary, and what is still on a unit when you sell it, see
   password-equivalent.
 - The returned JWT has no expiry and no nonce: every login returns the same
   token, and it never stops working. Changing the password is the only way
-  to invalidate it.
+  to invalidate it. **Correction, 2026-11-01:** this was wrong. The token is
+  fixed and identical on every unit, so a password change does not alter it;
+  see `docs/firmware-api.md`, Authentication.
 - Consequence for this toolkit: the service keeps the token in memory only,
   `--remember` stores the encrypted form with owner-only permissions, and
   the service never logs a request line.
