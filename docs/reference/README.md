@@ -88,7 +88,7 @@ Columns are the units on record. Cell codes: **V** verified on a unit,
 | `GET /dbg/vsinfo` | F (500) | U | U | U |
 | Port 4028 `devs` | V | U | V | R |
 | Port 4028 `summary` | V | U | U | U |
-| Port 4028 `stats` (malformed JSON) | V | U | U | U |
+| Port 4028 `stats` (malformed JSON) | U | U | U | U |
 | `manual` and `manualPowerplan` fields | V | V | U | R |
 | Flat `powerplans` list | V | F (nested) | U | R |
 | `tempcontrol` has no effect on fans | U | U | U | R |
