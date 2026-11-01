@@ -1,8 +1,8 @@
 ---
-title: Goldshell BOX behaviour and failure modes
+title: Goldshell BOX behavior and failure modes
 ---
 
-# Goldshell BOX behaviour and failure modes
+# Goldshell BOX behavior and failure modes
 
 What the counters mean, when the unit restarts itself, the failure modes of the
 board and the controller, how the fans behave, and how to read the miner's own
@@ -85,7 +85,7 @@ Evidence: [notebook, Hashboard behavior](../firmware-api.md#hashboard-behavior-s
 - **A manual power plan after a power cut:** earlier notes said it survives.
   `[contradicted: 2026-11-01, see settings-and-power-plans.md]`: it came back as
   the preset after one cut on 2026-11-01, though it survived more than 20 cold
-  boots before. ([details](settings-and-power-plans.md#does-a-manual-power-plan-survive-a-power-cycle))
+  boots before. ([details](settings-and-power-plans.md#does-a-manual-plan-survive-a-power-cycle))
 - A soft restart is not free: of four sent while the board was present, three
   lost the board and needed another. Of 13 sent to an absent board or an
   unreachable miner, none left it worse.
@@ -177,7 +177,7 @@ MCB_V5_4, fw 2.2.5, 2026-09-20]` for all rows.
 |---|---|---|
 | `Started intminer ...` | `process_started` | the mining process started; nothing precedes it when it was killed or crashed |
 | `SCBOX Init sucessed. 16 chips, N Total goodcores` | `init_succeeded` | a board init worked; `goodcores` is a running total, not a health figure |
-| `Init failed 5 Times` | `init_failed` | the board would not initialise |
+| `Init failed 5 Times` | `init_failed` | the board would not initialize |
 | `Write ChipN Reg N Failed` | `chip_write_failed` | the controller cannot reach that chip; at Chip0, the whole chain |
 | `Read reg N error, exit.` | `reg_read_error` | same family |
 | `BistStart err` | `bist_error` | the self-test would not start |

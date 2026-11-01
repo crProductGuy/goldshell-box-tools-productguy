@@ -1,7 +1,7 @@
 # Kasa smart plugs: how they take commands
 
 For the miner side of a power cut (how long a unit takes to return, what it
-keeps), see [behaviour and failure modes](reference/behaviour-and-failure-modes.md).
+keeps), see [behavior and failure modes](reference/behavior-and-failure-modes.md).
 
 How a TP-Link Kasa plug on the original local protocol decides to switch, and
 what that means for a plug that powers a miner. It ends with a worked example:

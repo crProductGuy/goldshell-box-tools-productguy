@@ -1,0 +1,31 @@
+# goldshell-box-tools-productguy
+
+> A dependency-free Python toolkit (CLI `gbox`) for Goldshell BOX-series miners (SC-BOX, HS-BOX), plus a reference for how those miners' controllers and APIs behave. The reference is about the miners and is usable without running gbox. Every fact in it carries a provenance tag: verified on a named model and firmware, reported by another owner, unverified, or contradicted.
+
+## Controller reference (start here for miner questions)
+
+- [Index, safety rules and model-by-firmware matrix](docs/reference/README.md): read the safety rules before scripting against a miner.
+- [Firmware HTTP API](docs/reference/firmware-http-api.md): login, token behavior, `Check Token Error`, bare HTTP 500 on login, the endpoint table.
+- [Settings and power plans](docs/reference/settings-and-power-plans.md): `/mcb/setting`, `manual` and `manualPowerplan`, why the stock UI Save reverts a tuned clock, plan string dialects, the HS-BOX nested presets.
+- [Port 4028](docs/reference/port-4028.md): the cgminer socket, no token.
+- [Behavior and failure modes](docs/reference/behavior-and-failure-modes.md): counters, self-restarts, board and controller failures, fans, the miner log labels.
+- [Off-LAN traffic](docs/reference/off-lan-traffic.md): posts to `find.goldshell.com`.
+
+## Evidence
+
+- [Firmware notebook](docs/firmware-api.md): dated observations the reference is built from.
+- [Security notes](docs/security-notes.md): what the API exposes to a token holder.
+- [Stock UI debug page](docs/stock-ui-debug-page.md): the hidden `/#/debug` page.
+
+## The toolkit
+
+- [README](README.md): what gbox does and how to start it.
+- [Finding the right clock](docs/clock-tuning.md)
+- [Power-cycling a hung miner](docs/power-cycle.md)
+- [Kasa smart plugs](docs/kasa-plugs.md)
+- [Design of record](docs/plan.md)
+
+## Optional
+
+- [How this project evolved](docs/how-this-project-evolved.md)
+- [Evolution log](goldshell-box-tools-productguy-EVOLUTION.md)

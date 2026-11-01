@@ -10,9 +10,9 @@ settings really do, and how it fails. It is about the miners. You do not need
 gbox to use it. gbox appears only as "how this was found" and "what gbox does
 about it".
 
-Nothing here reproduces Goldshell code. It is observed behaviour, with the
+Nothing here reproduces Goldshell code. It is observed behavior, with the
 evidence in [the notebook](../firmware-api.md), which this reference
-summarises and links to section by section.
+summarizes and links to section by section.
 
 ## Read this first: safety rules
 
@@ -42,7 +42,7 @@ Each rule was learned the hard way. Follow them before you script anything.
    ([details](settings-and-power-plans.md#what-the-stock-ui-save-writes))
 6. **Do not read or store `/dbg/minersyslog` carelessly.** It repeats your
    pool user, which is usually a wallet address. Screenshots of the debug page
-   carry it too. ([details](behaviour-and-failure-modes.md#the-miner-log-dbgminersyslog))
+   carry it too. ([details](behavior-and-failure-modes.md#the-miner-log-dbgminersyslog))
 7. **A soft restart is not free.** Of four sent while the board was present,
    three lost the board. `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-20]`
    ([evidence](../firmware-api.md#two-ways-a-sick-board-looks-and-they-behave-oppositely))
@@ -95,17 +95,20 @@ Columns are the units on record. Cell codes: **V** verified on a unit,
 | Voltage on 4028 is a setpoint echo | V | U | F (millivolts) | F (not the setpoint) |
 | Posts to `find.goldshell.com` | V | U | U | U |
 
+Port 4028 `summary` and `stats` read U everywhere because the notebook records
+the answer without naming the unit.
+
 Where "F" is not an error code but a difference: the HS-BOX has a nested
 `powerplans` shape, and the SC5 Pro II and SC Lite report a different voltage
 unit.
 
 ## The pages
 
-- [HTTP API](firmware-http-api.md): login, token behaviour, the endpoint table.
+- [HTTP API](firmware-http-api.md): login, token behavior, the endpoint table.
 - [Settings and power plans](settings-and-power-plans.md): `/mcb/setting`,
   `manual`, `manualPowerplan`, the plan dialects, what each stock-UI Save writes.
 - [Port 4028](port-4028.md): the cgminer socket, no token.
-- [Behaviour and failure modes](behaviour-and-failure-modes.md): counters,
+- [Behavior and failure modes](behavior-and-failure-modes.md): counters,
   self-restarts, how a sick board looks, fans, the miner log.
 - [Off-LAN traffic](off-lan-traffic.md): what the firmware sends to
   `find.goldshell.com`.
@@ -126,7 +129,7 @@ resolved.
    SC-BOX's log ran 12 hours ahead of local time in September 2026. A later
    reading says UTC+8 on the same family. Whether the unit changed or the two
    readings used different local zones is not settled.
-   ([details](behaviour-and-failure-modes.md#the-miners-clock))
+   ([details](behavior-and-failure-modes.md#the-miners-clock))
 3. **Are the HS-BOX facts from one unit?** Everything about the HS-BOX is one
    unit read on 2026-09-25. Treat it as one sample.
 4. **Do other models post to `find.goldshell.com`?** Only the SC-BOX was

@@ -92,7 +92,7 @@ Read from the stock UI's `setting-miner` chunk on 2026-09-07, and confirmed on
   poll: 670 MHz at 07:06 on 2026-11-01, with `set_clock_failed` in the miner
   log. `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-11-01]`
 - A restart ramps the clock from 50 MHz in 10 MHz steps, so a poll can read
-  280, 410, 80, 300. That is a board being re-initialised, not retuned.
+  280, 410, 80, 300. That is a board being re-initialized, not retuned.
   `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-20]`
 
 ## Temperature and fan fields
@@ -122,7 +122,7 @@ from a model table, and rewrites only the `MHz` token.
 
 | Dialect | Example | Where | Tag |
 |---|---|---|---|
-| `box` | `575 MHz 0.41 V 90 RPM 90 RPM` | SC-BOX; HS-BOX writes the same form, e.g. `850 MHz 0.44 V 50 RPM 50 RPM` (Blake2B) and `750 MHz 0.41 V 50 RPM 50 RPM` (Handshake), no `PV` term | `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-05]`; `[verified: HS-BOX, MCB_V5_4, fw 2.2.6, 2026-09-25]` |
+| `box` | `575 MHz 0.41 V 90 RPM 90 RPM` | SC-BOX; HS-BOX writes the same form, for example `850 MHz 0.44 V 50 RPM 50 RPM` (Blake2B) and `750 MHz 0.41 V 50 RPM 50 RPM` (Handshake), no `PV` term | `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-05]`; `[verified: HS-BOX, MCB_V5_4, fw 2.2.6, 2026-09-25]` |
 | `mv_pv` | `625 MHz 9100 V 40 RPM 40 RPM PV 9400` | SC Lite: integer volts (their notes say millivolts), then a trailing `PV` term. `/dbg/minerhistory` shows the internal form `intchains_qomo:vfff=<pv>:<MHz>:<fanA>:<fanB>:<mV>` | `[reported: SC Lite owner, MCB_V4_3, fw 2.2.0, 2026-09-22]` |
 | `float_pv` | `750 MHz 0.41 V 50 RPM 50 RPM PV 9400` | the "float-V / optional-PV" form the same notes give for the HS Box | `[unverified]`: no verbatim example with a PV term is on record |
 
@@ -152,4 +152,4 @@ from a model table, and rewrites only the `MHz` token.
 ## How an SC-BOX behaves at each clock
 
 These belong to one unit, not the model. They are in
-[behaviour and failure modes](behaviour-and-failure-modes.md#a-weak-chip-and-the-clock).
+[behavior and failure modes](behavior-and-failure-modes.md#a-weak-chip-and-the-clock).

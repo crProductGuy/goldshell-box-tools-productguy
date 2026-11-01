@@ -219,7 +219,7 @@ event line written to the service log
 
 The manual power plan usually survives a power cycle; the miner comes back at
 the clock it was on. [contradicted: 2026-11-01, one cut returned the preset;
-see the [reference](reference/settings-and-power-plans.md#does-a-manual-power-plan-survive-a-power-cycle).]
+see the [reference](reference/settings-and-power-plans.md#does-a-manual-plan-survive-a-power-cycle).]
 Check the clock after a cycle. Then set `"cycle": true` in the `power` block of
 `config.json` and restart the service. `gbox power status` says `ARMED`.
 

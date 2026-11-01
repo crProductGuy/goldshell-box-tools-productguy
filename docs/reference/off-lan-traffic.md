@@ -27,7 +27,7 @@ are not recorded in the notebook).
 - **Block only that name.** The miner sets its clock over NTP, and a cold start
   reads 2007 until it does. The miner has no real-time clock.
   `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-21]`
-  ([clock behaviour](behaviour-and-failure-modes.md#the-miners-clock))
+  ([clock behavior](behavior-and-failure-modes.md#the-miners-clock))
 
 ## Other models
 

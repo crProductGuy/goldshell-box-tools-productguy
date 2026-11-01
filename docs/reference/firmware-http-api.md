@@ -102,7 +102,7 @@ Every path needs the token except `GET /mcb/status`.
 | `/dbg/minerinfo` | GET | cgminer-style text: a `[STATUS]` block, then one `[PGAn] =>` block per hashboard | see below |
 | `/dbg/icinfo` | GET | JSON `{body: "<json string>"}` with per-chip counts | see below |
 | `/dbg/fanctrllog` | GET | fan daemon log, grows to about 1 MB | `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-05]` |
-| `/dbg/minersyslog` | GET | cgminer log as text | see [behaviour](behaviour-and-failure-modes.md#the-miner-log-dbgminersyslog) |
+| `/dbg/minersyslog` | GET | cgminer log as text | see [behavior](behavior-and-failure-modes.md#the-miner-log-dbgminersyslog) |
 | `/dbg/syslog` | GET | web backend log: `Check Token Error`, `Minerd start !!!`, `Restart Miner` | `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-10-29]` |
 | `/dbg/kmsg`, `/dbg/meminfo`, `/dbg/psinfo`, `/dbg/monitorlog`, `/dbg/minerhistory` | GET | system diagnostics | `[unverified]`, listed by the debug page |
 | `/dbg/vsinfo` | GET | returned HTTP 500 | `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-05]` |
