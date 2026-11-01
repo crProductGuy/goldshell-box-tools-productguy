@@ -87,7 +87,7 @@ Columns are the units on record. Cell codes: **V** verified on a unit,
 | `GET /dbg/syslog` | V | U | U | U |
 | `GET /dbg/vsinfo` | F (500) | U | U | U |
 | Port 4028 `devs` | V | U | V | R |
-| Port 4028 `summary` | V | U | U | U |
+| Port 4028 `summary` | U | U | U | U |
 | Port 4028 `stats` (malformed JSON) | U | U | U | U |
 | `manual` and `manualPowerplan` fields | V | V | U | R |
 | Flat `powerplans` list | V | F (nested) | U | R |
