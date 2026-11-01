@@ -36,7 +36,8 @@ KD-BOX, HS-BOX, LT-BOX and relatives running the "cloud-box" MCB_V5 firmware):
 Born from a diagnosis of an SC-BOX running at 30 percent: one marginal chip was
 resetting the whole board every nine seconds at the factory clock, and the
 stock UI offered no way to see it or to lower the clock. The story is in
-`docs/case-study-scbox.md`.
+[docs/how-this-project-evolved.md](docs/how-this-project-evolved.md). How the
+miners themselves behave is in the [controller reference](docs/reference/README.md).
 
 ## Quick start
 

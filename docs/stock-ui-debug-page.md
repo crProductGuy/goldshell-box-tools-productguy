@@ -26,6 +26,9 @@ shipped in the firmware, not something Goldshell polished for owners.
 | System log: the web backend's log, including `Check Token Error` and `Minerd start !!!` | `/dbg/syslog` | not shown |
 | Kernel messages, memory, processes, monitor log, miner history | `/dbg/kmsg`, `/dbg/meminfo`, `/dbg/psinfo`, `/dbg/monitorlog`, `/dbg/minerhistory` | not shown |
 
+For the endpoints behind it, with a model-by-firmware matrix, see the
+[HTTP API reference](reference/firmware-http-api.md).
+
 The exact set and names of the page's sections have only been checked on an
 SC-BOX with the `MCB_V5` cloud-box firmware. If your model shows something
 else, the endpoint table in `firmware-api.md` is the authoritative list.

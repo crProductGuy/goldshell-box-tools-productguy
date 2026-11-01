@@ -131,7 +131,10 @@ list.
 To read the result, open the table the next morning. Take the highest clock
 with zero resets and a worst-chip bad share you accept (under 1 percent is
 comfortable; the SC-BOX case accepted 0.1 percent), and set it with the
-**Clock** control or `gbox plan`. It survives restarts.
+**Clock** control or `gbox plan`. It survives restarts. It survived more than
+20 cold boots, but on 2026-11-01 one power cut returned the preset, so check
+the clock after any power loss; see
+[the reference](reference/settings-and-power-plans.md#does-a-manual-power-plan-survive-a-power-cycle).
 
 ## Reading the table
 

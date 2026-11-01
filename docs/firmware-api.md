@@ -3,7 +3,9 @@
 Learned on 2026-09-05 from an SC-BOX, hardware 40.40.HA, controller
 MCB_V5_4, firmware 2.2.5 (web UI titled "cloud-box"). Other Box-series
 models ship the same UI and are expected to match; confirmations welcome.
-No Goldshell code is reproduced here, only observed behavior.
+No Goldshell code is reproduced here, only observed behavior. This file is the
+evidence notebook; the topic-by-topic reference with a provenance tag on every
+fact is [docs/reference/](reference/README.md).
 
 ## Authentication
 
@@ -269,7 +271,9 @@ Verified 2026-09-08 on the SC-BOX, from the gbox log:
   Seen 2026-09-06, 2026-09-09 19:00 and 2026-09-09 22:22, the first two
   after days of clean hashing at a manual clock, the third 34 minutes
   after the power cycle that cleared the second. A soft restart cannot
-  reach it, and the manual power plan survives a power cycle. At the wall
+  reach it, and the manual power plan survives a power cycle [contradicted:
+  2026-11-01, one cold boot returned the preset; see
+  `docs/reference/settings-and-power-plans.md`]. At the wall
   it drew about 53 W while hung on a plug-in meter, and a steady 33.5 to
   34 W on a Kasa HS110's meter during the third episode, against 183 to
   188 W hashing; it blew barely warm air: the hashboard is idle and only
