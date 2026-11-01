@@ -59,7 +59,7 @@ Evidence: [notebook, Counters](../firmware-api.md#counters-and-what-they-can-and
 - The fan controller steers on the board sensor, so a small drop there buys a
   large fan-speed drop. An external fan lowered the board sensor 2.4 C (64.7 to
   62.3) and the internal fans fell from 1860 to 1200 RPM. `[verified: SC-BOX,
-  MCB_V5_4, fw 2.2.5, 2026-09-09]`
+  MCB_V5_4, fw 2.2.5, 2026-09, day not recorded]`
 
 ## Three ways the SC-BOX fails
 
@@ -76,7 +76,7 @@ Evidence: [notebook, Hashboard behavior](../firmware-api.md#hashboard-behavior-s
   `SEND JOB FAILD 10 TIMES, REINIT THIS CPB`.
   `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-09]`
 - The controller hang was seen 2026-09-06, 2026-09-09 19:00 and 2026-09-09
-  22:22. A fourth sign, 2026-11-01: wall draw about 12 W at 05:57 after a hang.
+  22:22. Another hang on 2026-11-01: wall draw fell to about 12 W at 05:57.
   `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-11-01]`
 - After a power cut the unit takes about a minute to answer again: 60 and 66 s
   after a 15 s cut, `rebootcnt` 0, `Device Elapsed` under 30 s on the first
