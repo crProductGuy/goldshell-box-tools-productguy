@@ -2,4 +2,5 @@
  [2026-11-01 07:35:50] boot ok
  [2026-11-01 07:35:51] write /mcb/wifisetting body {"password":"oldwifipw","ssid":"OldNet"}
  [2026-11-01 07:35:52] write /mcb/pools body {"user":"OLDWALLETzz.w1","pass":"x"}
+ [2026-11-01 07:35:54] admin login changed from s3cretAdmin9 to a new one
  [2026-11-01 07:35:53] debug {\"password\":\"escpw12\",\"username\":\"escuser\"}

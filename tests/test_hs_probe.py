@@ -351,6 +351,18 @@ class RedactorTest(unittest.TestCase):
         r2.learn(hs_probe.POOLS_HTTP, '[{"user":"abc.w1","pass":"zz"}]')    # prefix under 4 characters: skipped
         self.assertEqual(r2.apply("abc here")[0], "abc here")
 
+    def test_fix4_the_admin_password_literal_is_scrubbed_unless_it_is_a_field_name(self):
+        sender = hs_probe.Sender("127.0.0.1:1")
+        p = hs_probe.Probe(sender, "s3cretAdmin9")
+        self.assertEqual(p.redactor.apply("old s3cretAdmin9 gone")[0], "old <redacted:password> gone")
+        for pw in ("password", "admin", "Password", "abc"):      # field names, and under 4 characters
+            q = hs_probe.Probe(sender, pw)
+            text = 'the password field and admin user "abc" %s' % '{"x":1}'
+            self.assertEqual(q.redactor.apply(text)[0], text, pw)
+        # the value of a field named password is still caught by the field scrub
+        q = hs_probe.Probe(sender, "password")
+        self.assertEqual(q.redactor.apply('{"password":"password"}')[0], '{"password":"<redacted:secret>"}')
+
     def test_short_secrets_are_not_replaced_in_other_text_but_their_fields_are(self):
         r = hs_probe.Redactor()
         raw = '[{"user":"x","pass":"x"}]'

@@ -322,6 +322,10 @@ class Probe:
         self.redactor = Redactor()
         if self.password_hex:
             self.redactor.add_literal(self.password_hex, "password-hex")
+            # The plaintext too, wherever it turns up. Not when it equals a field name we scrub
+            # (the literal pass would corrupt those keys; the field scrub still covers the value).
+            if password.lower() not in GENERIC_FIELDS and password.lower() != "admin":
+                self.redactor.add_literal(password, "password")
         self.aborted = False
         self.results = []
 
