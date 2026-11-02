@@ -1,0 +1,1 @@
+{"STATUS":[{"STATUS":"S","When":1790000000,"Code":7,"Msg":"1 Pool(s)","Description":"intminer 5.4.2"}],"POOLS":[{"POOL":0,"URL":"stratum+tcp://pool.example:3333","User":"FAKEWALLETabc123xyz","Status":"Alive"}],"id":1}

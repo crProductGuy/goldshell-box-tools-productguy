@@ -1,0 +1,1 @@
+[{"url":"stratum+tcp://pool.example:3333","user":"FAKEWALLETabc123xyz","pass":"fakepass9","legal":true,"active":true,"priority":0},{"url":"stratum+tcp://backup.example:3333","user":"x","pass":"x","legal":true,"active":false,"priority":1}]

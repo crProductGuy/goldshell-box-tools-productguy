@@ -32,3 +32,19 @@ chips), port-4028 `devs`/`summary`, no `temp_targets` in `/mcb/setting`.
 Sanitized by him: `name` (the unit's MAC) replaced with `00:11:22:33:44:55`;
 no pools, syslogs, password or token. His `dbg_fanctrllog.txt` (740 KB) is
 not copied: no test reads it, and its findings are in `docs/firmware-api.md`.
+
+## `hsbox_synthetic/`: invented, not captured
+
+Made up on 2026-11-01 for `tests/test_hs_probe.py`; nothing in it came from a
+real unit. It is HS-BOX-shaped (firmware 2.2.6, MCB_V5_4, nested `powerplans`)
+and holds one planted secret of each kind so the probe's redaction can be
+tested: pool user `FAKEWALLETabc123xyz`, pool password `fakepass9`, SSID
+`FakeSSID-77`, WiFi key `fakewifikey55`, and the MAC `02:1A:2b:3C:4d:5E`
+(colon form in `dbg_minerinfo.txt`, dash form in `dbg_syslog.txt`).
+`mcb_pools.json` also has a one-character user and password (`x`) to test the
+short-string rule. Port-4028 replies are `api4028_<command>.json` for
+`version`, `summary`, `devs`, `stats` (malformed `}{`, like the SC-BOX) and
+`pools` (same user). The fake serves them only with `FakeMiner(study=True)`;
+see that class for the extra routes (`/mcb/pools`, `/mcb/wifisetting`,
+`/dbg/syslog`; 500 for `/mcb/cgminer` and `/dbg/vsinfo`; 404 for GET
+`/mcb/protect` and `/mcb/defend`, whose real GET behavior is unknown).

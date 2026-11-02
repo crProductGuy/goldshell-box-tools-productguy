@@ -1,0 +1,4 @@
+[PGA0]
+ Hardware Version: 10.10.SA
+ Device Address: 02:1A:2b:3C:4d:5E
+ Fan: 2400 RPM

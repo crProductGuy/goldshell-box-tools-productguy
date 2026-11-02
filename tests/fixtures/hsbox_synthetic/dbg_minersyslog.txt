@@ -1,0 +1,3 @@
+ [2026-11-01 07:35:50] C0: HSBOX Init sucessed. 16 chips
+ [2026-11-01 07:35:55] Pool 0 stratum+tcp://pool.example:3333 user FAKEWALLETabc123xyz
+ [2026-11-01 07:36:01] Accepted share from FAKEWALLETabc123xyz

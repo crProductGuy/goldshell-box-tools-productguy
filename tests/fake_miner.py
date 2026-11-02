@@ -42,11 +42,21 @@ class _Devs4028Handler(socketserver.BaseRequestHandler):
     reply (NUL-terminated, as the firmware sends it), then closes."""
 
     def handle(self):
+        start = time.monotonic()
         try:
-            self.request.recv(4096)
+            raw = self.request.recv(4096)
         except OSError:
-            pass
-        self.request.sendall(self.server.payload)
+            raw = b""
+        payload = self.server.payload
+        owner = getattr(self.server, "owner", None)
+        command = None
+        if owner is not None:
+            command = owner._command4028(raw)
+            if owner.study:
+                payload = owner._study_4028(command, payload)
+        self.request.sendall(payload)
+        if owner is not None:
+            owner._log("4028", "", command, start, time.monotonic(), False)
 
 
 class _Devs4028Server(socketserver.ThreadingTCPServer):
@@ -56,7 +66,7 @@ class _Devs4028Server(socketserver.ThreadingTCPServer):
 
 class FakeMiner:
     def __init__(self, host="127.0.0.1", port=0, password="password", delay=0.0,
-                 fixtures=None, port4028=False, dbg_locked_icinfo=False):
+                 fixtures=None, port4028=False, dbg_locked_icinfo=False, study=False):
         self.dir = os.path.join(FIX, fixtures) if fixtures else FIX
         self.password_hex = aes.encrypt_password(password)
         self.delay = delay                      # seconds each request takes; makes overlaps visible
@@ -67,6 +77,18 @@ class FakeMiner:
         self.history = _read(self.dir, "cpb_hshistory.json")
         self.syslog = _read_opt(self.dir, "dbg_minersyslog.txt")     # the cgminer log; absent on some captures
         self.dbg_locked_icinfo = dbg_locked_icinfo   # True: /dbg/icinfo always 401s "Debug access is locked"
+        # Study mode (tools/hs_probe.py tests), off by default so every existing test sees the old fake:
+        # answers each port-4028 command from api4028_<command>.json (falling back to the devs reply),
+        # serves /mcb/pools, /mcb/wifisetting and /dbg/syslog from their fixtures, answers /mcb/cgminer
+        # and /dbg/vsinfo with 500, and answers GET /mcb/protect and /mcb/defend with 404 (the stock UI
+        # only PUTs them; whether a GET is answered is unknown, so the fake says "not found").
+        self.study = study
+        self.fail_pools = False                 # study: /mcb/pools answers 500 and 4028 `pools` answers an empty reply
+        self.unauthorized_paths = set()         # authed requests to these paths always get 401
+        self.request_log = []                   # one dict per request, HTTP and 4028 alike (see _log)
+        self.pools = _read_opt(self.dir, "mcb_pools.json")
+        self.wifisetting = _read_opt(self.dir, "mcb_wifisetting.json")
+        self.syslog_dbg = _read_opt(self.dir, "dbg_syslog.txt")
         self.restarts = 0
         self.logins = 0
         self.requests = []                      # (method, path) in arrival order
@@ -84,6 +106,7 @@ class FakeMiner:
             payload = (_read_opt(self.dir, "api4028_devs.json") or "{}").encode("utf-8") + b"\x00"
             self._devs4028 = _Devs4028Server((host, 0), _Devs4028Handler)
             self._devs4028.payload = payload
+            self._devs4028.owner = outer
             self.devs4028_port = self._devs4028.server_address[1]
 
         class Handler(BaseHTTPRequestHandler):
@@ -111,6 +134,8 @@ class FakeMiner:
                 self._reply(204)
 
             def _enter(self):
+                self._entry = outer._log("http", self.command, self.path.split("?")[0], time.monotonic(), None,
+                                         self.headers.get("Authorization") is not None)
                 with outer._lock:
                     outer.in_flight += 1
                     outer.max_in_flight = max(outer.max_in_flight, outer.in_flight)
@@ -120,11 +145,14 @@ class FakeMiner:
                     time.sleep(outer.delay)
 
             def _leave(self):
+                self._entry["end"] = time.monotonic()
                 with outer._lock:
                     outer.in_flight -= 1
 
             def _authed(self):
                 if self.headers.get("Authorization") != "Bearer " + TOKEN:
+                    return False
+                if self.path.split("?")[0] in outer.unauthorized_paths:
                     return False
                 with outer._lock:
                     if outer.unauthorized_next > 0:
@@ -150,6 +178,10 @@ class FakeMiner:
                         return self._reply(200, json.dumps(outer.status))
                     if not self._authed():
                         return self._reply(401, "Check Token Error", "text/plain")
+                    if outer.study:
+                        special = outer._study_get(url.path)
+                        if special is not None:
+                            return self._reply(*special)
                     routes = {
                         "/mcb/status": lambda: json.dumps(outer.status),
                         "/mcb/setting": lambda: json.dumps(outer.setting),
@@ -190,6 +222,48 @@ class FakeMiner:
         self.server.daemon_threads = True
         self.host, self.port = self.server.server_address[:2]
         self._thread = None
+
+    def _log(self, kind, method, target, start, end, auth):
+        """Append one entry to `request_log`: kind "http" or "4028", the HTTP method (empty for 4028), the
+        path without its query or the 4028 command, monotonic start and end, whether an Authorization
+        header was sent. Returns the (mutable) entry so the HTTP handler can fill `end` in."""
+        entry = {"kind": kind, "method": method, "target": target, "start": start, "end": end, "auth": auth}
+        with self._lock:
+            self.request_log.append(entry)
+        return entry
+
+    @staticmethod
+    def _command4028(raw):
+        try:
+            return str(json.loads(raw.decode("utf-8", "replace")).get("command"))
+        except (ValueError, AttributeError):
+            return None
+
+    def _study_4028(self, command, fallback):
+        """Study mode: the fixture file for this command, else the devs reply. Never acts on a command."""
+        if command == "pools" and self.fail_pools:
+            return b"\x00"
+        if command and command.isalpha():
+            text = _read_opt(self.dir, "api4028_%s.json" % command)
+            if text is not None:
+                return text.rstrip("\n").encode("utf-8") + b"\x00"
+        return fallback
+
+    def _study_get(self, path):
+        """Study mode GET routes as (code, body, content type), or None to fall through to the normal ones."""
+        if path in ("/mcb/cgminer", "/dbg/vsinfo"):
+            return 500, "internal error", "text/plain"
+        if path in ("/mcb/protect", "/mcb/defend"):
+            return 404, "not found", "text/plain"
+        if path == "/mcb/pools":
+            if self.fail_pools or self.pools is None:
+                return 500, "internal error", "text/plain"
+            return 200, self.pools, "application/json"
+        if path == "/mcb/wifisetting" and self.wifisetting is not None:
+            return 200, self.wifisetting, "application/json"
+        if path == "/dbg/syslog" and self.syslog_dbg is not None:
+            return 200, self.syslog_dbg, "text/plain"
+        return None
 
     @property
     def address(self):
