@@ -18,14 +18,15 @@ Safety, all of it enforced here and proven against `tests/fake_miner.py`:
 - Redaction happens before a byte is written. The two logs (syslog, minersyslog) lose every line that
   holds a credential-ish word, a literal learned from the pools and wifisetting reads, or a MAC: whole
   lines are dropped, nothing is pattern-scrubbed. JSON captures get a field scrub plus literal
-  replacement. MAC addresses and the token are never written. If no pool user was learned, the miner log
-  (which repeats the wallet) is withheld entirely.
+  replacement. MAC addresses and the token are never written. If no pool user was learned, both logs
+  are withheld entirely; the system log is also withheld if the wifi read did not succeed.
 - The password comes from the environment or a terminal prompt, never from an argument. No token,
   password, query string or URL goes to a file, stdout or stderr.
 """
 import argparse
 import getpass
 import http.client
+import ipaddress
 import json
 import math
 import os
@@ -79,6 +80,7 @@ ALLOWLIST = (
 )
 NAMES = tuple(r[0] for r in ALLOWLIST)
 MINERSYSLOG = "minersyslog"
+SYSLOG = "syslog"
 _HTTP_PATHS = frozenset(r[2] for r in ALLOWLIST if r[1] == "http")
 _COMMANDS = frozenset(r[2] for r in ALLOWLIST if r[1] == "4028")
 
@@ -349,6 +351,9 @@ class Result:
 def plan(only=None, have_password=True):
     """The (number, row) pairs a run would make, in table order. Login is added when a selected read needs a token."""
     chosen = set(only or NAMES)
+    if chosen & set(LOG_NAMES):
+        # the logs are redacted with what the pools and wifi reads teach, so those reads come with them
+        chosen |= {r[0] for r in ALLOWLIST if r[4] is not None}
     if have_password and any(r[3] == TOKEN and r[0] in chosen for r in ALLOWLIST):
         chosen.add("login")
     return [(i, r) for i, r in enumerate(ALLOWLIST, 1) if r[0] in chosen]
@@ -463,11 +468,15 @@ def _is_json(text):
 def write_captures(results, redactor, run_dir):
     """Redact every capture with everything learned in the run, write the files and the manifest."""
     entries = []
+    wifi_ok = any(r.source == WIFI and r.status == 200 and r.raw for r in results)
     for r in results:
         if r.raw is not None:
-            if r.name == MINERSYSLOG and not redactor.has_pool_user:
+            if r.name in LOG_NAMES and not redactor.has_pool_user:
                 r.saved = "withheld"
                 r.note = "no pool user was learned from either pools read, so the wallet cannot be redacted"
+            elif r.name == SYSLOG and not wifi_ok:
+                r.saved = "withheld"
+                r.note = "the wifisetting read did not succeed, so the SSID and key cannot be redacted"
             else:
                 if r.name in LOG_NAMES:
                     text, r.lines_total, r.redactions = redactor.drop_lines(_text(r.raw))
@@ -500,6 +509,15 @@ def _strip_scheme(host):
     if "://" in h:
         h = h.split("://", 1)[1]
     return h.split("/", 1)[0]
+
+
+def _literal_ipv4(text):
+    """The address as an ipaddress.IPv4Address, or None. Only a plain dotted quad passes: no name, port,
+    scheme, query, fragment, whitespace, trailing dot, leading zero or integer form."""
+    try:
+        return ipaddress.IPv4Address(text)
+    except ValueError:
+        return None
 
 
 def _hostname(host):
@@ -578,17 +596,28 @@ def main(argv=None, environ=None, isatty=None, clock=time.monotonic, sleep=time.
             return 2
 
     # guards: nothing has been opened yet
+    if _literal_ipv4(args.host) is None:
+        print("hs_probe: refused: --host must be a literal IPv4 address such as 192.168.8.50 "
+              "(no name, port, scheme or path)", file=err)
+        return 2
     ddir = data_dir(environ)
     # The live service may read either config: $GBOX_DATA when set, else ~/.gbox. Check both.
     watched = set()
     try:
         for d in config_dirs(environ):
-            watched.add(_hostname(config.load(d).host or ""))
+            h = _hostname(config.load(d).host or "")
+            if not h:
+                continue                    # no host configured: nothing watched from this config
+            ip = _literal_ipv4(h)
+            if ip is None:
+                print("hs_probe: refused: the gbox config host is not an IPv4 address, so cannot tell "
+                      "whether this host is watched", file=err)
+                return 2
+            watched.add(ip)
     except Exception:
         print("hs_probe: refused: cannot read the gbox config, so cannot tell whether this host is watched", file=err)
         return 2
-    watched.discard("")
-    if _hostname(args.host) in watched and not args.allow_watched_host:
+    if _literal_ipv4(args.host) in watched and not args.allow_watched_host:
         print("hs_probe: refused: this host is the miner in the live gbox config (the service watches it); "
               "use --allow-watched-host only with the owner's word", file=err)
         return 2
