@@ -73,7 +73,7 @@ Columns are the units on record. Cell codes: **V** verified on a unit,
 to other owners, so no test here can fill those cells), **F** fails (returns
 an error on that model). Dates are in the page for each row.
 
-| Endpoint or setting | SC-BOX (MCB_V5_4, fw 2.2.5) | HS-BOX (MCB_V5_4, fw 2.2.6) | SC5 Pro II (MCB_V3_3, fw 2.2.0) | SC Lite (MCB_V4_3, fw 2.2.0) |
+| Endpoint or setting | SC-BOX (MCB_V5_4, fw 2.2.5) | HS-BOX #1 (hw 10.10.SA, MCB_V5_4, fw 2.2.6) | SC5 Pro II (MCB_V3_3, fw 2.2.0) | SC Lite (MCB_V4_3, fw 2.2.0) |
 |---|---|---|---|---|
 | `GET /mcb/status` with no token | V | U | — | — |
 | `GET /user/login` (cipher login) | V | U | R | — |
@@ -135,7 +135,9 @@ resolved.
    came back as the preset on 2026-11-01. One observation, cause unknown. The
    owner plans one more controlled test.
 2. **Are the HS-BOX facts from one unit?** Everything about the HS-BOX is one
-   unit read on 2026-09-25. Treat it as one sample.
+   unit, HS-BOX #1 (hw 10.10.SA), read on 2026-09-25, the day the owner
+   received it and first powered it up. Treat it as one sample. A second unit,
+   HS-BOX #2 (hw 40.40.HA), went into service on 2026-10-31 and is untested.
 3. **Do other models post to `find.goldshell.com`?** Only the SC-BOX was
    checked. ([details](off-lan-traffic.md))
 4. **What does `tempcontrol:false` do under heat?** Untested on any model.

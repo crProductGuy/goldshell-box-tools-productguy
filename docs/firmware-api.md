@@ -153,7 +153,7 @@ The plan string differs by model. Seen or documented so far:
 
 | Dialect | Example | Where |
 |---|---|---|
-| `box` | `575 MHz 0.41 V 90 RPM 90 RPM` | SC-BOX, read from the unit. The HS-BOX writes the same form, read from the maintainer's unit (MCB_V5_4, fw 2.2.6) on 2026-09-25: `850 MHz 0.44 V 50 RPM 50 RPM` for Blake2B (Sia), `750 MHz 0.41 V 50 RPM 50 RPM` for Handshake, no `PV` term |
+| `box` | `575 MHz 0.41 V 90 RPM 90 RPM` | SC-BOX, read from the unit. The HS-BOX writes the same form, read from the owner's HS-BOX #1 (hw 10.10.SA, MCB_V5_4, fw 2.2.6) on 2026-09-25, the day it arrived: `850 MHz 0.44 V 50 RPM 50 RPM` for Blake2B (Sia), `750 MHz 0.41 V 50 RPM 50 RPM` for Handshake, no `PV` term |
 | `mv_pv` | `625 MHz 9100 V 40 RPM 40 RPM PV 9400` | SC Lite, firmware 2.2.0, from Maveth/goldshell-config, and read from his unit's `/mcb/setting` on 2026-09-22. The volts field is an integer (their notes call it millivolts) and a trailing `PV` term follows. `/dbg/minerhistory` shows the internal form `intchains_qomo:vfff=<pv>:<MHz>:<fanA>:<fanB>:<mV>` |
 | `float_pv` | `750 MHz 0.41 V 50 RPM 50 RPM PV 9400` | the "float-V / optional-PV" form the same notes give for the HS Box; no verbatim example with a PV term is on record |
 
