@@ -70,7 +70,12 @@ class ProbeCase(unittest.TestCase):
                if environ is None else dict(environ))
         if password is not None:
             env[hs_probe.PASSWORD_ENV] = password
-        argv = ["--label", label, "--host", host or self.fm.address, "--port4028", str(self.fm.devs4028_port),
+        if host is None:
+            ip, port = self.fm.address.rsplit(":", 1)
+            hostargs = ["--host", ip, "--http-port", port]
+        else:
+            hostargs = ["--host", host]
+        argv = ["--label", label] + hostargs + ["--port4028", str(self.fm.devs4028_port),
                 "--out", str(out or self.out)] + list(extra)
         so, se = io.StringIO(), io.StringIO()
         rc = hs_probe.main(argv, environ=env, isatty=lambda: False, clock=clock, sleep=clock.sleep,
@@ -277,6 +282,16 @@ class SenderTest(ProbeCase):
             self.assertNotIn(bad, src)
 
 
+class PlanTest(unittest.TestCase):
+    def test_review3_a_log_selection_includes_the_learning_reads_in_order(self):
+        for log in ("syslog", "minersyslog"):
+            with self.subTest(only=log):
+                nums = [n for n, _ in hs_probe.plan([log])]
+                self.assertEqual([n for n in nums if n in (5, 7, 10, 11)], [5, 7, 10, 11])
+                self.assertEqual(nums, sorted(nums))
+                self.assertIn(hs_probe.NAMES.index(log) + 1, nums)
+
+
 class BehaviorTest(ProbeCase):
     def test_5_both_pools_reads_failing_withholds_the_miner_log(self):
         self.fm.fail_pools = True
@@ -384,6 +399,61 @@ class BehaviorTest(ProbeCase):
         self.assertEqual(self.fm.request_log, [])
         self.assertFalse((repo / "deep").exists())
         self.assertIn("git work tree", err)
+
+    def test_review3_syslog_withheld_when_nothing_was_learned(self):
+        """4028 pools fails and /mcb/pools answers 401: no pool user, so /dbg/syslog is withheld whole."""
+        self.fm.fail_pools = True
+        self.fm.unauthorized_paths = {"/mcb/pools"}
+        self.fm.syslog_dbg = "[2026-11-01 07:35:49] stratum connect pool.example:3333 as bc1qxyz9rig.rig1
+"
+        rc, out, err, _ = self.run_probe()
+        self.assertEqual(rc, 0, err)
+        entry = {e["name"]: e for e in self.manifest()}
+        self.assertEqual(entry["syslog"]["saved"], "withheld")
+        self.assertIn("pool user", entry["syslog"]["note"])
+        self.assertEqual([p for p in self.run_dir().iterdir() if "syslog" in p.name], [])
+        self.assertNotIn("bc1qxyz9rig", self.tree_text() + out + err)
+
+    def test_review3_syslog_withheld_when_wifi_read_did_not_succeed(self):
+        self.fm.unauthorized_paths = {"/mcb/wifisetting"}
+        rc, out, err, _ = self.run_probe()
+        self.assertEqual(rc, 0, err)
+        entry = {e["name"]: e for e in self.manifest()}
+        self.assertEqual(entry["syslog"]["saved"], "withheld")
+        self.assertIn("wifi", entry["syslog"]["note"].lower())
+
+    def test_review3_only_syslog_runs_the_learning_reads_first(self):
+        self.run_probe("--only", "syslog")
+        self.assertEqual([(e["kind"], e["target"]) for e in self.fm.request_log],
+                         [("4028", "pools"), ("http", "/user/login"), ("http", "/mcb/pools"),
+                          ("http", "/mcb/wifisetting"), ("http", "/dbg/syslog")])
+        self.assertNotIn("FAKEWALLETabc123xyz", self.tree_text())
+
+    BAD_HOSTS = ("1.2.3.4?a=", "1.2.3.4#", "1.2.3.4.", "001.002.003.004", "16909060",
+                 "example.lan", "1.2.3.4:80", " 1.2.3.4")
+
+    def test_review3_only_a_literal_ipv4_host_is_accepted(self):
+        for bad in self.BAD_HOSTS:
+            with self.subTest(host=bad):
+                rc, out, err, _ = self.run_probe(host=bad)
+                self.assertEqual(rc, 2)
+                self.assertEqual(self.fm.request_log, [])
+                self.assertFalse(self.out.exists())
+                self.assertIn("IPv4", err)
+
+    def test_review3_the_watched_host_guard_compares_addresses_not_strings(self):
+        config.save(config.Config(host="192.168.8.96"), self.data)
+        rc, out, err, _ = self.run_probe(host="192.168.8.96")
+        self.assertEqual(rc, 2)
+        self.assertIn("watches", err)
+        self.assertEqual(self.fm.request_log, [])
+
+    def test_review3_a_config_host_that_is_not_an_ip_refuses_to_run(self):
+        config.save(config.Config(host="miner.lan"), self.data)
+        rc, out, err, _ = self.run_probe()
+        self.assertEqual(rc, 2)
+        self.assertEqual(self.fm.request_log, [])
+        self.assertFalse(self.out.exists())
 
     def test_an_unreadable_gbox_config_is_a_refusal_not_a_guess(self):
         (self.data / "config.json").write_text("{not json", encoding="utf-8")
