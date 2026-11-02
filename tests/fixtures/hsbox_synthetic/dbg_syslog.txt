@@ -4,3 +4,15 @@
  [2026-11-01 07:35:52] write /mcb/pools body {"user":"OLDWALLETzz.w1","pass":"x"}
  [2026-11-01 07:35:54] admin login changed from s3cretAdmin9 to a new one
  [2026-11-01 07:35:53] debug {\"password\":\"escpw12\",\"username\":\"escuser\"}
+ [2026-11-01 07:35:55] debug {'password':'sq_pw_1'}
+ [2026-11-01 07:35:56] req password=kv_pw_2&ssid=KvNet
+ [2026-11-01 07:35:57] cfg {"wifipwd":"wp_3","pool_pass":"pp_4"}
+ [2026-11-01 07:35:58] dbl {\\\"password\\\":\\\"de_5\\\"}
+ [2026-11-01 07:35:59] esc {"password":"esc\"q9tail"}
+ [2026-11-01 07:36:00] echo S3CRETADMIN9 done
+ [2026-11-01 07:36:01] dbg {"key":"temp"}
+ [2026-11-01 07:36:02] Minerd start !!!
+ [2026-11-01 07:36:03] Check Token Error
+ [2026-11-01 07:36:04] Check Token Error password=x9x9
+ [2026-11-01 07:36:05] Restart Miner
+ [2026-11-01 07:36:06] chip temp 65 fan 3600 rpm clock 850

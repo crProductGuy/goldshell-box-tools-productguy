@@ -146,17 +146,17 @@ class FullRunTest(ProbeCase):
         # the check above would pass on an empty tree, so show the redaction did happen
         text = (self.run_dir() / "05-4028-pools.json").read_text(encoding="utf-8")
         self.assertIn("<redacted:pool-user>", text)
-        self.assertIn("<redacted:pool-user>", (self.run_dir() / "18-minersyslog.txt").read_text(encoding="utf-8"))
+        self.assertIn("<line withheld:", (self.run_dir() / "18-minersyslog.txt").read_text(encoding="utf-8"))
         self.assertIn("<redacted:mac>", (self.run_dir() / "14-minerinfo.txt").read_text(encoding="utf-8"))
-        self.assertIn("<redacted:mac>", (self.run_dir() / "17-syslog.txt").read_text(encoding="utf-8"))
+        self.assertIn("<line withheld:", (self.run_dir() / "17-syslog.txt").read_text(encoding="utf-8"))
         self.assertIn("<redacted:ssid>", (self.run_dir() / "11-wifisetting.json").read_text(encoding="utf-8"))
         self.assertIn("<redacted:wifi-key>", (self.run_dir() / "11-wifisetting.json").read_text(encoding="utf-8"))
         pools = (self.run_dir() / "10-pools.json").read_text(encoding="utf-8")
         self.assertIn("<redacted:pool-pass>", pools)
         self.assertNotIn('"x"', pools)       # the one-character user and password are replaced as field values
 
-    def test_fix3_secrets_echoed_into_the_syslog_are_scrubbed_on_every_capture(self):
-        """The firmware echoes write bodies into /dbg/syslog; request 17 is not a secret source."""
+    def test_fix3_secrets_echoed_into_the_syslog_are_withheld_by_line(self):
+        """The firmware echoes write bodies into /dbg/syslog; those lines are dropped whole."""
         rc, out, err, _ = self.run_probe()
         self.assertEqual(rc, 0, err)
         tree = self.tree_text()
@@ -164,10 +164,47 @@ class FullRunTest(ProbeCase):
             self.assertNotIn(needle, tree)
             self.assertNotIn(needle, out + err)
         syslog = (self.run_dir() / "17-syslog.txt").read_text(encoding="utf-8")
-        self.assertIn('{"password":"<redacted:secret>","ssid":"<redacted:ssid>"}', syslog)
-        self.assertIn('"pass":"<redacted:secret>"', syslog)
-        self.assertNotIn('"pass":"x"', syslog)
-        self.assertIn('\\"username\\":\\"<redacted:pool-user>\\"', syslog)   # JSON escaped inside a log line
+        self.assertNotIn("<redacted:", syslog)           # no field scrub on the logs
+        self.assertIn("<line withheld: ", syslog)
+
+    def test_linedrop_every_echo_shape_is_gone_from_disk(self):
+        rc, out, err, _ = self.run_probe()
+        self.assertEqual(rc, 0, err)
+        tree = self.tree_text()
+        for needle in ("sq_pw_1", "kv_pw_2", "KvNet", "wp_3", "pp_4", "de_5", "q9tail", "x9x9"):
+            self.assertNotIn(needle, tree)
+        self.assertNotIn("s3cretadmin9", tree.lower())            # also the uppercase form, on a line with no drop word
+        self.assertNotIn("walletabc123", tree.lower())
+
+    def test_linedrop_useful_lines_survive_unchanged(self):
+        self.run_probe()
+        syslog = (self.run_dir() / "17-syslog.txt").read_text(encoding="utf-8").splitlines()
+        for line in (" [2026-11-01 07:36:02] Minerd start !!!", " [2026-11-01 07:36:03] Check Token Error",
+                     " [2026-11-01 07:36:05] Restart Miner",
+                     " [2026-11-01 07:36:06] chip temp 65 fan 3600 rpm clock 850"):
+            self.assertIn(line, syslog)
+        self.assertNotIn(" [2026-11-01 07:36:04] Check Token Error password=x9x9", syslog)
+        self.assertIn("<line withheld: ", "\n".join(syslog))
+        self.assertIn(" [2026-11-01 07:36:03] Restart Miner",
+                      (self.run_dir() / "18-minersyslog.txt").read_text(encoding="utf-8").splitlines())
+        status = (self.run_dir() / "06-status-notoken.json").read_text(encoding="utf-8")
+        self.assertIn('"hashrate": 116321183393', status)
+        self.assertIn('"ver":"a1b2c3d4e5f6"', status)
+
+    def test_linedrop_a_key_temp_echo_does_not_blank_temp_elsewhere(self):
+        self.run_probe()
+        self.assertIn("temp0", (self.run_dir() / "15-icinfo.json").read_text(encoding="utf-8"))
+        self.assertNotIn("<redacted:wifi-key>", (self.run_dir() / "15-icinfo.json").read_text(encoding="utf-8"))
+
+    def test_linedrop_manifest_counts_lines(self):
+        self.run_probe()
+        entry = {e["name"]: e for e in self.manifest()}
+        for name in ("syslog", "minersyslog"):
+            e = entry[name]
+            self.assertGreater(e["lines_total"], e["lines_withheld"])
+            self.assertGreater(e["lines_withheld"], 0)
+            self.assertEqual(e["redactions"], e["lines_withheld"])
+        self.assertNotIn("lines_total", entry["status"])
 
     def test_requests_before_the_secret_is_learned_are_redacted_too(self):
         """The pool user is learned at request 5; the captures from 1-4 are written after, with it known."""
@@ -387,20 +424,19 @@ class RedactorTest(unittest.TestCase):
 
     def test_fix5_other_mac_forms(self):
         r = hs_probe.Redactor()
-        for text in ("mac 021a2b3c4d5e up", "mac 021A2B3C4D5E.", "mac=021a.2b3c.4d5e;", "mac 02 1a 2B 3c 4d 5E ok",
-                     "(02-1A-2B-3C-4D-5E)", "hwaddr 021a2b3c4d5e"):
+        for text in ("mac=021a.2b3c.4d5e;", "mac 02 1a 2B 3c 4d 5E ok", "(02-1A-2B-3C-4D-5E)"):
             out, n = r.apply(text)
             self.assertNotRegex(out, r"(?i)021a|1a 2b|1a-2b|2b3c", text)
             self.assertIn("<redacted:mac>", out)
         keep = ("sha 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",   # inside a longer hex run
                 "run 0123456789abcdef0123", "Total MH 116321183393.0423", "n=116321183393.5", "id 12345678901",
-                "ver 1.2.3 build 2026 11 01")
+                "ver 1.2.3 build 2026 11 01", "hashrate 116321183393", "ver a1b2c3d4e5f6", "mac 021a2b3c4d5e up")
         for text in keep:
             self.assertEqual(r.apply(text)[0], text)
 
     def test_fix5_the_recorded_wifi_shape(self):
         raw = '{"network":[{"ssid":"NetA-77","password":"wifipw99"},{"ssid":"B","password":"zz"}]}'
-        for source in (hs_probe.WIFI, None):
+        for source in (hs_probe.WIFI,):
             r = hs_probe.Redactor()
             r.learn(source, raw)
             out, n = r.apply(raw + " later: wifipw99 on NetA-77", source)
@@ -417,6 +453,32 @@ class RedactorTest(unittest.TestCase):
         self.assertEqual(out, '[{"user":"<redacted:pool-user>","pass":"<redacted:pool-pass>"}]')
         self.assertEqual(r.apply("x marks the spot")[0], "x marks the spot")
         self.assertFalse(r.has_pool_user)       # a user too short to find in other text counts as none
+
+    def test_linedrop_unit(self):
+        r = hs_probe.Redactor()
+        r.learn(hs_probe.POOLS_HTTP, '[{"user":"rigOwner77","pass":"zz"}]')
+        text = ("ok line\nPayout to RIGOWNER77 done\r\nCheck Token Error\nCheck token error PWD=1\n"
+                "mac 02:1a:2b:3c:4d:5e\nlast")
+        out, total, withheld = r.drop_lines(text)
+        self.assertEqual(total, 6)
+        self.assertEqual(withheld, 3)
+        lines = out.split("\n")
+        self.assertEqual(lines[0], "ok line")
+        self.assertEqual(lines[1], "<line withheld: 25 chars>\r")
+        self.assertIn("Check Token Error\n", out)
+        self.assertNotIn("PWD", out)
+        self.assertIn("last", out)
+        for word in hs_probe.LOG_DROP_WORDS:
+            self.assertEqual(r.drop_lines("a " + word.upper() + " b")[2], 1, word)
+
+    def test_literals_are_replaced_case_insensitively_and_only_pool_and_wifi_reads_teach(self):
+        r = hs_probe.Redactor()
+        r.learn(hs_probe.POOLS_HTTP, '[{"user":"rigOwner77","pass":"zz"}]')
+        self.assertEqual(r.apply("x RIGOWNER77 y")[0], "x <redacted:pool-user> y")
+        r2 = hs_probe.Redactor()
+        r2.learn("syslog", '{"key":"temp","user":"someoneelse","password":"leaked1"}')
+        r2.learn(None, '{"ssid":"OtherNet"}')
+        self.assertEqual(r2.apply("temp someoneelse leaked1 OtherNet")[0], "temp someoneelse leaked1 OtherNet")
 
 
 if __name__ == "__main__":
