@@ -4534,3 +4534,34 @@ level or better. All were written into the design as amendments; one is the owne
 5-minute cut can land, 3 times in 208, on a restart that took effect late; recommended: accept). The lesson matches
 BG's: the drafter's plain-language rules were right in intent, and the gaps sat in how they would meet existing
 flags in the code, which a reviewer reading the code found and the drafter, writing from it, did not.
+
+## 2026-10-20, session BA (787f1a7a) continued: the two power levels written down (reconstructed 2026-11-01 by session d9dccf77)
+
+Reconstructed from BA's transcript on 2026-11-01, because the 10-20 part of BA never reached this log. BA wrote
+the page and the log entry was missed. The owner asked to find the record and log it.
+
+**The goal.** At 11:23 EDT on 10-20, after a morning status read, the owner asked: "note this but don't overwrite
+the top status for what to do next", then "Write this table above into a new HTML doc that shows power and speed
+combos... SC BOX operating at 2 different power levels at the same speed and hashrate. There's a hidden 'mode'
+that flips but no adequate explanation has been found." The owner calls them modes because the behavior repeats,
+yet no firmware bit or setting selects it, and the flips look random. The agent asked no questions.
+
+**Method.** An awk pass over the service's `log.csv`, hashing rows only, grouped by day and clock, 10-01 to 10-20,
+with groups of at least an hour. Days were called low or high by comparing means at the same clock on the same
+supply. That was a judgment against the table, not a detector. Earlier instances were quoted by date from the
+status file and this log.
+
+**Findings.** The cleanest case: at a self-restart of the mining process at 22:23 on 10-19, 147.2 W became
+161.0 W at 500 MHz and 0.41 V on the 360 W brick. Fans were 1,216 against 1,212 rpm and hashrate was 640 GH/s in
+both. The board was 3.7 C warmer, and efficiency went from 230 to 252 J/TH. The same split shows at 525 MHz
+(about 157.6 against 169.9 W) and at 550 MHz (about 166 against 176 W). Six instances are on record since 09-14,
+on both supplies. Ruled out: fans, chips dropping out, the meter (the board temperature agrees), a single supply,
+and restarts as the only trigger. Still open: what flips it; whether the core voltage differs, which the firmware
+cannot show because its voltage field is a setpoint echo; and whether the levels differ in error rate.
+
+**What happened to it.** The page, `docs/sc-box-power-modes.html`, was written to the main checkout and never
+committed or published. Twelve later status blocks note it as "still untracked (from BA)", and none extended or
+corrected it. On 2026-11-01 the owner decided it belongs in the reference. Its findings now sit in the notebook as
+a dated section and in the reference as "Two power levels at the same clock", on the `docs-reference` branch. A
+matrix row and an open question were added too. The data runs only to 10-20; whether the high level held after
+that was not checked in this reconstruction.

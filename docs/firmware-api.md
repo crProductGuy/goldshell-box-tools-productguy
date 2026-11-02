@@ -413,6 +413,70 @@ name at the resolver. Block only that name: the miner sets its clock over
 NTP, and a cold start reads 2007 until it does. Whether other models do the
 same is unchecked.
 
+## 2026-10-20: two power levels at one clock (SC-BOX)
+
+Compiled on 2026-10-20 at the owner's request from the service's `log.csv`
+(30 s samples, hashing rows only) and the project's status and evolution
+records. SC-BOX, MCB_V5_4, fw 2.2.5. Watts are the HS110 plug's reading at the
+wall.
+
+At one clock setting the unit runs at either of two power levels, about 10 to
+20 W apart. Clock and voltage read the same in both, and so do fan speed and
+hashrate, with all sixteen chips producing. The board runs a few degrees
+cooler in the low level. Nothing in the firmware's reported state changes
+with the level. The owner calls these the two "modes".
+
+The cleanest instance, 2026-10-19 to 10-20, all on the 360 W brick at
+500 MHz and 0.410 V:
+
+| | Before (10-19 12:00 to 22:20, 1,240 samples) | After (10-19 23:00 to 10-20 11:17, 1,474 samples) |
+|---|---|---|
+| Wall draw | 147.2 W | 161.0 W |
+| Board temperature | 57.4 C | 61.1 C |
+| Hashrate | 640 GH/s | 640 GH/s |
+| Fans | 1,216 rpm | 1,212 rpm |
+| Efficiency | 230 J/TH | 252 J/TH |
+
+The step came at a self-restart of the mining process at 22:23 on 10-19.
+Nothing had been changed. The "after" stretch is overnight, when the room is
+cooler, so ambient does not explain the warmer board.
+
+Daily means from 10-01 to 10-20 put each day at a level. On the brick, 525 MHz
+read about 157.6 W on 10-01 to 10-04 and 169.9 W on 10-09. 550 MHz read 165 to
+167 W on 10-04 to 10-08 and 176.1 W on 10-09. 500 MHz read 147.0 to 148.2 W on
+10-17 to 10-19 and 161.1 W on 10-20. The APW3++ days at 500 MHz (10-11 to
+10-13, about 157.4 W) sit between the brick's two levels and cannot be
+assigned, because that supply's own efficiency differs.
+
+Instances on record:
+
+| When | Seen | Source |
+|---|---|---|
+| 2026-09-14 | about 161 W against 191 W at the same hashrate, while chasing the board's marginal power-up across two supplies | evolution, session P |
+| 2026-09-14 to 09-21 | a whole-log scan found seven stretches of 15 min or more at about 162 W instead of 182 W, three in one day; one began with no event, and a power cycle did not end one; about 234 against 257 J/TH | evolution, session AE |
+| 2026-09-20, 17:36 to 18:44 | about 162 W instead of 184 W after a watchdog restart; all sixteen chips at normal rates (9,035 good nonces an hour against 9,154 before and 9,151 after); stepped back to 184 W at 18:55 | status, session AC |
+| 2026-10-09 | the higher level at every clock, about +10 to 11 W against 10-03 and the 10-07/08 soak | status, 10-09 |
+| 2026-10-10, 12:33 | a soft restart by hand came up about 18 W higher than the 12:17 boot at the same fan speed, on the APW3++ | status, 10-10 |
+| 2026-10-19, 22:23 | 147 W became 161 W after a self-restart, fans and hashrate equal | this section |
+
+What the instances rule out:
+
+- **Fans.** The 10-20 flip had the fans at the same speed. Where fans differed,
+  the difference costs a watt or two, not ten.
+- **Chips dropping out.** On 09-20 and 09-21 all sixteen chips produced at
+  matched rates in both levels.
+- **A metering artifact.** The board is cooler in the low level, so less power
+  really reaches it.
+- **One supply.** Seen on the brick and on the APW3++.
+- **Restarts as the only trigger.** Some flips follow a restart (09-20, 10-10,
+  10-19). One began with no event, and a power cycle did not end one.
+
+Open: what flips the level; whether the core voltage really differs (the
+`voltage` field is a setpoint echo, see above, and a few tens of millivolts
+would give a 10 to 14 W step at about 640 GH/s); whether the levels differ in
+error rate or stale shares over a long run; a second meter on the same cord
+would settle the plug's part for good.
+
 ## 2026-11-01: manual plan lost across a power cycle (SC-BOX)
 
 Verified by the owner's session on 2026-11-01 from the service's `events.log`,

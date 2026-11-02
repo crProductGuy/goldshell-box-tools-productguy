@@ -205,8 +205,39 @@ log. `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-11-01]`
   fw 2.2.5, 2026-09-20]`
 - On 2026-09-20 the unit ran 80 minutes at 162 W instead of 184 W on the same
   550 MHz with all 16 chips at normal rates, then stepped back up through one
-  221 W sample. Nothing on record says why. `[verified: SC-BOX, MCB_V5_4, fw
-  2.2.5, 2026-09-20]`
+  221 W sample. That is one instance of the two power levels below.
+  `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-20]`
+
+## Two power levels at the same clock
+
+([evidence](../firmware-api.md#2026-10-20-two-power-levels-at-one-clock-sc-box))
+
+At one clock setting the SC-BOX runs at either of two power levels, about 10
+to 20 W apart at the wall. The levels are repeatable but no setting selects
+them, so the owner calls them "modes". In both levels these read the same:
+clock, voltage, fan speed, hashrate, and all sixteen chips producing. The
+board runs 3 to 4 C cooler in the low level, so the difference is real power,
+not a meter artifact. `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-10-20]`
+
+The cleanest case: at 500 MHz and 0.41 V on the 360 W supply, 147 W became
+161 W at a self-restart of the mining process on 2026-10-19, with fans at
+1,216 against 1,212 rpm and hashrate 640 GH/s in both. Efficiency went from
+230 to 252 J/TH. `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-10-20]`
+
+- Six instances are on record between 2026-09-14 and 2026-10-19, on two
+  different supplies. `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-10-20]`
+- A restart can flip the level but is not required: one stretch began with no
+  event, and a power cycle did not end another.
+  `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09-21]`
+- Nothing the firmware reports changes with the level. The voltage field is a
+  setpoint echo ([port 4028](port-4028.md#voltage-on-the-sc-box-is-not-a-measurement)),
+  so a core-voltage difference of a few tens of millivolts would fit the watts
+  and the temperature but cannot be seen. `[unverified]`
+- If you tune for efficiency, compare watts only within one level. A change
+  that looks like 10 W saved may be a level flip.
+
+Open: what flips it, whether the levels differ in error rate over a long run,
+and whether other BOX models do the same.
 
 ## What the unit does and does not survive
 

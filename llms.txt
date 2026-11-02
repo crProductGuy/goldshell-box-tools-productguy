@@ -8,7 +8,7 @@
 - [Firmware HTTP API](docs/reference/firmware-http-api.md): login, token behavior, `Check Token Error`, bare HTTP 500 on login, the endpoint table.
 - [Settings and power plans](docs/reference/settings-and-power-plans.md): `/mcb/setting`, `manual` and `manualPowerplan`, why the stock UI Save reverts a tuned clock, plan string dialects, the HS-BOX nested presets.
 - [Port 4028](docs/reference/port-4028.md): the cgminer socket, no token.
-- [Behavior and failure modes](docs/reference/behavior-and-failure-modes.md): counters, self-restarts, board and controller failures, fans, the miner log labels.
+- [Behavior and failure modes](docs/reference/behavior-and-failure-modes.md): counters, self-restarts, board and controller failures, two power levels at one clock, fans, the miner log labels.
 - [Off-LAN traffic](docs/reference/off-lan-traffic.md): posts to `find.goldshell.com`.
 
 ## Evidence

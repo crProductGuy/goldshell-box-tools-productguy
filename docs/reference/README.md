@@ -97,6 +97,7 @@ Columns are the units on record. Cell codes: **V** verified on a unit,
 | `tempcontrol` has no effect on fans | V | U | U | R |
 | Voltage on 4028 is a setpoint echo | V | U | R, differs (millivolts) | R, differs (not the setpoint) |
 | Posts to `find.goldshell.com` | V | U | U | U |
+| Two power levels at one clock | V | U | U | U |
 
 Port 4028 `summary` reads U everywhere because the notebook records the answer
 without naming the unit. SC5 Pro II cells are R because that unit belongs to
@@ -113,7 +114,8 @@ and SC Lite report a different voltage unit.
   `manual`, `manualPowerplan`, the plan dialects, what each stock-UI Save writes.
 - [Port 4028](port-4028.md): the cgminer socket, no token.
 - [Behavior and failure modes](behavior-and-failure-modes.md): counters,
-  self-restarts, how a sick board looks, fans, the miner log.
+  self-restarts, how a sick board looks, two power levels at one clock, fans,
+  the miner log.
 - [Off-LAN traffic](off-lan-traffic.md): what the firmware sends to
   `find.goldshell.com`.
 
@@ -135,3 +137,6 @@ resolved.
    checked. ([details](off-lan-traffic.md))
 4. **What does `tempcontrol:false` do under heat?** Untested on any model.
 5. **What do `/mcb/protect` and `/mcb/defend` do?** Never called.
+6. **What flips the SC-BOX between its two power levels?** Same clock, about
+   10 to 20 W apart, nothing reported changes. Six instances, no cause.
+   ([details](behavior-and-failure-modes.md#two-power-levels-at-the-same-clock))
