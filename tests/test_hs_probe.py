@@ -363,6 +363,30 @@ class RedactorTest(unittest.TestCase):
         q = hs_probe.Probe(sender, "password")
         self.assertEqual(q.redactor.apply('{"password":"password"}')[0], '{"password":"<redacted:secret>"}')
 
+    def test_fix5_other_mac_forms(self):
+        r = hs_probe.Redactor()
+        for text in ("mac 021a2b3c4d5e up", "mac 021A2B3C4D5E.", "mac=021a.2b3c.4d5e;", "mac 02 1a 2B 3c 4d 5E ok",
+                     "(02-1A-2B-3C-4D-5E)", "hwaddr 021a2b3c4d5e"):
+            out, n = r.apply(text)
+            self.assertNotRegex(out, r"(?i)021a|1a 2b|1a-2b|2b3c", text)
+            self.assertIn("<redacted:mac>", out)
+        keep = ("sha 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",   # inside a longer hex run
+                "run 0123456789abcdef0123", "Total MH 116321183393.0423", "n=116321183393.5", "id 12345678901",
+                "ver 1.2.3 build 2026 11 01")
+        for text in keep:
+            self.assertEqual(r.apply(text)[0], text)
+
+    def test_fix5_the_recorded_wifi_shape(self):
+        raw = '{"network":[{"ssid":"NetA-77","password":"wifipw99"},{"ssid":"B","password":"zz"}]}'
+        for source in (hs_probe.WIFI, None):
+            r = hs_probe.Redactor()
+            r.learn(source, raw)
+            out, n = r.apply(raw + " later: wifipw99 on NetA-77", source)
+            self.assertNotIn("wifipw99", out)
+            self.assertNotIn("NetA-77", out)
+            self.assertNotIn('"zz"', out)
+            self.assertNotIn('"B"', out)
+
     def test_short_secrets_are_not_replaced_in_other_text_but_their_fields_are(self):
         r = hs_probe.Redactor()
         raw = '[{"user":"x","pass":"x"}]'

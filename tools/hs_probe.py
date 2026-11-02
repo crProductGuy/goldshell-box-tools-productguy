@@ -156,7 +156,15 @@ class Sender:
 
 # ---------------------------------------------------------------- redaction
 
-_MAC = re.compile(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{2}(?:[:-][0-9A-Fa-f]{2}){5}(?![0-9A-Fa-f])")
+# MAC address forms: colon or dash, space separated, dotted (021a.2b3c.4d5e), and 12 bare hex digits.
+# The bare form must stand alone: not inside a longer run of letters or digits (a hash), and not a
+# piece of a decimal number such as 116321183393.04.
+_MACS = (
+    re.compile(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{2}(?:[:-][0-9A-Fa-f]{2}){5}(?![0-9A-Fa-f])"),
+    re.compile(r"(?<![0-9A-Za-z])[0-9A-Fa-f]{2}(?: [0-9A-Fa-f]{2}){5}(?![0-9A-Za-z])"),
+    re.compile(r"(?<![0-9A-Za-z])[0-9A-Fa-f]{4}(?:\.[0-9A-Fa-f]{4}){2}(?![0-9A-Za-z])"),
+    re.compile(r"(?<![0-9A-Za-z])(?<!\d\.)[0-9A-Fa-f]{12}(?![0-9A-Za-z])(?!\.\d)"),
+)
 _BEARER = re.compile(r"Bearer\s+[A-Za-z0-9._~+/=-]+")
 _JWT = re.compile(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*")
 _JWT_FIELD = re.compile(r'("JWT Token"\s*:\s*)"[^"]*"')
@@ -282,8 +290,9 @@ class Redactor:
                 self._rx = re.compile("|".join(re.escape(s) for s in sorted(self.fixed, key=len, reverse=True)))
             text, c = self._rx.subn(lambda m: self.fixed[m.group(0)], text)
             n += c
-        text, c = _MAC.subn(_placeholder("mac"), text)
-        n += c
+        for rx in _MACS:
+            text, c = rx.subn(_placeholder("mac"), text)
+            n += c
         return text, n
 
 
