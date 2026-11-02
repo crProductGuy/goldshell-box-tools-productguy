@@ -404,8 +404,7 @@ class BehaviorTest(ProbeCase):
         """4028 pools fails and /mcb/pools answers 401: no pool user, so /dbg/syslog is withheld whole."""
         self.fm.fail_pools = True
         self.fm.unauthorized_paths = {"/mcb/pools"}
-        self.fm.syslog_dbg = "[2026-11-01 07:35:49] stratum connect pool.example:3333 as bc1qxyz9rig.rig1
-"
+        self.fm.syslog_dbg = "[2026-11-01 07:35:49] stratum connect pool.example:3333 as bc1qxyz9rig.rig1\n"
         rc, out, err, _ = self.run_probe()
         self.assertEqual(rc, 0, err)
         entry = {e["name"]: e for e in self.manifest()}
