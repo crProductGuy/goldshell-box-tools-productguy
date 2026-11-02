@@ -471,6 +471,11 @@ What the instances rule out:
 - **Restarts as the only trigger.** Some flips follow a restart (09-20, 10-10,
   10-19). One began with no event, and a power cycle did not end one.
 
+Status on 2026-11-01 (the owner): the cause remains unknown and the level may
+flip at any time ("mode flipping"). It stays of interest and may be analyzed
+again at the owner's request, but there seems to be no way to discover the
+cause from outside the board.
+
 Open: what flips the level; whether the core voltage really differs (the
 `voltage` field is a setpoint echo, see above, and a few tens of millivolts
 would give a 10 to 14 W step at about 640 GH/s); whether the levels differ in

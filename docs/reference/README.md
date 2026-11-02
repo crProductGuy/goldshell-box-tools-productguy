@@ -138,5 +138,7 @@ resolved.
 4. **What does `tempcontrol:false` do under heat?** Untested on any model.
 5. **What do `/mcb/protect` and `/mcb/defend` do?** Never called.
 6. **What flips the SC-BOX between its two power levels?** Same clock, about
-   10 to 20 W apart, nothing reported changes. Six instances, no cause.
+   10 to 20 W apart, nothing reported changes. Six instances, no cause, and
+   no known way to find one. It may recur at any time ("mode flipping").
+   Kept as a question of interest, analyzed again only at the owner's request.
    ([details](behavior-and-failure-modes.md#two-power-levels-at-the-same-clock))

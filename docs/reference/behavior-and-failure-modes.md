@@ -236,8 +236,16 @@ The cleanest case: at 500 MHz and 0.41 V on the 360 W supply, 147 W became
 - If you tune for efficiency, compare watts only within one level. A change
   that looks like 10 W saved may be a level flip.
 
-Open: what flips it, whether the levels differ in error rate over a long run,
-and whether other BOX models do the same.
+**The cause is unknown, and the level may flip at any time ("mode
+flipping").** Nothing the firmware exposes changes with it, and no
+measurement available from outside the board has shown a way to find the
+cause. Treat a step of 10 to 20 W at an unchanged clock as a possible flip
+before you treat it as a fault or a tuning result. The owner keeps it as a
+question of interest, to be analyzed again on demand, not as an open task.
+`[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-11-01]`
+
+Still unanswered: whether the levels differ in error rate over a long run, and
+whether other BOX models do the same.
 
 ## What the unit does and does not survive
 

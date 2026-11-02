@@ -4565,3 +4565,50 @@ corrected it. On 2026-11-01 the owner decided it belongs in the reference. Its f
 a dated section and in the reference as "Two power levels at the same clock", on the `docs-reference` branch. A
 matrix row and an open question were added too. The data runs only to 10-20; whether the high level held after
 that was not checked in this reconstruction.
+
+## 2026-11-01, session d9dccf77 (no letter): the overnight clock jump, gate 3 planned, and the controller reference
+
+**The goals.** The owner, in the morning: "open gbox, see what happened overnight, why a gap in graphs (maybe DST
+shift) and how the clockrate got upshifted from 500 to factory default 725 at 06:17 EST... Who messed with the
+clock?" Later: "Write or extend 'how the GoldShell BOX series controllers and APIs actually work' ... in a Docs as
+Code .md ... making it more accessible to humans. Think about how it would be presented and consumed by humans and
+LLMs."
+
+**The clock.** Nobody changed it. The controller hung at 500 MHz at 05:57. The 06:09 power cycle brought it back on
+preset 0 with `manual=False`, so the firmware itself dropped the manual plan at boot. This was after more than 20
+clean cold boots, and the cause is unknown. The graph gap was the DST fold: timestamps are naive local time and the
+repeated hour drew on top of itself. No samples were lost. The owner chose to keep the box at 725 for at least
+24 hours to see whether it holds the higher clock, and the agent is not to set it back.
+
+**Decisions for 0.14.0.** Gate 3 adds a clock watch and a sticky target clock in a small file in the service's data
+directory, which only the service writes. A restore to that target is off by default, one attempt per restart and
+at most six a day. The owner approved amending the "no clock-changing endpoint" rule for exactly that restore; the
+amendment lands with the gate 3 code. Timestamps with UTC offsets follow in 0.14.1.
+
+**The reference.** A strategy read by a second model (Fable) shaped it: a `docs/reference/` set about the miners,
+not about gbox. It has an index with safety rules first, then a model-by-firmware matrix, and pages for the HTTP API,
+settings and power plans, port 4028, behavior and failure modes, and off-LAN traffic. Every fact carries one tag:
+verified, reported, unverified or contradicted. Each section links to the notebook paragraph that earned it, and
+`llms.txt` indexes the set. The owner decided: GitHub Pages renders the Markdown, an HTML artifact is the owner's
+reading copy only, PyPI publishing under the project's own account comes later, and the MCP server comes after
+0.14.0, behind a CLI `--json` and an agent skill. One outreach post goes to the community where the owner already
+takes part, not to the large social sites.
+
+**Findings that changed the docs.** The notebook and two guides said a manual plan survives a power cycle. The
+morning's reading contradicts that, so the claim is tagged contradicted, labelled as one observation, and softened
+in the guides. The stock UI's Save always writes `manual:false`, so any Save reverts a tuned clock; that warning now
+heads the settings page. A fresh reviewer pass found six tags that overclaimed or misfiled facts, among them SC5 Pro
+II facts from another owner's capture marked verified, and a security-note sentence the evidence contradicts. All
+six were fixed. The owner confirmed that the HS-BOX data comes from the owner's own unit, so its verified tags
+stand.
+
+**The power-modes page.** The owner identified an untracked page as session BA's 10-20 analysis and asked for it to
+be folded in. Its findings are now in the notebook and the reference, BA's missing log entry is reconstructed
+above, and the page itself was deleted. The owner's position, recorded in both places: the cause of the two levels
+remains unknown, the level may flip at any time ("mode flipping"), and it stays of interest for analysis on demand,
+with no known way to discover the cause.
+
+**Verified by:** a link check (89 links, 0 bad), the style checker on all six pages, a leak grep on each commit, a
+syntax check of the reading copy's script, and a parse of its embedded pages. The reading copy was not seen in a
+browser, because none was connected. Left out: the matrix is still mostly untested, which is the honest state with
+one SC-BOX supplying most of the evidence. A study of the two HS-BOXes was proposed to fill those cells.
