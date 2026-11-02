@@ -4612,3 +4612,35 @@ with no known way to discover the cause.
 syntax check of the reading copy's script, and a parse of its embedded pages. The reading copy was not seen in a
 browser, because none was connected. Left out: the matrix is still mostly untested, which is the honest state with
 one SC-BOX supplying most of the evidence. A study of the two HS-BOXes was proposed to fill those cells.
+
+## 2026-11-01 evening, session d9dccf77 continued: an untested claim, versioned reading copies, and the HS-BOX study decided
+
+**An old claim with nothing behind it.** The owner pointed out that the fan values in the power plans (90 in the
+plans gbox writes) had never been investigated. The notebook said flatly that they are ignored, and the reference
+had copied that with a verified tag. Traced back, the sentence dates from the first commit, with no test on
+record. Even the unit is unknown: the presets carry 70, gbox's plans 90, the HS-BOX's own plans 50. The docs now
+say so, as a dated correction, and the question is open question 7. The owner also wants one more controlled test
+of whether a manual plan survives a clean power cycle, after the 24-hour run at 725.
+
+**Which reading copy is this?** The owner was refreshing the reading copy and could not tell versions apart. The
+build now stamps each copy with a version number that matches the artifact's version, the build time with its
+UTC offset, and the commit it came from, including whether that commit is pushed.
+
+**The HS-BOX study.** The owner was troubled by the untested cells in the matrix. The agent pointed out that the
+SC5 Pro II and SC Lite belong to other owners, so no study here can fill those columns, and proposed a dash for
+"no unit on hand" so the matrix reads honestly. For the two HS-BOXes on the LAN (hardware 10.10.SA, received
+2026-09-25 and the source of every HS-BOX fact so far, and 40.40.HA, in service since 2026-10-31) it proposed a
+study in five phases: a paced read-only probe tool, a sweep, a passive watch, a few owner-present writes, and a
+write-up that splits the HS-BOX column in two. The owner accepted the recommendations: read-only contact
+approved, writes without the soft restart for now, the dash, and the sweep before any experiment that changes a
+box.
+
+**A fan, and the headroom question.** The owner added a 120 mm exhaust fan to HS-BOX #2. A port 4028 read showed
+72 to 59 C on its sensors and its own fans slowing from about 1,400 to 900 rpm, at the same clock and voltage,
+while HS-BOX #1 stayed at 58 C, so the room did not do it. The hardware-error rate showed no measurable change in
+a 10-minute window. The owner then asked whether the slow fans leave too little headroom for the planned
+fan-slider test. The agent's answer: with temperature control off, the slider likely sets the speed directly, so
+the main test does not depend on the current speed. Unplug the extra fan only if the first pass shows nothing,
+and never while the temperature switch, possibly the overheat cutoff, is off. The slider has sat at the top of its
+range all along while the fans ran at 900 rpm, so the slider does not force a high speed with temperature control
+on. The owner chose that order.
