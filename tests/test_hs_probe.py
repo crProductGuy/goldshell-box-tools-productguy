@@ -441,8 +441,8 @@ class BehaviorTest(ProbeCase):
                 self.assertIn("IPv4", err)
 
     def test_review3_the_watched_host_guard_compares_addresses_not_strings(self):
-        config.save(config.Config(host="192.168.8.96"), self.data)
-        rc, out, err, _ = self.run_probe(host="192.168.8.96")
+        config.save(config.Config(host="192.168.8.201"), self.data)
+        rc, out, err, _ = self.run_probe(host="192.168.8.201")
         self.assertEqual(rc, 2)
         self.assertIn("watches", err)
         self.assertEqual(self.fm.request_log, [])
