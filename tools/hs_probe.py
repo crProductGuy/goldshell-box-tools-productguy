@@ -15,9 +15,11 @@ Safety, all of it enforced here and proven against `tests/fake_miner.py`:
   next. 15 s timeout. Three connection failures in a row abort the run.
 - Guards, checked before any contact (exit 2): the target must not be the host in the live gbox config
   (the service watches that miner), and the output directory must not be inside a git work tree.
-- Redaction happens before a byte is written: pool user, pool password, worker names, SSID and WiFi
-  key learned from the pools and wifisetting reads are replaced everywhere, MAC addresses and the token
-  are never written. If no pool user was learned, the miner log (which repeats the wallet) is withheld.
+- Redaction happens before a byte is written. The two logs (syslog, minersyslog) lose every line that
+  holds a credential-ish word, a literal learned from the pools and wifisetting reads, or a MAC: whole
+  lines are dropped, nothing is pattern-scrubbed. JSON captures get a field scrub plus literal
+  replacement. MAC addresses and the token are never written. If no pool user was learned, the miner log
+  (which repeats the wallet) is withheld entirely.
 - The password comes from the environment or a terminal prompt, never from an argument. No token,
   password, query string or URL goes to a file, stdout or stderr.
 """
@@ -156,14 +158,12 @@ class Sender:
 
 # ---------------------------------------------------------------- redaction
 
-# MAC address forms: colon or dash, space separated, dotted (021a.2b3c.4d5e), and 12 bare hex digits.
-# The bare form must stand alone: not inside a longer run of letters or digits (a hash), and not a
-# piece of a decimal number such as 116321183393.04.
+# MAC address forms: colon or dash, space separated, dotted (021a.2b3c.4d5e). The bare 12-hex form is
+# deliberately not matched: it hits integers and hex version strings.
 _MACS = (
     re.compile(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{2}(?:[:-][0-9A-Fa-f]{2}){5}(?![0-9A-Fa-f])"),
     re.compile(r"(?<![0-9A-Za-z])[0-9A-Fa-f]{2}(?: [0-9A-Fa-f]{2}){5}(?![0-9A-Za-z])"),
     re.compile(r"(?<![0-9A-Za-z])[0-9A-Fa-f]{4}(?:\.[0-9A-Fa-f]{4}){2}(?![0-9A-Za-z])"),
-    re.compile(r"(?<![0-9A-Za-z])(?<!\d\.)[0-9A-Fa-f]{12}(?![0-9A-Za-z])(?!\.\d)"),
 )
 _BEARER = re.compile(r"Bearer\s+[A-Za-z0-9._~+/=-]+")
 _JWT = re.compile(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*")
@@ -172,6 +172,15 @@ _JWT_FIELD = re.compile(r'("JWT Token"\s*:\s*)"[^"]*"')
 _FIELD = re.compile(r'"((?:[^"\\\r\n]|\\.)*)"([ \t]*:[ \t]*)(?:"((?:[^"\\\r\n]|\\.)*)"|(-?\d[\d.eE+-]*))')
 # the same pair with its quotes escaped, as JSON looks when it sits inside a log line's string
 _FIELD_ESC = re.compile(r'\\"([^"\\]*)\\"(\s*:\s*)\\"((?:[^"\\]|\\(?!"))*)\\"')
+
+# The two log captures are redacted by dropping whole lines, never by pattern-scrubbing their text.
+LOG_NAMES = ("syslog", "minersyslog")
+LOG_DROP_WORDS = ("pass", "pwd", "psk", "key", "ssid", "user", "login", "token", "bearer", "jwt",
+                  "mac", "wallet", "secret", "auth", "cipher")
+# Known-harmless phrases that contain a drop word. Removed from a copy of the line before the check.
+LOG_BENIGN_PHRASES = ("check token error",)
+# Only these reads teach the redactor literals.
+LEARN_SOURCES = (POOLS_4028, POOLS_HTTP, WIFI)
 
 POOL_USER, POOL_PASS, SSID, WIFI_KEY, SECRET = "pool-user", "pool-pass", "ssid", "wifi-key", "secret"
 MIN_SECRET = 4
@@ -225,14 +234,18 @@ class Redactor:
         self.pool_users = 0         # pool user values seen, of any length
         self.long_pool_users = 0    # ... of MIN_SECRET characters or more, which the text replacement can catch
         self._rx = None
+        self._lower = {}
 
     def add_literal(self, text, kind):
         if text and len(text) >= MIN_SECRET:
             self.fixed[text] = _placeholder(kind)
+            self._lower[text.lower()] = _placeholder(kind)
             self._rx = None
 
     def learn(self, source, text):
         """Collect the secret strings a capture shows. Only the pools reads count toward `has_pool_user`."""
+        if source not in LEARN_SOURCES:
+            return
         from_pools = source in (POOLS_4028, POOLS_HTTP)
         for m, key, raw, escaped in _fields(text):
             kind = _classify(source, key)
@@ -274,6 +287,26 @@ class Redactor:
         text = _FIELD_ESC.sub(sub_esc, text)
         return _FIELD.sub(sub, text), count[0]
 
+    def drop_lines(self, text):
+        """(text, lines total, lines withheld). Fail-closed: a line with any drop word, learned literal
+        or MAC is replaced whole by a marker. No pattern scrubbing, so no echo format can slip through."""
+        lits = [s.lower() for s in self.fixed]
+        out, withheld, total = [], 0, 0
+        for line in text.splitlines(keepends=True):
+            body = line.rstrip("\r\n")
+            end = line[len(body):]
+            total += 1
+            probe = body
+            for phrase in LOG_BENIGN_PHRASES:
+                probe = re.sub(re.escape(phrase), " ", probe, flags=re.IGNORECASE)
+            low = probe.lower()
+            if (any(w in low for w in LOG_DROP_WORDS) or any(s in low for s in lits)
+                    or any(rx.search(probe) for rx in _MACS)):
+                withheld += 1
+                body = "<line withheld: %d chars>" % len(body)
+            out.append(body + end)
+        return "".join(out), total, withheld
+
     def apply(self, text, source=None):
         """Redacted text and the number of replacements. Called on every capture before it is written."""
         n = 0
@@ -287,8 +320,9 @@ class Redactor:
         n += c
         if self.fixed:
             if self._rx is None:
-                self._rx = re.compile("|".join(re.escape(s) for s in sorted(self.fixed, key=len, reverse=True)))
-            text, c = self._rx.subn(lambda m: self.fixed[m.group(0)], text)
+                self._rx = re.compile("|".join(re.escape(s) for s in sorted(self.fixed, key=len, reverse=True)),
+                                      re.IGNORECASE)
+            text, c = self._rx.subn(lambda m: self._lower[m.group(0).lower()], text)
             n += c
         for rx in _MACS:
             text, c = rx.subn(_placeholder("mac"), text)
@@ -309,6 +343,7 @@ class Result:
         self.redactions = 0
         self.saved = "skipped"
         self.note = None
+        self.lines_total = self.lines_withheld = None
 
 
 def plan(only=None, have_password=True):
@@ -434,8 +469,12 @@ def write_captures(results, redactor, run_dir):
                 r.saved = "withheld"
                 r.note = "no pool user was learned from either pools read, so the wallet cannot be redacted"
             else:
-                text, r.redactions = redactor.apply(_text(r.raw), r.source)
-                fname = "%02d-%s.%s" % (r.n, r.name, "json" if _is_json(text) else "txt")
+                if r.name in LOG_NAMES:
+                    text, r.lines_total, r.redactions = redactor.drop_lines(_text(r.raw))
+                    r.lines_withheld = r.redactions
+                else:
+                    text, r.redactions = redactor.apply(_text(r.raw), r.source)
+                fname = "%02d-%s.%s" % (r.n, r.name, "json" if r.name not in LOG_NAMES and _is_json(text) else "txt")
                 with open(os.path.join(run_dir, fname), "w", encoding="utf-8", newline="\n") as f:
                     f.write(text)
                 r.saved = fname
@@ -446,6 +485,8 @@ def write_captures(results, redactor, run_dir):
             "started_utc": r.started, "elapsed_ms": r.elapsed_ms, "status": r.status,
             "bytes": r.size, "redactions": r.redactions, "saved": r.saved, "note": r.note,
         })
+        if r.lines_total is not None:
+            entries[-1]["lines_total"], entries[-1]["lines_withheld"] = r.lines_total, r.lines_withheld
     with open(os.path.join(run_dir, "manifest.json"), "w", encoding="utf-8", newline="\n") as f:
         json.dump({"requests": entries}, f, indent=2)
         f.write("\n")

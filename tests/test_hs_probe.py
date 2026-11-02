@@ -189,7 +189,7 @@ class FullRunTest(ProbeCase):
                       (self.run_dir() / "18-minersyslog.txt").read_text(encoding="utf-8").splitlines())
         status = (self.run_dir() / "06-status-notoken.json").read_text(encoding="utf-8")
         self.assertIn('"hashrate": 116321183393', status)
-        self.assertIn('"ver":"a1b2c3d4e5f6"', status)
+        self.assertIn('"ver": "a1b2c3d4e5f6"', status)
 
     def test_linedrop_a_key_temp_echo_does_not_blank_temp_elsewhere(self):
         self.run_probe()

@@ -48,3 +48,9 @@ short-string rule. Port-4028 replies are `api4028_<command>.json` for
 see that class for the extra routes (`/mcb/pools`, `/mcb/wifisetting`,
 `/dbg/syslog`; 500 for `/mcb/cgminer` and `/dbg/vsinfo`; 404 for GET
 `/mcb/protect` and `/mcb/defend`, whose real GET behavior is unknown).
+
+The two synthetic logs (`dbg_syslog.txt`, `dbg_minersyslog.txt`) also carry echo shapes the probe must
+drop whole (single-quoted, `key=value`, `wifipwd`/`pool_pass`, double-escaped, escaped quote inside a
+value, the admin password in upper case on a line with no drop word) and lines that must survive
+(`Minerd start !!!`, `Check Token Error`, `Restart Miner`, a temp/fan/clock line). `mcb_status.json`
+carries a 12-digit `hashrate` and a 12-hex `ver` that the retired bare-hex MAC rule used to blank.
