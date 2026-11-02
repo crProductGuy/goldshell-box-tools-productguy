@@ -48,6 +48,8 @@ class ProbeCase(unittest.TestCase):
         self.data = self.tmp / "gbox-data"            # stands in for GBOX_DATA; the real ~/.gbox is never read
         self.data.mkdir()
         self.out = self.tmp / "out"
+        self.home = self.tmp / "home"
+        (self.home / ".gbox").mkdir(parents=True)
         self.fm = FakeMiner(fixtures="hsbox_synthetic", port4028=True, study=True, password=PASSWORD)
         self.fm.start()
         self.addCleanup(self._stop)
@@ -63,7 +65,9 @@ class ProbeCase(unittest.TestCase):
 
     def run_probe(self, *extra, password=PASSWORD, clock=None, host=None, out=None, label="t", environ=None):
         clock = clock or FakeClock()
-        env = {"GBOX_DATA": str(self.data)} if environ is None else dict(environ)
+        # HOME and USERPROFILE point at a temp dir so the real ~/.gbox/config.json is never read
+        env = ({"GBOX_DATA": str(self.data), "HOME": str(self.home), "USERPROFILE": str(self.home)}
+               if environ is None else dict(environ))
         if password is not None:
             env[hs_probe.PASSWORD_ENV] = password
         argv = ["--label", label, "--host", host or self.fm.address, "--port4028", str(self.fm.devs4028_port),
@@ -314,6 +318,24 @@ class BehaviorTest(ProbeCase):
         self.assertFalse(self.out.exists())
         self.assertIn("watches", err)
         rc, out, err, clock = self.run_probe("--allow-watched-host", "--only", "4028-version")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(len(self.fm.request_log), 1)
+
+    def test_fix6_the_home_config_is_checked_even_when_gbox_data_is_set(self):
+        config.save(config.Config(host="127.0.0.1:1234"), self.home / ".gbox")     # watched host lives in ~/.gbox
+        self.assertFalse((self.data / "config.json").exists())                       # GBOX_DATA has none
+        rc, out, err, _ = self.run_probe()
+        self.assertEqual(rc, 2)
+        self.assertEqual(self.fm.request_log, [])
+        self.assertIn("watches", err)
+        # the other way round: a different host in each is fine, a match in either one refuses
+        config.save(config.Config(host="10.9.9.9"), self.home / ".gbox")
+        config.save(config.Config(host="127.0.0.1"), self.data)
+        rc, out, err, _ = self.run_probe()
+        self.assertEqual(rc, 2)
+        self.assertEqual(self.fm.request_log, [])
+        config.save(config.Config(host="10.9.9.9"), self.data)
+        rc, out, err, _ = self.run_probe("--only", "4028-version", label="ok")
         self.assertEqual(rc, 0, err)
         self.assertEqual(len(self.fm.request_log), 1)
 

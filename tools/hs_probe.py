@@ -500,9 +500,20 @@ def build_parser():
     return p
 
 
+def _home(environ):
+    h = environ.get("USERPROFILE" if os.name == "nt" else "HOME")
+    return Path(h) if h else Path.home()
+
+
 def data_dir(environ):
     env = environ.get("GBOX_DATA")
-    return Path(env).expanduser() if env else Path.home() / ".gbox"
+    return Path(env).expanduser() if env else _home(environ) / ".gbox"
+
+
+def config_dirs(environ):
+    """Every directory a live gbox service could be reading its config from: $GBOX_DATA (if set) and ~/.gbox."""
+    dirs = [data_dir(environ), _home(environ) / ".gbox"]
+    return [d for i, d in enumerate(dirs) if d not in dirs[:i]]
 
 
 def inside_git_worktree(path):
@@ -526,12 +537,16 @@ def main(argv=None, environ=None, isatty=None, clock=time.monotonic, sleep=time.
 
     # guards: nothing has been opened yet
     ddir = data_dir(environ)
+    # The live service may read either config: $GBOX_DATA when set, else ~/.gbox. Check both.
+    watched = set()
     try:
-        watched = _hostname(config.load(ddir).host or "")
+        for d in config_dirs(environ):
+            watched.add(_hostname(config.load(d).host or ""))
     except Exception:
         print("hs_probe: refused: cannot read the gbox config, so cannot tell whether this host is watched", file=err)
         return 2
-    if watched and watched == _hostname(args.host) and not args.allow_watched_host:
+    watched.discard("")
+    if _hostname(args.host) in watched and not args.allow_watched_host:
         print("hs_probe: refused: this host is the miner in the live gbox config (the service watches it); "
               "use --allow-watched-host only with the owner's word", file=err)
         return 2
