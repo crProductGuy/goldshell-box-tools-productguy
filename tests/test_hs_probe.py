@@ -19,7 +19,7 @@ from tools import hs_probe
 
 SECRETS = ("FAKEWALLETabc123xyz", "fakepass9", "FakeSSID-77", "fakewifikey55")
 MAC_FORMS = ("02:1a:2b:3c:4d:5e",)
-PASSWORD = "password"
+PASSWORD = "s3cretAdmin9"
 
 
 class FakeClock:
@@ -48,7 +48,7 @@ class ProbeCase(unittest.TestCase):
         self.data = self.tmp / "gbox-data"            # stands in for GBOX_DATA; the real ~/.gbox is never read
         self.data.mkdir()
         self.out = self.tmp / "out"
-        self.fm = FakeMiner(fixtures="hsbox_synthetic", port4028=True, study=True)
+        self.fm = FakeMiner(fixtures="hsbox_synthetic", port4028=True, study=True, password=PASSWORD)
         self.fm.start()
         self.addCleanup(self._stop)
         self._stopped = False
@@ -150,6 +150,20 @@ class FullRunTest(ProbeCase):
         pools = (self.run_dir() / "10-pools.json").read_text(encoding="utf-8")
         self.assertIn("<redacted:pool-pass>", pools)
         self.assertNotIn('"x"', pools)       # the one-character user and password are replaced as field values
+
+    def test_fix3_secrets_echoed_into_the_syslog_are_scrubbed_on_every_capture(self):
+        """The firmware echoes write bodies into /dbg/syslog; request 17 is not a secret source."""
+        rc, out, err, _ = self.run_probe()
+        self.assertEqual(rc, 0, err)
+        tree = self.tree_text()
+        for needle in ("oldwifipw", "OldNet", "OLDWALLETzz", "escpw12", "escuser"):
+            self.assertNotIn(needle, tree)
+            self.assertNotIn(needle, out + err)
+        syslog = (self.run_dir() / "17-syslog.txt").read_text(encoding="utf-8")
+        self.assertIn('{"password":"<redacted:secret>","ssid":"<redacted:ssid>"}', syslog)
+        self.assertIn('"pass":"<redacted:secret>"', syslog)
+        self.assertNotIn('"pass":"x"', syslog)
+        self.assertIn('\\"username\\":\\"<redacted:pool-user>\\"', syslog)   # JSON escaped inside a log line
 
     def test_requests_before_the_secret_is_learned_are_redacted_too(self):
         """The pool user is learned at request 5; the captures from 1-4 are written after, with it known."""

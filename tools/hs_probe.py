@@ -161,10 +161,20 @@ _BEARER = re.compile(r"Bearer\s+[A-Za-z0-9._~+/=-]+")
 _JWT = re.compile(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*")
 _JWT_FIELD = re.compile(r'("JWT Token"\s*:\s*)"[^"]*"')
 # a JSON "key": value pair whose value is a string or a bare number
-_FIELD = re.compile(r'"((?:[^"\\]|\\.)*)"(\s*:\s*)(?:"((?:[^"\\]|\\.)*)"|(-?\d[\d.eE+-]*))')
+_FIELD = re.compile(r'"((?:[^"\\\r\n]|\\.)*)"([ \t]*:[ \t]*)(?:"((?:[^"\\\r\n]|\\.)*)"|(-?\d[\d.eE+-]*))')
+# the same pair with its quotes escaped, as JSON looks when it sits inside a log line's string
+_FIELD_ESC = re.compile(r'\\"([^"\\]*)\\"(\s*:\s*)\\"((?:[^"\\]|\\(?!"))*)\\"')
 
-POOL_USER, POOL_PASS, SSID, WIFI_KEY = "pool-user", "pool-pass", "ssid", "wifi-key"
+POOL_USER, POOL_PASS, SSID, WIFI_KEY, SECRET = "pool-user", "pool-pass", "ssid", "wifi-key", "secret"
 MIN_SECRET = 4
+# Field names scrubbed in EVERY capture, whatever request it came from (the firmware echoes write
+# bodies into the syslog). Exact names, lower case.
+GENERIC_FIELDS = {
+    "password": SECRET, "pass": SECRET, "passwd": SECRET, "pwd": SECRET, "secret": SECRET,
+    "key": WIFI_KEY, "psk": WIFI_KEY, "wifikey": WIFI_KEY,
+    "ssid": SSID, "essid": SSID,
+    "user": POOL_USER, "username": POOL_USER, "worker": POOL_USER, "workername": POOL_USER,
+}
 
 
 def _placeholder(kind):
@@ -183,7 +193,15 @@ def _classify(source, key):
             return SSID
         if any(t in k for t in ("key", "pass", "psk", "pwd", "secret")):
             return WIFI_KEY
-    return None
+    return GENERIC_FIELDS.get(k)
+
+
+def _fields(text):
+    """Every "key": value pair in the text as (match, key, raw value or None, is_escaped), both forms."""
+    for m in _FIELD_ESC.finditer(text):
+        yield m, m.group(1), m.group(3), True
+    for m in _FIELD.finditer(text):
+        yield m, m.group(1), m.group(3) if m.group(3) is not None else m.group(4), False
 
 
 def _unescape(raw):
@@ -206,16 +224,14 @@ class Redactor:
             self._rx = None
 
     def learn(self, source, text):
-        """Collect the secret strings a pools or wifisetting read shows."""
-        for m in _FIELD.finditer(text):
-            kind = _classify(source, m.group(1))
-            if kind is None:
+        """Collect the secret strings a capture shows. Only the pools reads count toward `has_pool_user`."""
+        from_pools = source in (POOLS_4028, POOLS_HTTP)
+        for m, key, raw, escaped in _fields(text):
+            kind = _classify(source, key)
+            if kind is None or not raw:
                 continue
-            raw = m.group(3) if m.group(3) is not None else m.group(4)
-            value = _unescape(raw) if m.group(3) is not None else raw
-            if not value:
-                continue
-            if kind == POOL_USER:
+            value = _unescape(raw) if (escaped or m.group(3) is not None) else raw
+            if kind == POOL_USER and from_pools:
                 self.pool_users += 1
                 if len(value) >= MIN_SECRET:
                     self.long_pool_users += 1
@@ -234,22 +250,27 @@ class Redactor:
 
         def sub(m):
             kind = _classify(source, m.group(1))
-            if kind is None:
-                return m.group(0)
             raw = m.group(3) if m.group(3) is not None else m.group(4)
-            if not raw:
+            if kind is None or not raw:
                 return m.group(0)
             count[0] += 1
             return '"%s"%s"%s"' % (m.group(1), m.group(2), _placeholder(kind))
 
+        def sub_esc(m):
+            kind = _classify(source, m.group(1))
+            if kind is None or not m.group(3):
+                return m.group(0)
+            count[0] += 1
+            return '\\"%s\\"%s\\"%s\\"' % (m.group(1), m.group(2), _placeholder(kind))
+
+        text = _FIELD_ESC.sub(sub_esc, text)
         return _FIELD.sub(sub, text), count[0]
 
     def apply(self, text, source=None):
         """Redacted text and the number of replacements. Called on every capture before it is written."""
         n = 0
-        if source:
-            text, c = self._scrub_fields(source, text)
-            n += c
+        text, c = self._scrub_fields(source, text)      # every capture, not only the secret sources
+        n += c
         text, c = _JWT_FIELD.subn(lambda m: m.group(1) + '"' + _placeholder("token") + '"', text)
         n += c
         text, c = _BEARER.subn(_placeholder("token"), text)
@@ -346,7 +367,7 @@ class Probe:
                 if failures >= MAX_CONNECTION_FAILURES:
                     self.aborted = True
             r.elapsed_ms = int((time.monotonic() - t0) * 1000)
-            if r.raw is not None and r.source:
+            if r.raw is not None:
                 self.redactor.learn(r.source, _text(r.raw))
             if token:
                 self.redactor.add_literal(token, "token")
