@@ -327,6 +327,16 @@ class RedactorTest(unittest.TestCase):
         self.assertEqual(n, 4)
         self.assertNotRegex(out, r"(?i)5e|Bearer abc|eyJ")
 
+    def test_fix2_wallet_before_the_worker_dot_is_learned_too(self):
+        r = hs_probe.Redactor()
+        r.learn(hs_probe.POOLS_HTTP, '[{"user":"WALLETabc123xyz.rig7","pass":"zz"}]')
+        out, n = r.apply("payout to WALLETabc123xyz confirmed; worker rig7 up; WALLETabc123xyz.rig7")
+        self.assertNotIn("WALLETabc123xyz", out)
+        self.assertIn("worker rig7 up", out)         # the worker part alone is not a secret
+        r2 = hs_probe.Redactor()
+        r2.learn(hs_probe.POOLS_HTTP, '[{"user":"abc.w1","pass":"zz"}]')    # prefix under 4 characters: skipped
+        self.assertEqual(r2.apply("abc here")[0], "abc here")
+
     def test_short_secrets_are_not_replaced_in_other_text_but_their_fields_are(self):
         r = hs_probe.Redactor()
         raw = '[{"user":"x","pass":"x"}]'

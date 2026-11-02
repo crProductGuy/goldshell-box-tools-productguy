@@ -221,6 +221,9 @@ class Redactor:
                     self.long_pool_users += 1
             self.add_literal(value, kind)
             self.add_literal(raw, kind)
+            if kind == POOL_USER and "." in value:
+                # wallet.worker: the wallet alone shows up in log lines without the worker
+                self.add_literal(value.split(".", 1)[0], kind)
 
     @property
     def has_pool_user(self):
