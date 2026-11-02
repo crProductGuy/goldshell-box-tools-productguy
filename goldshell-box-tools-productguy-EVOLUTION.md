@@ -4644,3 +4644,109 @@ the main test does not depend on the current speed. Unplug the extra fan only if
 and never while the temperature switch, possibly the overheat cutoff, is off. The slider has sat at the top of its
 range all along while the fans ran at 900 rpm, so the slider does not force a high speed with temperature control
 on. The owner chose that order.
+
+## 2026-11-01 21:12 to 2026-11-02 04:58 EST, session 6d76022a (no letter): the HS-BOX probe tool (reconstructed 2026-11-02 by session 25a2ab43)
+
+*This session never wrote a checkpoint. Reconstructed from its transcript, its two briefs, its evidence file and
+the branch history. Why it was missing is told in the 25a2ab43 entry below.*
+
+**Goal.** "Read the gbox STATUS.md top block and PLAN.md, then write the phase 1 brief (HS-BOX probe tool, no
+miner contact) and restate the task before acting." Phase 1 of the HS-BOX study: a paced, read-only probe for
+the two HS-BOXes, tested only against the fake miner. Done when the tests pass and a fresh reviewer has read the
+request list.
+
+**Questions and answers.** The agent asked three, each with a recommendation: put the tool in the repo as
+`tools/hs_probe.py` rather than in the plans folder; have a Sonnet executor build it rather than build it in the
+expensive session; run the security pass once, at feature-complete. It also pointed out that the study plan still
+said the sweep runs after the fan test, against the revised order. Owner: "1. Agree. 2. agree, delegate. 3. OK at
+the default time. Yes, revised H4 is OK, fix the plan. go".
+
+**What was built.** A stdlib script with a fixed list of 21 reads: five port-4028 commands and sixteen HTTP GETs,
+including `/mcb/protect` and `/mcb/defend` as GET only. One request in flight, at least 10 s between starts, no
+retries, abort after three failures in a row, refuse to run against the box gbox already watches, captures
+outside any git tree. The fake miner grew a study mode and synthetic HS-BOX fixtures. The executor reported 20
+tests passing.
+
+**Three reviews, and a redesign instead of a third patch.** Review one found the request list safe and six
+redaction and guard gaps; all six were fixed with failing-first tests. Review two found the log scrubbing still
+leaking in new shapes: single quotes, `key=value`, unfamiliar field names, escaped quotes, URL-encoded values. It
+also found over-redaction, where one echo of `{"key":"temp"}` blanked every "temp" in every capture. The agent
+stopped patching under the repo's stop-loss: pattern-scrubbing free-text logs cannot be made complete without
+knowing the real firmware's echo format, which nobody has captured yet. It offered three options: drop whole log
+lines that carry any credential-like word (recommended), a third round of patterns, or keep the logs raw and read
+them by hand. Owner, after five hours away: "go with Option 1". The only change the agent made was a short list
+of harmless phrases, so the useful "Check Token Error" line survives. A fresh Sonnet agent rebuilt the log path
+that way: the new tests failed first (7 failures, 2 errors), then 33 passed. A third review called it ready.
+
+**Left open at its end.** Four latent gaps: two small, two depending on firmware formats nobody has recorded. The
+merge. The owner's word on whether three reviews count as the security pass. The checkpoint, which its last reply
+promised "after that". The owner never came back to that window.
+
+## 2026-11-02 04:36 to 11:42 EST, session 156add8a (no letter): an Output panel designed (reconstructed 2026-11-02 by session 25a2ab43)
+
+*This session wrote a STATUS note but no evolution entry. Reconstructed from its transcript and its design file.*
+
+**Goal.** With the SC-BOX on its 725 MHz run, the owner asked for "a new 'Uptime %' panel at the top of the gbox
+page, after Power". The windows: since the last real clock change, 6 h, 24 h and 7 days. The owner also wanted a
+look back over the history, and the design should work for "2 or maybe 3 boxes". "Give me a proposal. We'll
+talk in the morning."
+
+**Reframed, and why.** The agent proposed measuring output rather than uptime. A miner can be up and hashing at a
+third of its rate, and the owner's real question is what a clock setting delivers. So the panel shows:
+- effective hashrate, counting downtime as zero
+- strict hashing percent, time at or above 80% of healthy
+- time not hashing
+- a comparison of settings with a break-even line
+
+Four questions, answered "1 summary on top, 2 yes, 3 yes, 4 strict":
+- the new panel is the summary and the old Uptime section stays as detail
+- compare clock settings
+- show per-watt figures
+- count hashing strictly
+
+**Findings.** A scanner study of about 1,340 hours of logs found 725 MHz delivering the most effective hashrate,
+858 GH/s against 693 at 575 and 637 at 525. It also hangs far more often: about every 3.8 h, against every 9 to
+15 h at lower clocks. Voltage confounds the 525 and 550 runs. A builder check moved the break-even comparison to
+575. Then the owner noticed something in the existing page. The Power tile sits alone on a second row at any
+width over about 1,200 px: nine tiles in an eight-column grid since 0.4.0, an accidental responsive bug. The new
+tiles fill that row.
+
+**Decided (owner, 2026-11-02):**
+- power losses and owner holds are left out of a setting's score and shown beside it
+- a setting is clock plus voltage
+- it ships as 0.15.0, after 0.14.0 gate 3, reusing gate 3's clock-change detection
+- three output tiles fill the second row, and "Settings compared" is its own section
+
+**Not built:** nothing was committed. The study figures came from the scanner's run and the session did not
+re-run them. The session ran at the same time as session 6d76022a and never knew of it, because that work was in
+no file it read.
+
+## 2026-11-02 midday, session 25a2ab43 (no letter): two sessions missing from the record, the probe closed, 725 kept
+
+**Goal.** The owner: "write the history of the work that didn't go into status. Find out WHY it didn't go into
+STATUS.md and propose a reliable fix so that doesn't happen again. Does it mean that session and work didn't go
+into the log and narrative, either? Fix that." Then close the probe tool and compare the clocks.
+
+**How the gap was found.** The status file's newest block still listed phase 1 as not started. The repo listed a
+locked worktree with ten commits of probe work that no file mentioned. Scanners read both sessions' transcripts.
+
+**Why it was missing.** Session 6d76022a finished its work, asked the owner three questions and wrote "After that,
+I'll write the checkpoint". The owner never came back to that window, so it never wrote one. The checkpoint rule
+says to write the status doc after the final action. A session that ends by waiting on the owner reads that as
+"later", and later never came. It was not a context or compaction problem: 177k tokens, no compaction. Session
+156add8a ran at the same time. It wrote a STATUS note but no evolution entry, because the evolution rule is tied
+to "the checkpoint" and a mid-session note did not count as one. Nothing on this machine checks either rule, and
+with many sessions left open at once, sessions rarely "end". A proposal for a mechanical check went to the owner.
+
+**The probe, closed.** This session re-ran the tests rather than trusting the evidence file. A fourth, fresh
+review called the probe safe to send: every request a read, pacing enforced, token never on disk. It found one
+medium gap, a wallet or network name in the system log reaching disk when the learning reads had failed, and two
+low ones: the host string could bend the request path, and the watched-host guard compared strings. A Sonnet
+agent fixed all three test-first. The probe needed a hidden HTTP-port option for the fake miner, since a port in
+the host is now refused. Probe 40, API 30 and server 147 tests pass.
+
+**725 against 500.** Over 30.5 h at 725, against 368 h at 500 since 10-16, effective hashrate (downtime counted
+as zero) is 839 against 577 GH/s, 45% more. The cost: 14 hangs a day against 5, and about 1.7 h a day not
+hashing. It would take about 8.6 h of downtime a day before 725 fell to 500's output. Energy per effective
+terahash is about the same. The owner: the clock stays at 725 "unless and until the crashes become intolerable or
+cost too much effective hashrate."
