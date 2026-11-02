@@ -4763,3 +4763,12 @@ evolution entry, and never promises the checkpoint for later. Two hooks on this 
 Both hooks were built by a Sonnet agent with tests. Replayed against 6d76022a's transcript, the end-of-turn
 check would have blocked it. Run against this session, it blocked too: the status block was older than the
 merge. That is the intended behaviour.
+
+**The first sweep.** With the probe merged, the owner authorized phase 2. The probe takes the web password only
+from a hidden prompt, so it never passed through the chat. The owner typed it in two windows the agent opened.
+The second window waited for the first run to finish, which kept to one box at a time. Both boxes answered 19 of
+21 reads, and the same two endpoints failed on both with HTTP 500, as on the SC-BOX. The agent's own leak check
+found nothing outside the redaction markers. The boxes run the same firmware and match on almost every read. The
+difference is radio: the newer box has WiFi, enabled as an access point, which the older one lacks. An access
+point on a miner is a second way onto the miner network. Whether it broadcasts, and whether it is open, is now a
+question for the owner; the study itself never writes WiFi settings.
