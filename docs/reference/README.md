@@ -130,7 +130,8 @@ resolved.
 1. **Does the manual power plan survive a power cycle?** Older notes said yes.
    `[contradicted: 2026-11-01, see settings-and-power-plans.md]`. The plan
    survived more than 20 cold boots between 2026-10-20 and 2026-10-31, then
-   came back as the preset on 2026-11-01. One observation, cause unknown.
+   came back as the preset on 2026-11-01. One observation, cause unknown. The
+   owner plans one more controlled test.
 2. **Are the HS-BOX facts from one unit?** Everything about the HS-BOX is one
    unit read on 2026-09-25. Treat it as one sample.
 3. **Do other models post to `find.goldshell.com`?** Only the SC-BOX was
@@ -142,3 +143,7 @@ resolved.
    no known way to find one. It may recur at any time ("mode flipping").
    Kept as a question of interest, analyzed again only at the owner's request.
    ([details](behavior-and-failure-modes.md#two-power-levels-at-the-same-clock))
+7. **What do the fan fields in a power plan do?** Each plan string carries two
+   (`70 RPM` in the presets, `90 RPM` in gbox's plans, `50 RPM` on the
+   HS-BOX). Their unit and their effect, if any, were never tested.
+   ([details](settings-and-power-plans.md))

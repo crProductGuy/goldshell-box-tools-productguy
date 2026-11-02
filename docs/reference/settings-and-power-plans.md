@@ -47,9 +47,15 @@ An SC-BOX answered `GET /mcb/setting` with this shape (the unit's MAC is in
   ([notebook](../firmware-api.md#settings-object))
 - The Miner page keeps showing "Hashrate Mode" while a manual plan runs.
   `[unverified: stated in gbox/cli.py, observation date not recorded]`
-- The fan fields inside the plan string are ignored. Fan speed is a PID on the
-  board sensor (`tstemp-2`) toward `temp_target`.
-  `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09, day not recorded]`
+- Fan speed follows a PID on the board sensor (`tstemp-2`) toward
+  `temp_target`. `[verified: SC-BOX, MCB_V5_4, fw 2.2.5, 2026-09, day not
+  recorded]`
+- What the two fan fields inside the plan string do is unknown. Earlier notes
+  called them ignored, but no test is on record, and their unit is unknown
+  too: presets carry `70 RPM`, gbox's plans `90 RPM`, the HS-BOX's plans
+  `50 RPM`. Whether they set a floor, a ceiling or a start speed is
+  `[unverified]` (corrected 2026-11-01, see the
+  [notebook](../firmware-api.md#settings-object)).
 
 ### What the stock UI Save writes
 

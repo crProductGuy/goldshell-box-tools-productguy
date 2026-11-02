@@ -117,6 +117,13 @@ still reads `/dbg/minerinfo`; the service reads 4028 first (gate 2, 0.8.0).
 - **The fan fields in the plan string are ignored.** Fan speed is a PID on
   the board sensor (`tstemp-2`, the temperature the stock UI shows) toward
   `temp_target`. The board sensor reads 5-10 C below the chips.
+  *Correction 2026-11-01:* this sentence dates from the first commit
+  (2026-09-06) and no test of it is on record. The two fields have never been
+  varied on purpose and their unit is unknown: the presets carry `70 RPM`,
+  the plans gbox writes carry `90 RPM`, and the HS-BOX's own plans `50 RPM`.
+  The fans do follow the PID toward `temp_target`, which is observed; whether
+  the plan's fan fields also act (a floor, a ceiling, a start speed) is
+  untested.
 - `temp_target` is clamped by the fan daemon to `temp_targets` (65-75 on this
   unit); `temp_targets` itself is read-only. 65 is the coolest available.
 - `tempcontrol` is the overheat-shutdown flag; it does not affect fans. The
