@@ -4750,3 +4750,16 @@ as zero) is 839 against 577 GH/s, 45% more. The cost: 14 hangs a day against 5, 
 hashing. It would take about 8.6 h of downtime a day before 725 fell to 500's output. Energy per effective
 terahash is about the same. The owner: the clock stays at 725 "unless and until the crashes become intolerable or
 cost too much effective hashrate."
+
+**Decisions, and the fix.** The owner said yes to all four: merge the probe, count the four reviews as its
+security pass, push, and build the whole fix. The owner also asked that the "written last" wording be changed,
+since it is what invited the deferral. The probe was rebased onto main and fast-forwarded. One test was changed
+from a real LAN address to a neutral one before the push. The rule in the root instructions now reads "Write
+before you wait": a reply that hands the owner a decision first updates the session's status block and
+evolution entry, and never promises the checkpoint for later. Two hooks on this machine enforce it.
+- **At the end of every turn:** a session that touched a project without recording it is sent back once.
+- **At the start of a session:** branches and worktrees that the status file does not mention are listed.
+
+Both hooks were built by a Sonnet agent with tests. Replayed against 6d76022a's transcript, the end-of-turn
+check would have blocked it. Run against this session, it blocked too: the status block was older than the
+merge. That is the intended behaviour.
