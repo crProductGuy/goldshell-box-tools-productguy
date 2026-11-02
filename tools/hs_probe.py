@@ -25,6 +25,7 @@ import argparse
 import getpass
 import http.client
 import json
+import math
 import os
 import re
 import socket
@@ -288,8 +289,8 @@ def plan(only=None, have_password=True):
 class Probe:
     def __init__(self, sender, password=None, interval=MIN_INTERVAL, only=None,
                  clock=time.monotonic, sleep=time.sleep, emit=None):
-        if interval < MIN_INTERVAL:
-            raise ValueError("interval under %d s" % MIN_INTERVAL)
+        if not math.isfinite(interval) or interval < MIN_INTERVAL:
+            raise ValueError("interval must be a finite number of at least %d s" % MIN_INTERVAL)
         self.sender, self.interval, self.clock, self.sleep = sender, interval, clock, sleep
         self.password_hex = aes.encrypt_password(password) if password else None
         self.only = only
@@ -435,8 +436,8 @@ def _interval(text):
         v = float(text)
     except ValueError:
         raise argparse.ArgumentTypeError("not a number")
-    if v < MIN_INTERVAL:
-        raise argparse.ArgumentTypeError("must be at least %d seconds" % MIN_INTERVAL)
+    if not math.isfinite(v) or v < MIN_INTERVAL:
+        raise argparse.ArgumentTypeError("must be a number of at least %d seconds" % MIN_INTERVAL)
     return v
 
 

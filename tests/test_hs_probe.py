@@ -192,6 +192,17 @@ class SenderTest(ProbeCase):
         with self.assertRaises(ValueError):
             hs_probe.Probe(hs_probe.Sender(self.fm.address), interval=9)
 
+    def test_fix1_non_finite_intervals_are_rejected(self):
+        for bad in ("nan", "inf", "-inf", "NaN"):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as cm:
+                self.run_probe("--interval", bad)
+            self.assertEqual(cm.exception.code, 2, bad)
+        self.assertEqual(self.fm.request_log, [])
+        for bad in (float("nan"), float("inf")):
+            with self.assertRaises(ValueError):
+                hs_probe.Probe(hs_probe.Sender(self.fm.address), interval=bad)
+
     def test_2_the_sender_refuses_anything_off_the_allowlist_before_a_socket_opens(self):
         s = hs_probe.Sender(self.fm.address, self.fm.devs4028_port)
         method = "PU" + "T"                       # spelled so the source check below stays honest
