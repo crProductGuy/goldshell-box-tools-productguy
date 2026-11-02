@@ -99,8 +99,8 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 class Sender:
     """The only code that opens a socket. One request per call, no retries, no logging of targets."""
 
-    def __init__(self, host, port4028=4028, timeout=TIMEOUT):
-        self.host = _strip_scheme(host)
+    def __init__(self, host, port4028=4028, timeout=TIMEOUT, http_port=None):
+        self.host = _strip_scheme(host) + (":%d" % http_port if http_port else "")
         self.hostname = _hostname(host)
         self.port4028 = port4028
         self.timeout = timeout
@@ -531,6 +531,7 @@ def build_parser():
     p.add_argument("--label", required=True, type=_label, help="name for this unit, for example hs1")
     p.add_argument("--host", required=True, help="the unit's address, optionally host:port for HTTP")
     p.add_argument("--port4028", type=int, default=4028, help=argparse.SUPPRESS)
+    p.add_argument("--http-port", type=int, default=None, help=argparse.SUPPRESS)
     p.add_argument("--out", help="output directory (default: <gbox data dir>/study)")
     p.add_argument("--interval", type=_interval, default=float(MIN_INTERVAL),
                    help="seconds from one request start to the next, at least 10 (default 10)")
@@ -617,7 +618,7 @@ def main(argv=None, environ=None, isatty=None, clock=time.monotonic, sleep=time.
         print("%02d  %-15s %-8s %8s B  %s" % (r.n, r.name, r.status, r.size, r.note or ""), file=out)
         out.flush()
 
-    probe = Probe(Sender(args.host, args.port4028), password, args.interval, only, clock, sleep, emit)
+    probe = Probe(Sender(args.host, args.port4028, http_port=args.http_port), password, args.interval, only, clock, sleep, emit)
     try:
         probe.run()
     finally:
