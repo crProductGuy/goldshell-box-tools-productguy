@@ -68,38 +68,40 @@ When you answer a question from this page, say which firmware the tag names.
 ## Model and firmware matrix
 
 Columns are the units on record. Cell codes: **V** verified on a unit,
-**R** reported by another owner, **U** untested on that model, **F** fails
-(returns an error on that model). Dates are in the page for each row.
+**R** reported by another owner, **U** untested on a unit that is on hand,
+**—** no unit on hand and nothing reported (the SC5 Pro II and SC Lite belong
+to other owners, so no test here can fill those cells), **F** fails (returns
+an error on that model). Dates are in the page for each row.
 
 | Endpoint or setting | SC-BOX (MCB_V5_4, fw 2.2.5) | HS-BOX (MCB_V5_4, fw 2.2.6) | SC5 Pro II (MCB_V3_3, fw 2.2.0) | SC Lite (MCB_V4_3, fw 2.2.0) |
 |---|---|---|---|---|
-| `GET /mcb/status` with no token | V | U | U | U |
-| `GET /user/login` (cipher login) | V | U | R | U |
-| `GET /mcb/setting` | V | V | U | R |
-| `PUT /mcb/setting` (clock, fan target) | V | U | U | R |
-| `GET /mcb/pools` | V | U | U | U |
-| `PUT /mcb/restart` | V | U | U | U |
+| `GET /mcb/status` with no token | V | U | — | — |
+| `GET /user/login` (cipher login) | V | U | R | — |
+| `GET /mcb/setting` | V | V | — | R |
+| `PUT /mcb/setting` (clock, fan target) | V | U | — | R |
+| `GET /mcb/pools` | V | U | — | — |
+| `PUT /mcb/restart` | V | U | — | — |
 | `PUT /mcb/facrst` | never called | never called | never called | never called |
-| `GET /mcb/cgminer` | F (500) | U | U | U |
-| `GET/PUT /mcb/wifisetting` | V | U | U | U |
-| `GET /cpb/hshistory` | V | U | U | U |
+| `GET /mcb/cgminer` | F (500) | U | — | — |
+| `GET/PUT /mcb/wifisetting` | V | U | — | — |
+| `GET /cpb/hshistory` | V | U | — | — |
 | `GET /dbg/minerinfo` | V | U | R | R |
-| `GET /dbg/icinfo` | V | U | U | U |
-| `GET /dbg/fanctrllog` | V | U | U | R |
-| `GET /dbg/minersyslog` | V | U | R | U |
-| `GET /dbg/syslog` | V | U | U | U |
-| `GET /dbg/vsinfo` | F (500) | U | U | U |
+| `GET /dbg/icinfo` | V | U | — | — |
+| `GET /dbg/fanctrllog` | V | U | — | R |
+| `GET /dbg/minersyslog` | V | U | R | — |
+| `GET /dbg/syslog` | V | U | — | — |
+| `GET /dbg/vsinfo` | F (500) | U | — | — |
 | Port 4028 `devs` | V | U | R | R |
-| Port 4028 `summary` | U | U | U | U |
-| Port 4028 `stats` (malformed JSON) | V | U | U | U |
-| `manual` and `manualPowerplan` fields | V | V | U | R |
-| Flat `powerplans` list | V | F (nested) | U | R |
-| `tempcontrol` has no effect on fans | V | U | U | R |
+| Port 4028 `summary` | U | U | — | — |
+| Port 4028 `stats` (malformed JSON) | V | U | — | — |
+| `manual` and `manualPowerplan` fields | V | V | — | R |
+| Flat `powerplans` list | V | F (nested) | — | R |
+| `tempcontrol` has no effect on fans | V | U | — | R |
 | Voltage on 4028 is a setpoint echo | V | U | R, differs (millivolts) | R, differs (not the setpoint) |
-| Posts to `find.goldshell.com` | V | U | U | U |
-| Two power levels at one clock | V | U | U | U |
+| Posts to `find.goldshell.com` | V | U | — | — |
+| Two power levels at one clock | V | U | — | — |
 
-Port 4028 `summary` reads U everywhere because the notebook records the answer
+Port 4028 `summary` reads U on the units on hand because the notebook records the answer
 without naming the unit. SC5 Pro II cells are R because that unit belongs to
 another owner and its facts come from a capture.
 
