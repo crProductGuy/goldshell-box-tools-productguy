@@ -4798,3 +4798,8 @@ the wired network did not load; both requests hung. So the box does not pass tra
 the exposure is the box itself. The finding went into the security notes and the firmware reference: an open
 network on the newer HS-BOX that neither the stock UI nor the API write turns off, and the advice never to unlock
 the UI over it.
+A read-only pass over the box's own log, with the owner typing the password, settled the cause: the box logged the
+write as "Wifi sta disable". The setting starts and stops the box joining someone else's network, as on the
+SC-BOX, and never touches the network it broadcasts. Its list of nearby networks vanished from the read too, so
+that list had come from the station side. Two questions stayed open: whether the box's control port lets anyone on
+the open network change its pool, and whether a restart changes anything.

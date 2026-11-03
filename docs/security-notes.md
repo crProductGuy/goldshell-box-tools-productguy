@@ -93,10 +93,12 @@ other HS-BOX on hand (hw 10.10.SA) has no WiFi hardware (`exist: false`).
 - **The API write does not turn it off either.** `PUT /mcb/wifisetting` with
   `{"enable": false, "mode": "ap", "version": "v1.0", "exist": true}` returned
   200 and the setting read back as `enable: false` twice, with the box still
-  answering on its cable. The network stayed up in a fresh phone scan. Most
-  likely the handler only starts or stops the station daemon, as on the
-  SC-BOX (unverified on this unit: its syslog was not read after the write).
-  Whether a restart applies the setting is untested.
+  answering on its cable. The network stayed up in a fresh phone scan. The
+  box's own syslog shows why: it logged the write as `Wifi sta disable`. The
+  handler starts or stops the station daemon (the box joining a network),
+  as on the SC-BOX, and never touches the access point. The list of nearby
+  networks also disappeared from the read, so the station side was what had
+  been scanning. Whether a restart changes the access point is untested.
 - **It is a network of its own.** The box hands a joining phone an address
   on a separate private /24 by DHCP and names itself as the router, so the
   phone and the wired network do not share a subnet. That the box's wired
