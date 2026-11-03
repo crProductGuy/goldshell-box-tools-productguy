@@ -4828,3 +4828,25 @@ pool graph is smoothed; a drop of nearly half the total would likely have shown.
 question around: in this state the cycle cost hashing and bought back only control.
 The owner closed the smoothing caveat: the same graph has shown much shorter drops before, and a 56-minute loss of
 nearly half the total "would have shown a big rectangular dip". It showed none.
+
+## 2026-11-02 evening, session 21a6f691 (no letter): the web-dead episode read end to end
+
+The owner's order from the previous session stood as this one's first job: reconstruct the SC-BOX's 19:08 to 20:04
+episode and judge whether the box was doing useful work. Three things came out of gbox's own files and code, read
+only, nothing sent to the miner.
+The puzzling two and a half minutes between the 20:00 deadline and the 20:02:36 cycle were not a delay. The plug
+call blocks through the whole 120-second off period and the event line is written when power comes back, so its
+time is the "on" moment. The cut itself came at the first poll after the deadline, about 20:00:35. The cycle cost
+about three minutes of hashing; the box was back at speed by 20:04 and ran cleanly after.
+The bigger finding is that gbox had the answer in hand the whole time and threw it away. On this box each sample
+reads the mining port (4028) first, then two web pages. Through all 105 failed polls of the silence the mining port
+answered; the row failed at the next step, a web read, and the whole sample was discarded, mining-port figures
+included. The 0.13.0 diagnostic only covers the opposite case, where the mining port fails and the web side is
+probed. Checked against history: in the three earlier full-power freezes (10-06, 10-11, 10-18) every failed row
+failed at the mining port itself. So the mining port separates the two states cleanly: frozen means it is silent;
+"hashing but not answering the front door" means it answers.
+Verdict, with the pool-side evidence the owner gathered last session: useful work, yes; the deadline cycle bought
+back control, not hashrate. Per-worker share counts on the node were not read (not reachable from this PC).
+The design question went to the owner as options, not a decision: log the mining-port figures when the web side
+fails (evidence only, Claude's recommendation, for 0.14.0 gate 2), or also let the deadline wait while the
+mining port shows shares advancing, or leave it.
