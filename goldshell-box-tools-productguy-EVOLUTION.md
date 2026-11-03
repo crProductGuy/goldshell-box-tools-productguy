@@ -4884,7 +4884,7 @@ The owner then settled the shape of the fleet work: a network-attached Zigbee co
 gbox can live on separate machines, ntfy for alerts, and share-gap detection read from each miner's own mining
 port, with the node's view as an optional add-on. On where gbox should run, Claude argued against the node box
 itself: the watcher should not fail with what it watches, and installs there had already broken the gateway once.
-The owner's memory reading withdrew Claude's other argument (memory was not tight), and his power figures added a
+The owner's memory reading withdrew Claude's other argument (memory was not tight), and the owner's power figures added a
 new one: the spare desktop draws 45 W, over $100 a year. Research by a subagent found a supported Ethernet
 coordinator, ruled out the oldest Raspberry Pi for the Zigbee software, and priced a small low-power PC that would
 pay for itself against the desktop in under two years. An inventory confirmed gbox is single-miner throughout. Both
