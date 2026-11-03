@@ -4890,3 +4890,12 @@ coordinator, ruled out the oldest Raspberry Pi for the Zigbee software, and pric
 pay for itself against the desktop in under two years. An inventory confirmed gbox is single-miner throughout. Both
 fed a pre-read for a design session the next day, which recommends running one proven watchdog per miner under a
 thin fleet layer rather than rewriting the most-tested code to hold miner IDs.
+Late in the evening the host question kept moving. The owner set the session for the next afternoon and, with cash
+tight, chose machines on hand for three months: the spare desktop with a fresh install on its second disk. Claude
+pointed out that a second disk isolates nothing, since root on the new system can mount the old one holding private
+data, and recommended pulling that drive. On the system, Claude argued for an Ubuntu long-term release over Devuan
+because every service involved documents that path. A one-line check on the desktop then showed its Core 2 lacks
+two instructions some compiled Node.js add-ons need, which puts the Zigbee software at risk there; a web search
+found no official requirement either way, so it became a ten-minute test for the session. The owner then offered
+a newer laptop with a Core i5, which has both instructions and likely draws far less, and it went into the register
+as the leading candidate.
