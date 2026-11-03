@@ -4868,3 +4868,15 @@ dropped off the network entirely, on both its web side and its mining port. The 
 controller going down; whether it fails on its own or is knocked over by the hashboard side, the logs cannot say,
 and a board swap at a fixed clock and supply is the experiment that can. Lesson for delegation: a subagent's
 counts are checked against one direct count before they carry a conclusion.
+Correction, later the same evening. The scan's count was right and Claude's recount was wrong. The event log also
+records each cycle a second time, quoted inside the miner's next "restarted after ..." line, and Claude's search
+counted those quotes as cycles, doubling the total. Counted from the power events themselves: 47 cycles since
+10-16, of which 43 were low-watt hangs, 3 supply drops and 1 the web-dead cycle. The mix and the reading stand; the
+rate is about 2.3 low-watt hangs a day at 500 MHz and about 5 at 725, half the figures first written above. The
+lesson inverts: a check that contradicts a subagent is itself a claim, and gets the same scrutiny.
+The owner decided to buy the replacement board and set the shape of "done": a fleet controller for all three
+miners that shows, alerts and acts, with no gaps between the miners and the node, few outside dependencies, and a
+LAN-attached Zigbee gateway for the new plugs, with a design session for structure and looks later in the week.
+The line-voltage comparison set as a next step on 10-21 was finally run: across 25 hangs, the supply showed no
+sag before the draw collapsed, no different from ordinary moments, and no time-of-day pattern. The 30-second
+samples cannot see a dip shorter than that.
