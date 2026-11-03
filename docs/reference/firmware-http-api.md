@@ -179,6 +179,12 @@ that had been factory reset.
 
 ([evidence](../security-notes.md#the-miner-stores-your-wifi-credentials-in-plain-text))
 
+On one HS-BOX (hw 40.40.HA, MCB_V5_4, fw 2.2.6) the object has `mode: "ap"`
+and the box broadcasts an open network. `PUT` with `enable: false` is
+accepted and reads back, but the network stays up, and the stock UI's WLAN
+switch is greyed out. `[verified: HS-BOX hw 40.40.HA, 2026-11-02]`
+([evidence](../security-notes.md#the-newer-hs-box-broadcasts-an-open-wifi-network-you-cannot-turn-off))
+
 ## Other plain-text exposure
 
 - `GET /mcb/pools` returns pool URL, worker name (often a wallet address) and

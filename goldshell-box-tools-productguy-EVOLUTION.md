@@ -4772,3 +4772,29 @@ found nothing outside the redaction markers. The boxes run the same firmware and
 difference is radio: the newer box has WiFi, enabled as an access point, which the older one lacks. An access
 point on a miner is a second way onto the miner network. Whether it broadcasts, and whether it is open, is now a
 question for the owner; the study itself never writes WiFi settings.
+
+The owner answered within minutes: "I can see [the box's own] WiFi network. I'll see if I can turn off the WiFi
+from the UI. Or maybe you can take a stab - see what you can do, and write it up." Then: the HS-BOX's stock UI has
+a WLAN switch on its System page, and it is on. That differs from the SC-BOX, whose UI had no WiFi page at all.
+Claude recommended the owner flip the stock switch, because it sends whatever request the firmware's own UI was
+built to send, and the agent's version would be a guess. As a fallback it wrote a one-shot script (outside the
+repo) that does what the SC-BOX taught: a write to the WiFi setting that carries only `enable: false`, keeps the
+mode, sends no scan list and no secret (the backend copies every write body into its log), then reads the
+setting back and checks the wired side still answers. The stock switch turned out to be greyed out in the on
+position, even with the UI unlocked; the owner called that "weird and wrong" and said "try your hand". Draft
+entry. Outcome: the box accepted the write. Read back twice, the setting showed WiFi disabled with the mode
+unchanged, and the box still answered on its cable. So the API can do what the greyed-out switch will not. Whether
+the network has really gone was the phone's call, and it said no: the network was still listed after the write,
+also after reopening the phone's settings. The flag changed and the radio, it seems, did not.
+A fresh scan still showed it, with no lock. The owner joined it from the phone, opened the box's own pages over it
+and saw status and the hashrate chart, and reframed it: "it's a way for a mobile device to easily check the
+miner's status independently of the LAN." Claude agreed that is what it does, and pushed back on what else it does.
+An open network can be joined by anyone in radio range. Status pages need no password on this firmware anyway, but
+a login over open radio sends the password encrypted with a key built into every unit (gbox's own code uses it), so anyone listening can
+decrypt it or replay it. And reaching the box's own address from the radio side does not show whether the box also passes
+traffic on to the rest of the wired network; that needs one more test from the phone.
+The owner had the same test in mind at the same moment. From the phone on the box's network, two other miners on
+the wired network did not load; both requests hung. So the box does not pass traffic on, at least to those two:
+the exposure is the box itself. The finding went into the security notes and the firmware reference: an open
+network on the newer HS-BOX that neither the stock UI nor the API write turns off, and the advice never to unlock
+the UI over it.

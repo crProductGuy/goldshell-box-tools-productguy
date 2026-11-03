@@ -77,6 +77,40 @@ For the owner's summary, and what is still on a unit when you sell it, see
   inside the `network` list, not only top-level keys. A session on
   2026-09-06 got that wrong twice.
 
+## The newer HS-BOX broadcasts an open WiFi network you cannot turn off
+
+Verified 2026-11-02 on one HS-BOX (hw 40.40.HA, MCB_V5_4, fw 2.2.6). The
+other HS-BOX on hand (hw 10.10.SA) has no WiFi hardware (`exist: false`).
+
+- `GET /mcb/wifisetting` returns `mode: "ap"`, `enable: true`, a list of
+  nearby networks the box scanned (`status`), and no `network` list. Nothing
+  in the object names the box's own network or a key for it.
+- The box broadcasts a network named `Goldshell-` plus four hex characters,
+  **with no password**. A phone joined it and opened the box's own web pages:
+  status and the hashrate chart, which need no token on this firmware.
+- **The stock UI cannot turn it off.** Its System page has a WLAN switch,
+  shown on and greyed out, also after unlocking the UI with the password.
+- **The API write does not turn it off either.** `PUT /mcb/wifisetting` with
+  `{"enable": false, "mode": "ap", "version": "v1.0", "exist": true}` returned
+  200 and the setting read back as `enable: false` twice, with the box still
+  answering on its cable. The network stayed up in a fresh phone scan. Most
+  likely the handler only starts or stops the station daemon, as on the
+  SC-BOX (unverified on this unit: its syslog was not read after the write).
+  Whether a restart applies the setting is untested.
+- **It does not pass traffic on.** From a phone on that network, the box's
+  own wired address answered, but two other miners on the wired network did
+  not (both requests hung). Only those two were tried, over HTTP; this shows
+  the box is not routing to them, not that nothing else is reachable.
+- What this means: anyone in radio range can read the box's status pages and
+  reach its other services (the port 4028 API among them, untested from the
+  radio side). **Never unlock the UI over this network.** The browser sends
+  the password encrypted with a key that is the same in every unit (see
+  `gbox/aes.py`), so anyone listening on an open network can decrypt it.
+  With it they can change the pools and clock of every box that shares the
+  password.
+- The owner's view, worth recording: it is also a handy way for a phone to
+  read the box's status without the home network.
+
 ## Other things the API exposes to a token holder
 
 - `/mcb/pools`: pool URL, worker name (often a wallet address) and worker
