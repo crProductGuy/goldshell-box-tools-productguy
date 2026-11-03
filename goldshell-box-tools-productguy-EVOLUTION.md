@@ -4880,3 +4880,13 @@ LAN-attached Zigbee gateway for the new plugs, with a design session for structu
 The line-voltage comparison set as a next step on 10-21 was finally run: across 25 hangs, the supply showed no
 sag before the draw collapsed, no different from ordinary moments, and no time-of-day pattern. The 30-second
 samples cannot see a dip shorter than that.
+The owner then settled the shape of the fleet work: a network-attached Zigbee coordinator so the load shedder and
+gbox can live on separate machines, ntfy for alerts, and share-gap detection read from each miner's own mining
+port, with the node's view as an optional add-on. On where gbox should run, Claude argued against the node box
+itself: the watcher should not fail with what it watches, and installs there had already broken the gateway once.
+The owner's memory reading withdrew Claude's other argument (memory was not tight), and his power figures added a
+new one: the spare desktop draws 45 W, over $100 a year. Research by a subagent found a supported Ethernet
+coordinator, ruled out the oldest Raspberry Pi for the Zigbee software, and priced a small low-power PC that would
+pay for itself against the desktop in under two years. An inventory confirmed gbox is single-miner throughout. Both
+fed a pre-read for a design session the next day, which recommends running one proven watchdog per miner under a
+thin fleet layer rather than rewriting the most-tested code to hold miner IDs.
