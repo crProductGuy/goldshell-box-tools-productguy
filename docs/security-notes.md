@@ -97,6 +97,11 @@ other HS-BOX on hand (hw 10.10.SA) has no WiFi hardware (`exist: false`).
   likely the handler only starts or stops the station daemon, as on the
   SC-BOX (unverified on this unit: its syslog was not read after the write).
   Whether a restart applies the setting is untested.
+- **It is a network of its own.** The box hands a joining phone an address
+  on a separate private /24 by DHCP and names itself as the router, so the
+  phone and the wired network do not share a subnet. That the box's wired
+  address still answers from the radio side is the box answering for its
+  own address, not a bridge.
 - **It does not pass traffic on.** From a phone on that network, the box's
   own wired address answered, but two other miners on the wired network did
   not (both requests hung). Only those two were tried, over HTTP; this shows
