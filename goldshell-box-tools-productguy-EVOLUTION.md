@@ -4826,3 +4826,5 @@ steady. "I think the box WAS hashing correctly and winning shares out the side w
 door." Claude agreed, noting that handed-out work proves a live connection rather than accepted shares, and that a
 pool graph is smoothed; a drop of nearly half the total would likely have shown. The finding turns the deadline
 question around: in this state the cycle cost hashing and bought back only control.
+The owner closed the smoothing caveat: the same graph has shown much shorter drops before, and a 56-minute loss of
+nearly half the total "would have shown a big rectangular dip". It showed none.
