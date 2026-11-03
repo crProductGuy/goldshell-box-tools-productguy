@@ -4801,5 +4801,7 @@ the UI over it.
 A read-only pass over the box's own log, with the owner typing the password, settled the cause: the box logged the
 write as "Wifi sta disable". The setting starts and stops the box joining someone else's network, as on the
 SC-BOX, and never touches the network it broadcasts. Its list of nearby networks vanished from the read too, so
-that list had come from the station side. Two questions stayed open: whether the box's control port lets anyone on
-the open network change its pool, and whether a restart changes anything.
+that list had come from the station side. One request to the box's control port, asking only whether control was allowed,
+got "access denied" from the wired network, so the port gives reads only there; the radio side was not asked. One
+question stayed open:
+whether a restart changes anything.

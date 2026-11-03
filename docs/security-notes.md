@@ -109,8 +109,12 @@ other HS-BOX on hand (hw 10.10.SA) has no WiFi hardware (`exist: false`).
   not (both requests hung). Only those two were tried, over HTTP; this shows
   the box is not routing to them, not that nothing else is reachable.
 - What this means: anyone in radio range can read the box's status pages and
-  reach its other services (the port 4028 API among them, untested from the
-  radio side). **Never unlock the UI over this network.** The browser sends
+  reach its other services. The port 4028 API refuses control: asked over
+  the wired network with the read-only `privileged` command, it answered
+  `Access denied to 'privileged' command` (code 45), so it allows reads
+  only. From the radio side it was not asked; a box that denies the wired
+  network most likely allows control from itself alone, but that is an
+  inference. **Never unlock the UI over this network.** The browser sends
   the password encrypted with a key that is the same in every unit (see
   `gbox/aes.py`), so anyone listening on an open network can decrypt it.
   With it they can change the pools and clock of every box that shares the
