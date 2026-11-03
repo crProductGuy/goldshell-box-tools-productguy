@@ -4807,3 +4807,7 @@ question stayed open:
 whether a restart changes anything.
 The owner kept the station side off rather than undo the write: "I'd rather not have the HS try to join other
 networks." The open network stays, used for viewing only, never for unlocking the UI.
+At the close the owner asked for the findings as a page of their own, "an HS BOX WiFi Operation artifact", kept
+with the study's files, and asked how the project had come to the SC-BOX's WiFi in early September. The page lays
+the two together: the same setting and the same station-only behaviour on both, with the difference in the
+hardware (an access point the firmware keeps on, no radio at all, and a radio that never showed one).
