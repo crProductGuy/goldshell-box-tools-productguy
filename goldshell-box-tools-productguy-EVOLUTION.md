@@ -4820,3 +4820,9 @@ shares reached the pool was not read and is the open half. The wait itself is th
 path, not the miner", and only the deadline acts, counted from the first refusal, because a server error is still
 an answer. The owner offered a network tap and an old laptop to watch the link; Claude suggested the node the
 miners mine through already sees every share, which needs no tap.
+The owner settled the open half from the node's own screens: the gateway kept handing work to all three miners
+through the gap, total hashrate matched three boxes working, and the pool's graph for the owner's payout stayed
+steady. "I think the box WAS hashing correctly and winning shares out the side window. Just didn't answer the front
+door." Claude agreed, noting that handed-out work proves a live connection rather than accepted shares, and that a
+pool graph is smoothed; a drop of nearly half the total would likely have shown. The finding turns the deadline
+question around: in this state the cycle cost hashing and bought back only control.
