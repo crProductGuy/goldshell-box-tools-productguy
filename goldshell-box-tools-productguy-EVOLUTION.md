@@ -4805,3 +4805,5 @@ that list had come from the station side. One request to the box's control port,
 got "access denied" from the wired network, so the port gives reads only there; the radio side was not asked. One
 question stayed open:
 whether a restart changes anything.
+The owner kept the station side off rather than undo the write: "I'd rather not have the HS try to join other
+networks." The open network stays, used for viewing only, never for unlocking the UI.
