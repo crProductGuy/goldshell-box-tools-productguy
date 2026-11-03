@@ -4850,3 +4850,21 @@ back control, not hashrate. Per-worker share counts on the node were not read (n
 The design question went to the owner as options, not a decision: log the mining-port figures when the web side
 fails (evidence only, Claude's recommendation, for 0.14.0 gate 2), or also let the deadline wait while the
 mining port shows shares advancing, or leave it.
+The owner chose the first option for 0.14.0 gate 2 and queued a design session for the rest. Claude then found
+that the cycle was, by the project's own rules, a defect: decision D2 says only a miner that did not answer at all
+is silent, but the poller judges "answered" from the last read that failed, so a refused web page counted as
+silence although the mining port had just answered in the same sample. Fixing that alone would let the box run
+indefinitely with no web control, so it went to the design session rather than into gate 2. The record also
+showed the state was not new: a session diagnosed it on 10-26 and wrote "consider falling back to 4028 when the
+web backend errors"; the next release built the opposite case and the "consider" line never became a decision.
+The owner asked how valuable data went unused for so long, for a rule that makes Claude surface it, and whether a
+replacement controller board (about $80) would cut the hangs. A scan of the logs by failure kind went out to
+answer the last question from evidence.
+The scan came back with the right shape and the wrong counts: it found about half the power cycles the event log
+holds. Claude rejected its numbers and recounted from the event lines themselves, which record the wall draw before
+every cut. Of 89 cycles since 10-16, 82 were low-watt hangs: the draw fell to a few tens of watts and the miner
+dropped off the network entirely, on both its web side and its mining port. The rate roughly doubled from 500 to
+725 MHz. No full-power freeze has happened since 10-19. A hang where the controller leaves the network is the
+controller going down; whether it fails on its own or is knocked over by the hashboard side, the logs cannot say,
+and a board swap at a fixed clock and supply is the experiment that can. Lesson for delegation: a subagent's
+counts are checked against one direct count before they carry a conclusion.
