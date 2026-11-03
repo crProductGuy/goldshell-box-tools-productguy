@@ -4811,3 +4811,12 @@ At the close the owner asked for the findings as a page of their own, "an HS BOX
 with the study's files, and asked how the project had come to the SC-BOX's WiFi in early September. The page lays
 the two together: the same setting and the same station-only behaviour on both, with the difference in the
 hardware (an access point the firmware keeps on, no radio at all, and a radio that never showed one).
+While the page was being written the SC-BOX's web side failed: 22 minutes of server errors, then refused
+connections, while the plug read full power. The owner asked why the ladder waited until the 30-minute deadline
+when the box "appears" to be hashing but "may not be doing useful work", and asked for that to be the next
+session's first job. Two numbers already answer half of it. The miner's own average hashrate, read once from its
+mining port during the silence, implies about full rate across the gap, so the chips were working; whether the
+shares reached the pool was not read and is the open half. The wait itself is the design: full power reads as "the
+path, not the miner", and only the deadline acts, counted from the first refusal, because a server error is still
+an answer. The owner offered a network tap and an old laptop to watch the link; Claude suggested the node the
+miners mine through already sees every share, which needs no tap.
