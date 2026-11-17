@@ -31,12 +31,13 @@ a{color:var(--accent)}
 <header>
 <div class="tag">gbox docs · 2026-11-08</div>
 <h1>gbox Plug Options</h1>
-<p class="lede">Locally controlled plugs with energy monitoring, ranked for gbox, plus the ZBDongle-P versus E question for the house load shedder. Claims are marked verified, sourced (seen in search results, page not opened) or unverified.</p>
+<p class="lede">Locally controlled plugs with energy monitoring, ranked for gbox. Claims are marked verified, sourced (seen in search results, page not opened) or unverified. Decisions added 2026-11-17.</p>
 </header>
 
 <section class="pick">
 <h2>Recommendation</h2>
-<p>Keep the Kasa HS110 on the SC-BOX. For a second metered plug before any new driver exists, buy a second legacy-firmware Kasa and decline every firmware update. Build the Shelly driver when you want a plug that is not Kasa. Buy the ZBDongle-P, not the E, for the load shedder.</p>
+<p>Keep the Kasa HS110 on the SC-BOX. For a second metered plug before any new driver exists, buy a second legacy-firmware Kasa and decline every firmware update. Build the Shelly driver when you want a plug that is not Kasa.</p>
+<p><span class="tag">sourced</span> A 2020 TP-Link community thread lists the HS110 as End of Life on TP-Link's US site, with the KP115 named as its replacement. No 2026 listing was found, so whether a new HS110 can still be bought, and on what firmware, is <strong>unverified</strong>.</p>
 </section>
 
 <section>
@@ -64,26 +65,22 @@ a{color:var(--accent)}
 </section>
 
 <section>
-<h2>ZBDongle-P or ZBDongle-E</h2>
-<p>This is for the house load shedder, which uses Zigbee plugs through Zigbee2MQTT. It does not help gbox.</p>
+<h2>Decisions, 2026-11-17</h2>
 <div class="scroll"><table>
-<thead><tr><th></th><th>ZBDongle-P</th><th>ZBDongle-E</th></tr></thead>
+<thead><tr><th>ID</th><th>Decision</th></tr></thead>
 <tbody>
-<tr><td>Chip</td><td>TI CC2652P</td><td>Silicon Labs EFR32MG21</td></tr>
-<tr><td>Zigbee2MQTT stack</td><td>Z-Stack, the mature path</td><td>EmberZNet, newer</td></tr>
-<tr><td>Radio</td><td>no range figure found</td><td>marketed at +20 dBm</td></tr>
-<tr><td>Thread / Matter</td><td>nothing found</td><td>possible with other firmware</td></tr>
-<tr><td>Amazon, seen 2026-10-10</td><td>$28.99 (B0FQ712KM8)</td><td>$36.99 (B0FNLP58JS)</td></tr>
+<tr><td>GB-085</td><td>Yes. Build the Shelly driver after gate 2, and buy one Shelly Plug US first to verify its local API on real hardware.</td></tr>
+<tr><td>GB-086</td><td>Yes. Run the no-internet meter test above. Not yet scheduled.</td></tr>
+<tr><td>GB-087</td><td>Yes, if available. Nothing bought. A new HS110 may not be sold.</td></tr>
+<tr><td>GB-089</td><td>Yes. Check the Shelly page and label for UL listing before buying. Gen4 only if UL is shown.</td></tr>
 </tbody></table></div>
-<p style="margin-top:10px">Prices are from search results; seller and stock were not checked. The E buys nothing a Zigbee plug network needs. Pay for it only to keep a Thread or Matter option open. One Sonoff-linked review says the E's chip is not recommended with Zigbee2MQTT (unverified, may be dated). Sonoff's newer Dongle Plus MG24 succeeds the E. Check Zigbee2MQTT's supported-adapters page before buying either.</p>
+<p style="margin-top:10px">Open: GB-258 (when and on which plug to run the test), GB-260 (the spare when no new HS110 is sold), GB-261 (history of the earlier version of this page).</p>
 </section>
 
 <section>
 <h2>Sources</h2>
 <ul>
-<li><a href="https://cnx-software.com/?p=102119">Sonoff ZBDongle-E (CNX Software)</a></li>
-<li><a href="https://sonoff.tech/blogs/news/sonoff-zigbee-thread-dongle-choosing-guide">Sonoff Zigbee and Thread dongle choosing guide</a></li>
-<li><a href="https://sonoff.tech/products/sonoff-zigbee-thread-usb-dongle-dongle-plus-mg24">Sonoff Dongle Plus MG24</a></li>
+<li><a href="https://community.tp-link.com/en/smart-home/forum/topic/220546">HS110 End of Life thread (TP-Link community)</a></li>
 <li><a href="https://hometechhacker.com/shelly-plug-us-is-it-the-best-smart-plug/">Shelly Plug US review (Home Tech Hacker)</a></li>
 <li><a href="https://www.gearbrain.com/devices/4588DA9E5A3711ED8E8341B1B269F696.html">Shelly Plus Plug US (Gearbrain)</a></li>
 <li><a href="https://github.com/python-kasa/python-kasa/issues/1752">python-kasa issue 1752</a></li>

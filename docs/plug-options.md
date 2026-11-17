@@ -1,8 +1,8 @@
 # Smart plug options for gbox
 
-Which locally controlled plugs with energy monitoring suit gbox, and what a
-Zigbee coordinator would add. Written 2026-11-08 from the project's own
-research and one round of web searches. Status of every claim is marked:
+Which locally controlled plugs with energy monitoring suit gbox. Written
+2026-11-08 from this repo's code and plan and one round of web searches;
+decisions added 2026-11-17. Status of every claim is marked:
 **verified** (read from this repo or run), **sourced** (a page read in
 search results, not opened), or **unverified**.
 
@@ -33,12 +33,16 @@ plug is needed before a Shelly driver exists, buy a second legacy-firmware
 Kasa and decline every firmware update (`docs/kasa-plugs.md`). Build the
 Shelly driver when a plug other than Kasa is wanted.
 
+**Availability, sourced only:** a 2020 TP-Link community thread lists the
+HS110 as End of Life on TP-Link's US site, with the KP115 named as its
+replacement. No 2026 listing was found, so whether a new HS110 can still be
+bought, and on what firmware, is **unverified**.
+
 ## One finding to test: Kasa after an outage with no internet
 
-**Sourced, not tested on this hardware.** The house-load research
-(`2026-09-29-plugs-lifx-research.md`, in the owner's load-shedder project)
-quotes TP-Link support saying a Tapo P110 syncs its clock from the internet,
-and after a power outage with no internet "all time-related features will
+**Sourced, not tested on this hardware.** A TP-Link community thread quotes
+TP-Link support saying a Tapo P110 syncs its clock from the internet, and
+after a power outage with no internet "all time-related features will
 stop". A user reported a "zombie mode": on and off still work, but energy
 monitoring and settings are lost until the plug sees the internet once. That
 was a Tapo, not an HS110 on the legacy protocol. Whether an HS110 does the
@@ -50,38 +54,25 @@ condition is the normal outage case.
 Test: block the router's WAN, power-cycle a bench plug, then read
 `get_sysinfo` and `emeter`. Settled when watts read after boot.
 
-## Zigbee coordinator: ZBDongle-P or ZBDongle-E
-
-Not for gbox. This is for the house load shedder, which uses Zigbee plugs
-through Zigbee2MQTT. Recorded here because the same shopping trip covered
-both.
-
-| | ZBDongle-P | ZBDongle-E |
-|---|---|---|
-| Chip | TI CC2652P | Silicon Labs EFR32MG21 |
-| Zigbee2MQTT stack | Z-Stack, the mature path | EmberZNet, newer |
-| Radio | no range figure found | marketed at +20 dBm |
-| Thread or Matter | nothing found | possible with different firmware |
-| Amazon price seen 2026-10-10 | $28.99 (B0FQ712KM8) | $36.99 (B0FNLP58JS) |
-
-Prices came from search results; seller and stock were not checked.
-
-The E buys nothing a Zigbee plug network needs. Pay for it only to keep a
-Thread or Matter option open. One Sonoff-linked review says the E's chip is
-not recommended with Zigbee2MQTT; that is **unverified** and may be out of
-date. Sonoff now sells a Dongle Plus MG24 as the E's successor. Recommended:
-the P. Check Zigbee2MQTT's supported-adapters page before buying either.
-
 ## Decisions and open items
 
-Logged in the owner's register as D-085 to D-089 (see the project
-evolution log for the session entry).
+Decided by the owner on 2026-11-17 (register IDs are the project code plus a
+number):
+
+| ID | Decision |
+|---|---|
+| GB-085 | Yes. Build the Shelly driver after gate 2, and buy one Shelly Plug US first to verify its local API on real hardware. |
+| GB-086 | Yes. Run the no-internet meter test above. Not yet scheduled. |
+| GB-087 | Yes, if available. Nothing bought. A new HS110 may not be sold (see Availability). |
+| GB-089 | Yes. Check the Shelly page and label for UL listing before buying. Gen4 only if UL is shown. |
+
+Open: GB-258 (when and on which plug to run the test), GB-260 (the spare
+when no new HS110 is sold), GB-261 (history of the earlier version of this
+page).
 
 ## Sources
 
-- [Sonoff ZBDongle-E (CNX Software)](https://cnx-software.com/?p=102119)
-- [Sonoff Zigbee and Thread dongle choosing guide](https://sonoff.tech/blogs/news/sonoff-zigbee-thread-dongle-choosing-guide)
-- [Sonoff Dongle Plus MG24](https://sonoff.tech/products/sonoff-zigbee-thread-usb-dongle-dongle-plus-mg24)
+- [HS110 End of Life thread (TP-Link community)](https://community.tp-link.com/en/smart-home/forum/topic/220546)
 - [Shelly Plug US review (Home Tech Hacker)](https://hometechhacker.com/shelly-plug-us-is-it-the-best-smart-plug/)
 - [Shelly Plus Plug US (Gearbrain)](https://www.gearbrain.com/devices/4588DA9E5A3711ED8E8341B1B269F696.html)
 - [python-kasa issue 1752](https://github.com/python-kasa/python-kasa/issues/1752)
