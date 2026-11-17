@@ -4899,3 +4899,29 @@ two instructions some compiled Node.js add-ons need, which puts the Zigbee softw
 found no official requirement either way, so it became a ten-minute test for the session. The owner then offered
 a newer laptop with a Core i5, which has both instructions and likely draws far less, and it went into the register
 as the leading candidate.
+
+### 2026-11-08, session 706b85d0: which plugs, and which dongle
+
+The owner asked the agent to look in the gbox-related projects for the recommended smart plugs with energy
+monitoring. The agent found the house load shedder's recommendation (Zigbee plugs plus a USB coordinator) and
+presented it. It closed with the caveat that gbox cannot drive Zigbee plugs, which should have come first. The
+owner then asked for the best locally controlled, metered plug for gbox, and which of two Zigbee dongles to buy.
+
+Reading `plug.py` and the plan settled the first question: gbox has one driver, for TP-Link's original protocol,
+and Shelly and Tasmota drivers are planned but not built. So the ranking is by what gbox can drive, with the
+current Kasa plug first, a Shelly plug second once a driver exists, and Zigbee and Matter plugs out of reach.
+On the dongles, the agent found nothing the pricier Silicon Labs one gives a plain Zigbee plug network, and
+recommended the Texas Instruments one. Web searches were thin: no independent range test and no Shelly API page,
+so those claims are labelled unverified.
+
+The cross-project finding that mattered: the load-shedder research quotes TP-Link support saying a Tapo plug
+loses its time-related features, energy monitoring included, after an outage with no internet. gbox's boot check
+reads the plug meter after a power cycle, and the ISP drops with the grid. Whether the legacy-protocol plug
+behaves the same is unknown, so a bench test with the router's WAN blocked was logged as a decision.
+
+The owner asked that the table and vendor notes become a permanent artifact in the gbox project. Written as
+`docs/plug-options.md` plus an HTML copy, and published as a private artifact. Five decisions went into the
+owner's register (D-085 to D-089); none was answered in the session. Nothing in the code changed.
+On 2026-11-17 the owner asked for the docs to be committed and pushed. Before that the agent confirmed the plug doc
+had no newer edits: the file's last write was the session's own, nothing new on the remote, and the published
+artifact matched the local HTML. The pre-push leak check and a positive-control grep both ran first.

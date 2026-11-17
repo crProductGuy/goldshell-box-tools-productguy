@@ -1,0 +1,93 @@
+<title>gbox Plug Options</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one reading column, comparison tables in their own scroll boxes. Palette: warm-grey neutrals, one teal accent, amber for caveats. */
+:root{--bg:#f6f6f3;--fg:#1d2321;--mute:#5d6762;--line:#d9dcd6;--panel:#ecede8;--accent:#0b6b62;--warn:#8a5a00;--warnbg:#f6ecd2;--good:#1d6b3a;--font-body:"IBM Plex Sans",system-ui,sans-serif;--font-mono:"IBM Plex Mono",ui-monospace,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141918;--fg:#e4e8e5;--mute:#9aa49f;--line:#2e3633;--panel:#1c2220;--accent:#4fc3b6;--warn:#e8b85a;--warnbg:#2c2514;--good:#6fcf8f;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#141918;--fg:#e4e8e5;--mute:#9aa49f;--line:#2e3633;--panel:#1c2220;--accent:#4fc3b6;--warn:#e8b85a;--warnbg:#2c2514;--good:#6fcf8f;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 var(--font-body);padding-block:28px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+main{max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:28px;min-width:0}
+h1{font-size:28px;line-height:1.15;margin:0;text-wrap:balance}
+h2{font-size:18px;margin:0 0 10px;text-wrap:balance}
+p{margin:0 0 10px;max-width:68ch}
+.lede{color:var(--mute);font-size:16px}
+.tag{font:12px var(--font-mono);letter-spacing:.04em;text-transform:uppercase;color:var(--mute)}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:6px}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:13.5px}
+th,td{text-align:left;vertical-align:top;padding:9px 11px;border-bottom:1px solid var(--line)}
+th{background:var(--panel);font-weight:600}
+tr:last-child td{border-bottom:0}
+td:first-child{font-weight:600;white-space:nowrap}
+.ok{color:var(--good);font-weight:600}.no{color:var(--warn);font-weight:600}
+.note{background:var(--warnbg);border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.note p:last-child{margin:0}
+code{font:13px var(--font-mono);background:var(--panel);padding:1px 5px;border-radius:3px}
+.pick{border-left:3px solid var(--accent);padding:2px 0 2px 14px}
+ul{margin:0;padding-left:20px}li{margin-bottom:4px}
+a{color:var(--accent)}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<main>
+<header>
+<div class="tag">gbox docs · 2026-11-08</div>
+<h1>gbox Plug Options</h1>
+<p class="lede">Locally controlled plugs with energy monitoring, ranked for gbox, plus the ZBDongle-P versus E question for the house load shedder. Claims are marked verified, sourced (seen in search results, page not opened) or unverified.</p>
+</header>
+
+<section class="pick">
+<h2>Recommendation</h2>
+<p>Keep the Kasa HS110 on the SC-BOX. For a second metered plug before any new driver exists, buy a second legacy-firmware Kasa and decline every firmware update. Build the Shelly driver when you want a plug that is not Kasa. Buy the ZBDongle-P, not the E, for the load shedder.</p>
+</section>
+
+<section>
+<h2>What gbox can drive today</h2>
+<p><span class="tag">verified</span> <code>gbox/plug.py</code> has one driver, <code>KasaLegacy</code>: TP-Link's original protocol on TCP 9999, no login, with energy readings when the plug has a meter. <code>discover()</code> recognises KLAP plugs but cannot control them. Shelly, Tasmota and a generic HTTP driver are planned in <code>docs/plan.md</code> and none is built. Zigbee, Z-Wave and Matter plugs cannot be driven at all.</p>
+</section>
+
+<section>
+<h2>Ranked plugs</h2>
+<div class="scroll"><table>
+<thead><tr><th>Plug</th><th>Works today</th><th>Local control</th><th>Energy</th><th>Main risk</th></tr></thead>
+<tbody>
+<tr><td>1. Kasa HS110 / KP115, old firmware</td><td class="ok">Yes</td><td>TCP 9999, no login</td><td>Yes</td><td>An update moves it to KLAP, which gbox cannot drive. New stock may already be on newer firmware (unverified).</td></tr>
+<tr><td>2. Shelly Plug US, Gen3 or Gen4</td><td class="no">Needs a driver</td><td>HTTP on the LAN, no cloud</td><td>Yes (sourced)</td><td>UL status unclear: Plus Plug US called ETL-certified, UL claims refer to Gen4 (sourced). Read the label.</td></tr>
+<tr><td>3. Tasmota / ESPHome (Athom US)</td><td class="no">Needs a driver</td><td>HTTP or MQTT</td><td>Yes</td><td>Small brand, UL not verified, bulky.</td></tr>
+<tr><td>4. Kasa / Tapo on KLAP</td><td class="no">No</td><td>Local, needs TP-Link account login</td><td>Yes</td><td>Credentials to store; local-auth failure reported on newest P115 firmware (sourced). Untestable here without owning one.</td></tr>
+<tr><td>5. Zigbee, Z-Wave, Matter</td><td class="no">No</td><td>Via a coordinator</td><td>Varies</td><td>No gbox driver planned.</td></tr>
+</tbody></table></div>
+</section>
+
+<section class="note">
+<h2>Test before relying on it: Kasa after an outage with no internet</h2>
+<p><span class="tag">sourced, untested here</span> TP-Link support told a Tapo P110 owner that the plug syncs its clock from the internet, and after an outage with no internet its time-related features stop. A user described a "zombie mode": on and off work, energy monitoring is lost until the plug sees the internet. That was a Tapo. Whether an HS110 on the legacy protocol does the same is <strong>unverified</strong>.</p>
+<p>It matters because the watchdog uses the meter to tell a powered-but-hung miner from one that never powered up, and the ISP drops within minutes of a grid loss. Test: block the router's WAN, power-cycle a bench plug, read <code>get_sysinfo</code> and <code>emeter</code>. Done when watts read after boot.</p>
+</section>
+
+<section>
+<h2>ZBDongle-P or ZBDongle-E</h2>
+<p>This is for the house load shedder, which uses Zigbee plugs through Zigbee2MQTT. It does not help gbox.</p>
+<div class="scroll"><table>
+<thead><tr><th></th><th>ZBDongle-P</th><th>ZBDongle-E</th></tr></thead>
+<tbody>
+<tr><td>Chip</td><td>TI CC2652P</td><td>Silicon Labs EFR32MG21</td></tr>
+<tr><td>Zigbee2MQTT stack</td><td>Z-Stack, the mature path</td><td>EmberZNet, newer</td></tr>
+<tr><td>Radio</td><td>no range figure found</td><td>marketed at +20 dBm</td></tr>
+<tr><td>Thread / Matter</td><td>nothing found</td><td>possible with other firmware</td></tr>
+<tr><td>Amazon, seen 2026-10-10</td><td>$28.99 (B0FQ712KM8)</td><td>$36.99 (B0FNLP58JS)</td></tr>
+</tbody></table></div>
+<p style="margin-top:10px">Prices are from search results; seller and stock were not checked. The E buys nothing a Zigbee plug network needs. Pay for it only to keep a Thread or Matter option open. One Sonoff-linked review says the E's chip is not recommended with Zigbee2MQTT (unverified, may be dated). Sonoff's newer Dongle Plus MG24 succeeds the E. Check Zigbee2MQTT's supported-adapters page before buying either.</p>
+</section>
+
+<section>
+<h2>Sources</h2>
+<ul>
+<li><a href="https://cnx-software.com/?p=102119">Sonoff ZBDongle-E (CNX Software)</a></li>
+<li><a href="https://sonoff.tech/blogs/news/sonoff-zigbee-thread-dongle-choosing-guide">Sonoff Zigbee and Thread dongle choosing guide</a></li>
+<li><a href="https://sonoff.tech/products/sonoff-zigbee-thread-usb-dongle-dongle-plus-mg24">Sonoff Dongle Plus MG24</a></li>
+<li><a href="https://hometechhacker.com/shelly-plug-us-is-it-the-best-smart-plug/">Shelly Plug US review (Home Tech Hacker)</a></li>
+<li><a href="https://www.gearbrain.com/devices/4588DA9E5A3711ED8E8341B1B269F696.html">Shelly Plus Plug US (Gearbrain)</a></li>
+<li><a href="https://github.com/python-kasa/python-kasa/issues/1752">python-kasa issue 1752</a></li>
+<li><a href="https://community.tp-link.com/en/smart-home/forum/topic/719736">TP-Link thread on Tapo P110 clock sync after an outage</a></li>
+</ul>
+</section>
+</main>
