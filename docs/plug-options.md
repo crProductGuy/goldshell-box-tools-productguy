@@ -67,8 +67,7 @@ number):
 | GB-089 | Yes. Check the Shelly page and label for UL listing before buying. Gen4 only if UL is shown. |
 
 Open: GB-258 (when and on which plug to run the test), GB-260 (the spare
-when no new HS110 is sold), GB-261 (history of the earlier version of this
-page).
+when no new HS110 is sold).
 
 ## Sources
 
