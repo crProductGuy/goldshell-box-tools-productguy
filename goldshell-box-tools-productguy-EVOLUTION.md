@@ -4932,3 +4932,9 @@ comparing two Zigbee dongles was moved out of this repo to the project it belong
 reworded to match; the pushed history still holds the earlier text (GB-261).
 Later on 2026-11-17 the owner decided to leave the public history as it is (GB-261): the follow-up commit removed the
 section from the tree, and the earlier commit keeps only a dongle comparison that names no account, address or person.
+Last answers of 2026-11-17: the owner chose (a) on both remaining plug rows. GB-260: the spare is a KP115 bought new, the
+plug TP-Link named as the HS110's replacement, with its protocol read on arrival before any firmware update, because
+whether it still speaks the legacy protocol gbox drives is unknown. GB-258: the no-internet meter test runs on that
+plug the day it arrives, with the owner blocking the router's WAN and the agent reading the plug's state and meter
+after a power cycle. Nothing is bought and nothing has been run, so the fear that the meter stops after an outage
+stays unverified.
