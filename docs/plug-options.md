@@ -65,8 +65,8 @@ number):
 | GB-086 | Yes. Run the no-internet meter test above. Not yet scheduled. |
 | GB-087 | Yes, if available. Nothing bought. A new HS110 may not be sold (see Availability). |
 | GB-089 | Yes. Check the Shelly page and label for UL listing before buying. Gen4 only if UL is shown. |
-| GB-258 | Run the no-internet meter test on the spare plug the day it arrives, before any firmware update. The owner blocks the router's WAN; the agent reads `get_sysinfo` and `emeter` after a power-cycle. Not yet run. |
-| GB-260 | The spare is a KP115 bought new, since the HS110 may no longer be sold. Read its protocol on arrival, before any update, with `gbox power discover`. Whether it still speaks the legacy protocol is unverified. Nothing bought. |
+| GB-258 | Run the no-internet meter test on a spare plug the day it arrives, before any firmware update. The owner blocks the router's WAN; the agent reads `get_sysinfo` and `emeter` after a power-cycle. The spare is now one of the two HS110s below. Not yet run. |
+| GB-260 | Changed 2026-11-17: no KP115. The owner found two HS110s sold as new and ordered them, due 2026-11-25. Read each one's protocol on arrival, before any update, with `gbox power discover`. Whether they arrive on the legacy protocol is unverified. |
 
 No open items from this page.
 

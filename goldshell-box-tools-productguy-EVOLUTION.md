@@ -4938,3 +4938,10 @@ whether it still speaks the legacy protocol gbox drives is unknown. GB-258: the 
 plug the day it arrives, with the owner blocking the router's WAN and the agent reading the plug's state and meter
 after a power cycle. Nothing is bought and nothing has been run, so the fear that the meter stops after an outage
 stays unverified.
+Update of 2026-11-17, evening: the owner changed GB-260. He found two HS110 plugs sold as new and ordered both, due on
+2026-11-25, instead of buying the newer KP115, so the spare and the test plug are now the plug gbox already drives, with
+its meter. Whether they arrive on the original protocol is unknown until they do; they are checked before any firmware
+update. He also factory-reset the plug meant for the shared miner supply and will test it for on and off cycling. A reset
+clears the plug's Wi-Fi setup, so its address has to be read again, and whether it also clears a schedule held in the
+vendor's cloud is the open question behind the 06:30 shutdowns of September, so a read-only overnight watch is logged
+as GB-269 for his answer.
