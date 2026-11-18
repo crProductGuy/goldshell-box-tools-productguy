@@ -4959,3 +4959,36 @@ rule list on the plug empty and its next action as none up to 06:29:46, and the 
 rule on the plug would have to live somewhere those reads do not list, or the command came from outside it. Tonight's
 watch cannot separate those two: a quiet 06:30 would fit either a cleared hidden rule or a cloud-side rule dropped by
 the reset, and a repeat would show the rule lists empty again at the moment of the cut.
+
+### 2026-11-17, session 706b85d0, end of session (11-08 and 11-17)
+
+The session began as a simple look-up and ended as a small study of the plug layer. The owner's goal, from his first
+words: look in the gbox projects "and find the recommended smart plugs with energy monitoring to buy." The agent's
+first answer came from another project's research and recommended plugs gbox cannot drive; reading the plug code
+turned the answer around. gbox has one plug driver, for the original TP-Link protocol, and the plan lists Shelly and
+Tasmota as later drivers. The ranking that resulted: the plug already in use first, a Shelly plug second once a
+driver exists, Zigbee and Matter plugs out of reach.
+
+Decisions, all the owner's: build the Shelly driver after gate 2 and buy one Shelly plug first (GB-085); run a
+no-internet meter test (GB-086); check the Shelly listing for the safety mark before buying (GB-089); leave the
+public history as it is (GB-261); and, changing his own earlier answer, order two HS110 plugs sold as new instead of a
+newer model, due 2026-11-25 (GB-087, GB-260), with the meter test to run on one of them before any firmware update
+(GB-258). A search had shown the HS110 listed as end of life in the US, which prompted the question but not the
+choice. Pushback ran both ways: the owner asked that an unrelated home project's content leave this repo, and the
+agent withdrew it and logged the cost (the earlier commit stays in public history by decision). The agent's own
+recommendation for a USB Zigbee dongle was set against an earlier decision for a LAN coordinator, which went to the
+owner as a question rather than being resolved by the agent.
+
+What was built: a plug options page in this repo and as a private artifact, and a read-only watcher on the plug meant
+for the shared miner supply, started on the owner's word the evening of 2026-11-17. The owner's hypothesis is that the
+September 06:30 shutdowns came from a schedule stored on the plug and cleared by the factory reset. The September
+reads cut against the plain version (the plug's rule lists were empty until the second of the cut), so the watch is
+written to record the window rather than to confirm anything. It runs three ways at once (the session's shell, a
+detached process, a one-shot scheduled task at 06:10) because a child of the session may die when the session ends.
+Verification so far: the plug was found by its new label on its old address, the first reads show no rules, and
+the detached process wrote rows after its first launch failed on a quoting error. Not verified: that any writer
+survives the session ending; the result of the night.
+
+Left out or deferred: the Shelly driver (after gate 2), buying anything, the meter test (after the plugs arrive),
+and the two process-level proposals from the retro (a drafting checklist and an identity check before writing into
+a repo), which sit in the owner's register as proposals.
