@@ -4952,3 +4952,10 @@ until 07:00 the next morning and sends nothing but read commands, so the 06:30 q
 held in the vendor's cloud) gets a recorded answer either way. Its first reads show no schedule, countdown or away-mode
 rule on the plug and a cloud binding. The relay had switched on about four minutes earlier, probably from the owner's
 own testing. The result is not yet read.
+The owner's working hypothesis, stated the same evening: the 06:30 shutdowns came from a schedule stored on the plug
+itself, now cleared by the reset, because the vendor app showed no schedule for weeks while the plug still switched
+off every morning. The existing record cuts against the plain version: on 2026-09-28 read-only reads showed every
+rule list on the plug empty and its next action as none up to 06:29:46, and the relay was off at 06:30:02. So a
+rule on the plug would have to live somewhere those reads do not list, or the command came from outside it. Tonight's
+watch cannot separate those two: a quiet 06:30 would fit either a cleared hidden rule or a cloud-side rule dropped by
+the reset, and a repeat would show the rule lists empty again at the moment of the cut.
