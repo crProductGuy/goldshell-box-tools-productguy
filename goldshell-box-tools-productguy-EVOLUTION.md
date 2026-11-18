@@ -4945,3 +4945,10 @@ update. He also factory-reset the plug meant for the shared miner supply and wil
 clears the plug's Wi-Fi setup, so its address has to be read again, and whether it also clears a schedule held in the
 vendor's cloud is the open question behind the 06:30 shutdowns of September, so a read-only overnight watch is logged
 as GB-269 for his answer.
+Evening of 2026-11-17: the owner answered GB-269 with (a) and asked for a scan for the reset plug by its new label. The
+scan found it on its old address under the name it was given after the reset, unchanged hardware address, relay on, no
+meter, original protocol. A read-only watcher then started on the owner's word: it reads the plug every 15 seconds
+until 07:00 the next morning and sends nothing but read commands, so the 06:30 question (does a reset clear a rule
+held in the vendor's cloud) gets a recorded answer either way. Its first reads show no schedule, countdown or away-mode
+rule on the plug and a cloud binding. The relay had switched on about four minutes earlier, probably from the owner's
+own testing. The result is not yet read.
