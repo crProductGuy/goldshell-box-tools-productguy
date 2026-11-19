@@ -4992,3 +4992,23 @@ survives the session ending; the result of the night.
 Left out or deferred: the Shelly driver (after gate 2), buying anything, the meter test (after the plugs arrive),
 and the two process-level proposals from the retro (a drafting checklist and an identity check before writing into
 a repo), which sit in the owner's register as proposals.
+
+### 2026-11-19, session f03612ef: the second HS105 watch
+Goal, in the owner's words: "check the gbox project for your idea to run a python script to check the relay status on
+the HS105 smartplug. See if that python is running. If not, start it again; there is more RAM available now."
+The idea was the read-only watch from the 11-17 session (GB-269 (gbox)). Found by searching the status file and the
+register, not by memory. It was not running: the session-shell copy had been killed for low memory on 11-17, and the
+detached copy had finished at its own end time, 06:59 on 11-18.
+Finding nobody had read: 2,704 rows, relay on in every one, no schedule, countdown or anti-theft rules, no read
+errors, no gaps, no on-time reset. The plug did not switch off at 06:30 after the factory reset. That fits the owner's
+hypothesis that the September shutdowns came from a rule stored on the plug, but it is one night, so it stays a lead.
+Decision: GB-270 (gbox), put as (a) restart detached through 2026-11-20 07:00, (b) several nights, (c) no restart.
+Recommendation (a), because the detached copy survived the earlier memory kill and a second night makes one clean
+night less likely to be luck. The owner answered "GB-270 a". Started 11:29, first rows clean.
+Built: a small read-only summary script that prints the verdict and the rows around 06:30, so the next read is one
+command. Checked against the finished first watch (it reports clean, as read by hand).
+Process note: the session tripped the same Stop hooks five times (file names as plain text, an ID without its project)
+and fixed each silently; the owner asked why it was not raised. The proposal already sat in the register as ALL-270
+(All projects); he approved it ("It's a good idea") and it became a feedback memory with a pre-send checklist.
+Not verified: that the new watch survives to 07:00; whether September's cause was a rule the reset cleared.
+Left out: any switch command to the plug; putting the plug into the live power config (decision of 10-31 stands).
